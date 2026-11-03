@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- A single cream silhouette, with a generous center hole. -->
+  <path fill="#eae7e2" fill-rule="evenodd" d="M128 16a112 112 0 1 1 0 224a112 112 0 1 1 0-224zm0 85a27 27 0 1 0 0 54a27 27 0 1 0 0-54z"/>
+</svg>

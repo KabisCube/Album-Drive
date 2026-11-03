@@ -1,0 +1,55 @@
+name: Build Album Drive executables
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libpulse0 libasound2 desktop-file-utils
+      - run: python -m pip install -r requirements-build.txt
+      - run: python scripts/build.py
+      - name: Test Windows executable
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $process = Start-Process -FilePath './dist/AlbumDrive-windows-x86_64/AlbumDrive.exe' -ArgumentList '--smoke-test', '--smoke-report', 'build/smoke.json' -WindowStyle Hidden -Wait -PassThru
+          Get-Content build/smoke.json
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - name: Test Linux executable and launcher
+        if: runner.os == 'Linux'
+        run: |
+          QT_QPA_PLATFORM=offscreen ./dist/AlbumDrive-linux-x86_64/AlbumDrive --smoke-test --smoke-report build/smoke.json
+          QT_QPA_PLATFORM=offscreen XDG_DATA_HOME="$PWD/build/desktop-test" ./dist/AlbumDrive-linux-x86_64/AlbumDrive --install-desktop-entry
+          desktop-file-validate build/desktop-test/applications/album-drive.desktop
+          cat build/smoke.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlbumDrive-${{ runner.os }}
+          path: |
+            dist/AlbumDrive-*.zip
+            dist/AlbumDrive-*.tar.gz
+          if-no-files-found: error
