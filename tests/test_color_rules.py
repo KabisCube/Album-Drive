@@ -12,10 +12,19 @@ class ColorRuleTests(unittest.TestCase):
             for accent in (*values, slider_rail(background).lighter(125).name()):
                 with self.subTest(background=background, accent=accent):
                     rail, fill, filled_text, unfilled_text = timeline_colors(background, accent)
+                    self.assertEqual(fill, QColor(accent))
                     self.assertGreaterEqual(color_contrast(rail, fill), 2.24)
-                    self.assertGreaterEqual(color_contrast(QColor(background), fill), 2.24)
-                    self.assertEqual(filled_text, rail)
-                    self.assertEqual(unfilled_text, fill)
+                    self.assertGreaterEqual(color_contrast(fill, filled_text), 4.0)
+                    self.assertGreaterEqual(color_contrast(rail, unfilled_text), 4.0)
+
+    def test_orange_timeline_keeps_accent_and_olive_rail(self):
+        background = QColor('#6b6e54')
+        rail, fill, filled_text, unfilled_text = timeline_colors(background, '#ffb653')
+        self.assertEqual(fill.name(), '#ffb653')
+        self.assertLess(rail.lightnessF(), background.lightnessF())
+        self.assertLess(abs(rail.hslHueF() - background.hslHueF()), .02)
+        self.assertGreaterEqual(color_contrast(fill, filled_text), 4.5)
+        self.assertGreaterEqual(color_contrast(rail, unfilled_text), 4.5)
 
     def test_black_control_faces_leave_room_for_darker_depth(self):
         face = comfortable_surface('#000000')

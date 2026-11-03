@@ -49,6 +49,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert font_families('Some Other Font') == ['Some Other Font']
     for font in (app.font(), window.tree.font(), window.album_table.font()):
         assert rendered_families('Album Drive', font) == {'Album Round'}
+        assert rendered_families('\u00d0\u00f0 \u00de\u00fe Mi\u00f0vikudags', font) == {'Album Round'}
         for _, sample in samples[1:]:
             assert 'Resource Han Rounded SC' in rendered_families(sample, font)
     settings.setValue('ui_font', 'missing-font.ttf')

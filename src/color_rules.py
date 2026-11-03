@@ -127,11 +127,11 @@ def slider_rail(value):
 
 def timeline_colors(background, accent):
     background = QColor(background)
-    unfilled = slider_rail(background)
-    filled = QColor(accent).darker(125)
-    if min(color_contrast(surface, filled) for surface in (background, unfilled)) < 2.25:
-        filled = artwork_text_color((background, unfilled), (filled,), minimum=2.25)
-    return unfilled, filled, unfilled, filled
+    filled = QColor(accent)
+    unfilled = artwork_text_color((filled,), (background.darker(125),), minimum=2.25)
+    filled_text = artwork_text_color((filled,), (background,))
+    unfilled_text = artwork_text_color((unfilled,), (background,))
+    return unfilled, filled, filled_text, unfilled_text
 
 
 @lru_cache(maxsize=256)

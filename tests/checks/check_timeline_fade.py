@@ -49,7 +49,6 @@ with tempfile.TemporaryDirectory() as directory:
                              for first, second in zip(start, target))
             actual = window.seek.colors()
             assert actual == expected, (background, elapsed)
-            assert actual[2:] == (actual[0], actual[1])
             assert all(abs(a - b) <= 3 for first, second in zip(previous, actual)
                        for a, b in zip(first.getRgb()[:3], second.getRgb()[:3]))
             image = window.seek.grab().toImage()
@@ -63,4 +62,4 @@ with tempfile.TemporaryDirectory() as directory:
         scanner.requestInterruption()
         scanner.wait()
     app.processEvents()
-print('PASS: smooth timeline colors, exact color swap, endpoints and interrupted fades')
+print('PASS: smooth timeline surface and text colors, endpoints and interrupted fades')

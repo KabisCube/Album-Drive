@@ -221,13 +221,13 @@ def draw_accents():
             '\u0301': ink(line((center - 30, height - 30), (center + 80, height + 45)), weight=72),
             '\u0302': ink(line((center - 100, height - 25), (center, height + 45), (center + 100, height - 25)), weight=65),
             '\u0303': ink(path(('M', center - 110, height), ('C', center - 30, height + 95, center + 30, height - 95, center + 110, height)), weight=65),
-            '\u0308': ellipse(center - 132, height - 42, 90, 90).united(ellipse(center + 42, height - 42, 90, 90)),
-            '\u030a': ink(ellipse(center - 69, height - 50, 138, 138), weight=48),
+            '\u0308': dot(center - 105, height - 42).united(dot(center + 105, height - 42)),
+            '\u030a': ink(ellipse(center - (STROKE - 48) / 2, height - 18, STROKE - 48, STROKE - 48), weight=48),
             '\u0327': ink(path(('M', center + 20, -25), ('L', center - 20, -95), ('C', center + 105, -75, center + 90, -205, center - 50, -175)), weight=55),
             '\u030c': ink(line((center - 100, height + 40), (center, height - 30), (center + 100, height + 40)), weight=65),
             '\u0304': ink(line((center - 100, height), (center + 100, height)), weight=65),
             '\u0306': ink(path(('M', center - 100, height + 30), ('Q', center, height - 100, center + 100, height + 30)), weight=65),
-            '\u0307': ellipse(center - 45, height - 40, 90, 90),
+            '\u0307': dot(center, height - 42),
             '\u030b': ink(line((center - 100, height - 30), (center - 25, height + 45)), line((center + 35, height - 30), (center + 110, height + 45)), weight=60),
             '\u0328': ink(path(('M', center + 80, 0), ('C', center - 80, -145, center + 40, -215, center + 120, -155)), weight=55),
         }
@@ -239,6 +239,13 @@ def draw_accents():
         width, outline = GLYPHS[base]
         height = 650 if base.isupper() else 460
         put(character, width, outline, ink(line((85, 20), (width - 85, height)), weight=73), filled=True)
+    put('\u00d0', 690, GLYPHS['D'][1], ink(line((65, 350), (300, 350))), filled=True)
+    put('\u00f0', 600, GLYPHS['o'][1], ink(
+        path(('M', 500, 255), ('C', 520, 460, 395, 640, 220, 675)),
+        line((210, 555), (420, 665))), filled=True)
+    put('\u00de', 630, line((120, 58), (120, 642)),
+        path(('M', 120, 520), ('L', 340, 520), ('C', 625, 520, 625, 200, 340, 200), ('L', 120, 200)))
+    put('\u00fe', 610, GLYPHS['b'][1], ink(line((115, -155), (115, 58))), filled=True)
     put('ß', 630, path(('M', 115, 58), ('L', 115, 490), ('C', 115, 755, 530, 737, 483, 529), ('C', 464, 442, 366, 430, 330, 365), ('C', 635, 370, 586, -48, 310, 70)))
     for character, left, right in [('Æ', 'A', 'E'), ('æ', 'a', 'e'), ('Œ', 'O', 'E'), ('œ', 'o', 'e')]:
         left_width, left_outline = GLYPHS[left]
@@ -286,10 +293,10 @@ def build_font():
     builder.setupNameTable({
         'familyName': 'Album Round',
         'styleName': 'Bold',
-        'uniqueFontIdentifier': 'Album Drive:Album Round Bold:1.005',
+        'uniqueFontIdentifier': 'Album Drive:Album Round Bold:1.007',
         'fullName': 'Album Round Bold',
         'psName': 'AlbumRound-Bold',
-        'version': 'Version 1.005',
+        'version': 'Version 1.007',
         'manufacturer': 'Album Drive',
         'designer': 'Album Drive',
         'description': 'Original rounded geometric Latin display font, drawn from procedural paths.',
@@ -300,7 +307,7 @@ def build_font():
     builder.setupPost()
     builder.setupMaxp()
     builder.font['head'].macStyle = 1
-    builder.font['head'].fontRevision = 1.005
+    builder.font['head'].fontRevision = 1.007
     pairs = {
         'AV': -45, 'AW': -35, 'AY': -50, 'AT': -35, 'FA': -25,
         'LT': -25, 'LV': -30, 'LY': -35, 'PA': -30, 'TA': -35,
