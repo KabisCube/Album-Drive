@@ -4,8 +4,6 @@ Album Drive is a simple local music player that uses your folder structure inste
 
 Albums are displayed in CD cases, using the cover image stored in each album's folder. By default, Album Drive changes its theme to match the album art. There are no playlists, accounts, or servers.
 
-Album Round uses bundled Resource Han Rounded Bold glyphs for Japanese, Korean, and Chinese text. The fonts work offline and retain their separate licenses in `assets/fonts/`. Other scripts use fonts available on the operating system.
-
 ## Download
 
 [Download Album Drive from GitHub Releases](https://github.com/KabisCube/Album-Drive/releases).
@@ -99,3 +97,5 @@ Thanks to the designers who made these fonts available. These third-party fonts 
 Mistral SingleLine is based on Roger Excoffon's Mistral.
 
 Album Round is the project's original font, distributed under [GPLv3](LICENSE). Its notice is in [AlbumRound-LICENSE.txt](assets/fonts/AlbumRound-LICENSE.txt).
+
+Album Round uses bundled Resource Han Rounded Bold glyphs for Japanese, Korean, and Chinese text. The fonts work offline and retain their separate licenses in `assets/fonts/`. Other scripts use fonts available on the operating system.
