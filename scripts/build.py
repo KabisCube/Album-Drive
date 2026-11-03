@@ -42,7 +42,7 @@ def main():
             shutil.copytree(previous / 'themes', release / 'themes')
         shutil.copy2(native / binary, release / binary)
         print('Existing executable is locked; the update has its own folder and a copy of your themes.')
-    shutil.copy2(root / 'README.txt', release / 'README.txt')
+    shutil.copy2(root / 'README.md', release / 'README.md')
     shutil.copy2(root / 'LICENSE', release / 'LICENSE')
     themes = release / 'themes'
     themes.mkdir(exist_ok=True)
@@ -51,7 +51,7 @@ def main():
         (themes / 'settings.ini').write_text(default_settings, encoding='utf-8')
     if sys.platform == 'linux':
         os.chmod(release / 'AlbumDrive', 0o755)
-    contents = (release / binary, release / 'README.txt', release / 'LICENSE')
+    contents = (release / binary, release / 'README.md', release / 'LICENSE')
     if sys.platform == 'win32':
         archive = root / 'dist' / f'{name}.zip'
         with ZipFile(archive, 'w', ZIP_DEFLATED) as package:
