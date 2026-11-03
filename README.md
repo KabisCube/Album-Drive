@@ -9,6 +9,8 @@ Albums are displayed in CD cases, using the cover image stored in each album's f
 
 [Download Album Drive from GitHub Releases](https://github.com/KabisCube/Album-Drive/releases).
 
+Release packages include a `licenses/` folder with dependency and font notices.
+
 ## Requirements
 
 Packaged builds include Python and the app dependencies; no Python installation is needed.
@@ -59,6 +61,7 @@ Unexpected Python errors are recorded in `logs/errors.log` beside the app. Nativ
 | `packaging/` | PyInstaller build specification |
 | `tests/` | Unit tests |
 | `tests/checks/` | UI and integration checks |
+| `licenses/` | Bundled third-party license texts and notices |
 | `build/` | Generated files and previews |
 | `dist/` | Packaged releases |
 | `logs/` | Runtime logs |
@@ -89,14 +92,14 @@ Thanks to the designers who made these fonts available. These third-party fonts 
 
 | Font | Creator | License or notice |
 | --- | --- | --- |
-| [Barato](https://www.behance.net/eddy_dsgn) | Edson Silva (eddy.dsgn) | Full license embedded in `Barato.ttf`; [notice](assets/fonts/handwriting/barato/readme.txt) |
-| [Elatox](https://ggbot.itch.io/elatox-font), regular and italic | GGBotNet | [License](assets/fonts/handwriting/elatox/License.txt) |
-| [Mistral SingleLine Outline](https://github.com/isdat-type/Mistral-SingleLine) | Francois Chastanet, Elisa Garzelli, Anais Alves and Morgane Autin; isdaT-type | [License](assets/fonts/handwriting/mistral_singleline/OFL.txt) |
-| [TMT Caffeine](https://toomuchtype.com/), Regular and Scrabble | Gabriel Drozdov / Too Much Type | [License](assets/fonts/handwriting/TMT_caffeine/license.txt) |
-| [Resource Han Rounded SC Bold](https://github.com/CyanoHao/Resource-Han-Rounded) | Cyano Hao, with portions by Adobe | [License](assets/fonts/cjk/ResourceHanRounded-LICENSE.txt) |
+| [Barato](https://www.behance.net/eddy_dsgn) | Edson Silva (eddy.dsgn) | [OFL license](licenses/fonts/handwriting/barato/OFL.txt); [notice](licenses/fonts/handwriting/barato/readme.txt) |
+| [Elatox](https://ggbot.itch.io/elatox-font), regular and italic | GGBotNet | [License](licenses/fonts/handwriting/elatox/License.txt) |
+| [Mistral SingleLine Outline](https://github.com/isdat-type/Mistral-SingleLine) | Francois Chastanet, Elisa Garzelli, Anais Alves and Morgane Autin; isdaT-type | [License](licenses/fonts/handwriting/mistral_singleline/OFL.txt) |
+| [TMT Caffeine](https://toomuchtype.com/), Regular and Scrabble | Gabriel Drozdov / Too Much Type | [License](licenses/fonts/handwriting/TMT_caffeine/license.txt) |
+| [Resource Han Rounded SC Bold](https://github.com/CyanoHao/Resource-Han-Rounded) | Cyano Hao, with portions by Adobe | [License](licenses/fonts/cjk/ResourceHanRounded-LICENSE.txt) |
 
 Mistral SingleLine is based on Roger Excoffon's Mistral.
 
-Album Round is the project's original font, distributed under [GPLv3](LICENSE). Its notice is in [AlbumRound-LICENSE.txt](assets/fonts/AlbumRound-LICENSE.txt).
+Album Round is the project's original font, distributed under [GPLv3](LICENSE). Its notice is in [AlbumRound-LICENSE.txt](licenses/fonts/AlbumRound-LICENSE.txt).
 
-Album Round uses bundled Resource Han Rounded Bold glyphs for Japanese, Korean, and Chinese text. The fonts work offline and retain their separate licenses in `assets/fonts/`. Other scripts use fonts available on the operating system.
+Album Round uses bundled Resource Han Rounded Bold glyphs for Japanese, Korean, and Chinese text. The fonts work offline and retain their separate licenses in `licenses/fonts/`. Other scripts use fonts available on the operating system.

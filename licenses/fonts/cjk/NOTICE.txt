@@ -1,0 +1,15 @@
+Resource Han Rounded SC Bold 0.990
+Copyright 2018-2019 Cyano Hao. Portions copyright 2014, 2015, 2018 Adobe.
+
+Source: https://github.com/CyanoHao/Resource-Han-Rounded/releases/tag/v0.990
+Archive: RHR-TTF-0.990.7z
+File: ResourceHanRoundedSC-Bold.ttf, redistributed without modification.
+License: SIL Open Font License 1.1, included in ResourceHanRounded-LICENSE.txt.
+
+Bundled as the rounded CJK companion to Album Round. This full TTF contains
+44,806 Unicode characters, including kana, modern Hangul syllables, and common
+Simplified/Traditional Chinese characters. Its default Han forms follow the
+Simplified Chinese variant. It does not cover every historical or rare character.
+
+Album Round's original Latin font remains separately licensed; this companion
+font retains its original family name, authorship, and SIL Open Font License.
