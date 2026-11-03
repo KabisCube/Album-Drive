@@ -1,6 +1,7 @@
 """Build a self-contained executable and a portable archive on Windows/Linux."""
 
 import os
+from io import BytesIO
 from pathlib import Path
 import platform
 import shutil
@@ -42,26 +43,31 @@ def main():
         shutil.copy2(native / binary, release / binary)
         print('Existing executable is locked; the update has its own folder and a copy of your themes.')
     shutil.copy2(root / 'README.txt', release / 'README.txt')
+    shutil.copy2(root / 'LICENSE', release / 'LICENSE')
     themes = release / 'themes'
     themes.mkdir(exist_ok=True)
+    default_settings = '; Album Drive preferences and saved themes live in this folder.\n[General]\n'
     if not (themes / 'settings.ini').exists():
-        (themes / 'settings.ini').write_text('; Album Drive preferences and saved themes live in this folder.\n[General]\n', encoding='utf-8')
+        (themes / 'settings.ini').write_text(default_settings, encoding='utf-8')
     if sys.platform == 'linux':
         os.chmod(release / 'AlbumDrive', 0o755)
-    contents = (release / binary, release / 'README.txt', release / 'themes')
+    contents = (release / binary, release / 'README.txt', release / 'LICENSE')
     if sys.platform == 'win32':
         archive = root / 'dist' / f'{name}.zip'
         with ZipFile(archive, 'w', ZIP_DEFLATED) as package:
             for item in contents:
-                paths = sorted(item.rglob('*')) if item.is_dir() else (item,)
-                for path in paths:
-                    if path.is_file():
-                        package.write(path, Path(name) / path.relative_to(release))
+                package.write(item, Path(name) / item.relative_to(release))
+            package.writestr(f'{name}/themes/settings.ini', default_settings)
     else:
         archive = root / 'dist' / f'{name}.tar.gz'
         with tarfile.open(archive, 'w:gz') as package:
             for item in contents:
                 package.add(item, arcname=str(Path(name) / item.relative_to(release)))
+            preferences = default_settings.encode('utf-8')
+            entry = tarfile.TarInfo(f'{name}/themes/settings.ini')
+            entry.size = len(preferences)
+            entry.mode = 0o644
+            package.addfile(entry, BytesIO(preferences))
     print(f'Executable: {release / binary}\nArchive: {archive}')
 
 

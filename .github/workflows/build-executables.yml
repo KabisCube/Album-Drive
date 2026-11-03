@@ -12,12 +12,13 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.10'
           cache: pip
@@ -30,6 +31,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libpulse0 libasound2 desktop-file-utils
       - run: python -m pip install -r requirements-build.txt
+      - name: Check Qt runtime
+        run: |
+          python -c "import platform, PySide6, shiboken6; print('Python', platform.python_version(), 'PySide6', PySide6.__version__, 'shiboken6', shiboken6.__version__)"
+          python -m unittest discover -s tests -p test_qt_runtime.py
+      - name: Run unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/test.py
+      - name: Test source startup
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python src/main.py --smoke-test --smoke-report build/source-smoke.json
       - run: python scripts/build.py
       - name: Test Windows executable
         if: runner.os == 'Windows'
@@ -46,10 +59,21 @@ jobs:
           QT_QPA_PLATFORM=offscreen XDG_DATA_HOME="$PWD/build/desktop-test" ./dist/AlbumDrive-linux-x86_64/AlbumDrive --install-desktop-entry
           desktop-file-validate build/desktop-test/applications/album-drive.desktop
           cat build/smoke.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: AlbumDrive-${{ runner.os }}
           path: |
             dist/AlbumDrive-*.zip
             dist/AlbumDrive-*.tar.gz
           if-no-files-found: error
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: AlbumDrive-diagnostics-${{ runner.os }}
+          path: |
+            build/*smoke*.json
+            build/AlbumDrive/warn-AlbumDrive.txt
+            logs/*.log
+            dist/**/logs/*.log
+          if-no-files-found: ignore
