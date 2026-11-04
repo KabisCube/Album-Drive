@@ -15,7 +15,6 @@ from color_picker import ColorPickerDialog
 from themes import MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS
 from themes import PRIMARY_COLOR_KEYS, CONTROL_HEADROOM, BUTTON_SHADOW, MAX_FONT_SIZE, FONT_SCALE_KEYS, button_scale, button_text_sizing, local_control_theme, migrate_button_size, migrate_font_settings
 from app_theme import simplify_color_settings, soften_theme_colors
-from color_rules import emphasized_text
 
 
 def custom_color_settings(settings):
@@ -27,6 +26,8 @@ def custom_color_settings(settings):
     except (ValueError, TypeError):
         stored = {}
     legacy_colors = {key: str(settings.value(key, default)) for _, _, key, _, default in COLOR_SETTINGS}
+    legacy_colors['theme_background_accent_color'] = str(settings.value(
+        'theme_background_accent_color', settings.value('theme_accent_color', '#cfe10e')))
     legacy_preset = not stored and any(
         all(preset['colors'][key] == color for key, color in legacy_colors.items() if key != 'theme_highlight_color')
         for preset in saved_color_themes(settings))
@@ -35,7 +36,10 @@ def custom_color_settings(settings):
         # Older versions replaced these keys with preset colors. With a preset
         # selected, only a separately saved base palette can be recovered.
         fallback = default if settings.value('selected_color_theme', '') or legacy_preset else legacy_colors[key]
-        color = QColor(str(stored.get(key, fallback)))
+        migrated = stored.get(key)
+        if key == 'theme_background_accent_color' and migrated is None:
+            migrated = stored.get('theme_accent_color', legacy_colors[key])
+        color = QColor(str(migrated if migrated is not None else fallback))
         colors[key] = color.name() if color.isValid() else default
     for alias, canonical in MERGED_COLOR_SETTINGS.items():
         colors[alias] = colors[canonical]
@@ -79,6 +83,7 @@ def saved_color_themes(settings):
                 continue
             colors = dict(preset['colors'])
             colors.setdefault('theme_highlight_color', colors.get('theme_brand_text_color', '#cfe10e'))
+            colors.setdefault('theme_background_accent_color', colors.get('theme_accent_color', '#cfe10e'))
             if keys <= colors.keys() and all(isinstance(colors[key], str) and QColor(colors[key]).isValid() for key in keys):
                 result.append({key: preset[key] for key in ('id', 'name', 'preserve_palette') if key in preset} | {'colors': colors})
         return result
@@ -131,8 +136,7 @@ class SettingsSectionLabel(QLabel):
         app = QApplication.instance()
         painter = QPainter(self)
         painter.setFont(self.font())
-        painter.setPen(emphasized_text(app.property('textColor') or '#ffffff',
-                                      app.property('themeBackground') or '#393939', .2))
+        painter.setPen(QColor(app.property('textColor') or '#ffffff'))
         painter.drawText(self.contentsRect(), Qt.AlignLeft | Qt.AlignVCenter, self.text())
 
 
@@ -430,7 +434,7 @@ class ThemeSettingsDialog(QDialog):
             self.saved_theme_choice.addItem(preset['name'], preset['id'])
         self.saved_theme_choice.setCurrentIndex(max(0, self.saved_theme_choice.findData(str(settings.value('selected_color_theme', '')))))
         self.active_color_choice = str(settings.value('selected_color_theme', ''))
-        self.saved_theme_choice.setToolTip('Use a saved theme with dynamic colors off.')
+        self.saved_theme_choice.setToolTip('Use a saved theme when dynamic colors are off or artwork is unavailable.')
         forms['Appearance'].addRow('Saved color themes', self.saved_theme_choice)
         self.library_folder = str(settings.value('browser_root', settings.value('folder', '')))
         self.original_library = self.library_folder
@@ -621,6 +625,7 @@ class ThemeSettingsDialog(QDialog):
             'corner_roundness': ('Style', 'Interface'), 'ui_thickness': ('Style', 'Interface'),
             'theme_accent_color': ('Style', 'Interface'), 'theme_background_color': ('Style', 'Interface'),
             'theme_highlight_color': ('Style', 'Interface'),
+            'theme_background_accent_color': ('Style', 'Interface'),
             'theme_selected_text_color': ('Style', 'Interface'), 'menu_font_size': ('Style', 'Interface'),
             'button_font_size': ('Style', 'Buttons'), 'dropdown_font_size': ('Style', 'Buttons'),
             'theme_button_text_color': ('Style', 'Buttons'), 'theme_disabled_text_color': ('Style', 'Buttons'),

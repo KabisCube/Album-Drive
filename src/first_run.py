@@ -195,7 +195,7 @@ class ThemeSavePreview(QWidget):
 
     def eventFilter(self, watched, event):
         if watched is QApplication.instance() and event.type() == QEvent.DynamicPropertyChange:
-            if bytes(event.propertyName()) in (b'themeBackground', b'themeAccent', b'textColor', b'buttonFill',
+            if bytes(event.propertyName()) in (b'themeBackground', b'themeAccent', b'themeBackgroundAccent', b'textColor', b'buttonFill',
                                                b'buttonIconColor', b'playerTheme', b'uiThickness', b'cornerRoundness',
                                                b'buttonSize', b'buttonIconSize') and self.isVisible():
                 if not self.refresh_timer.isActive():

@@ -68,19 +68,25 @@ def main():
         release.mkdir()
         if (previous / 'themes').is_dir():
             shutil.copytree(previous / 'themes', release / 'themes')
+        if (previous / 'settings.ini').is_file():
+            shutil.copy2(previous / 'settings.ini', release / 'settings.ini')
         shutil.copy2(native / binary, release / binary)
         print('Existing executable is locked; the update has its own folder and a copy of your themes.')
     shutil.copy2(root / 'README.md', release / 'README.md')
-    shutil.copy2(root / 'LICENSE', release / 'LICENSE')
+    shutil.copy2(root / 'LICENSE', release / 'LICENSE.txt')
+    (release / 'LICENSE').unlink(missing_ok=True)
     copy_license_bundle(root, release)
     themes = release / 'themes'
     themes.mkdir(exist_ok=True)
-    default_settings = '; Album Drive preferences and saved themes live in this folder.\n[General]\n'
-    if not (themes / 'settings.ini').exists():
-        (themes / 'settings.ini').write_text(default_settings, encoding='utf-8')
+    default_settings = '[General]\n'
+    if not (release / 'settings.ini').exists():
+        if (themes / 'settings.ini').is_file():
+            shutil.move(themes / 'settings.ini', release / 'settings.ini')
+        else:
+            (release / 'settings.ini').write_text(default_settings, encoding='utf-8')
     if sys.platform == 'linux':
         os.chmod(release / 'AlbumDrive', 0o755)
-    contents = [release / binary, release / 'README.md', release / 'LICENSE']
+    contents = [release / binary, release / 'README.md', release / 'LICENSE.txt']
     contents.extend(sorted((release / 'licenses').rglob('*')))
     contents = [item for item in contents if item.is_file()]
     if sys.platform == 'win32':
@@ -88,17 +94,22 @@ def main():
         with ZipFile(archive, 'w', ZIP_DEFLATED) as package:
             for item in contents:
                 package.write(item, Path(name) / item.relative_to(release))
-            package.writestr(f'{name}/themes/settings.ini', default_settings)
+            package.writestr(f'{name}/settings.ini', default_settings)
+            package.writestr(f'{name}/themes/', '')
     else:
         archive = root / 'dist' / f'{name}.tar.gz'
         with tarfile.open(archive, 'w:gz') as package:
             for item in contents:
                 package.add(item, arcname=str(Path(name) / item.relative_to(release)))
             preferences = default_settings.encode('utf-8')
-            entry = tarfile.TarInfo(f'{name}/themes/settings.ini')
+            entry = tarfile.TarInfo(f'{name}/settings.ini')
             entry.size = len(preferences)
             entry.mode = 0o644
             package.addfile(entry, BytesIO(preferences))
+            entry = tarfile.TarInfo(f'{name}/themes')
+            entry.type = tarfile.DIRTYPE
+            entry.mode = 0o755
+            package.addfile(entry)
     print(f'Executable: {release / binary}\nArchive: {archive}')
 
 

@@ -90,7 +90,7 @@ def run_smoke(app, window_type):
                     write_theme_files(settings, [dict(id='smoke-theme', name='Test album',
                                       colors={key: str(app.property(prop) or default) for _, _, key, prop, default in COLOR_SETTINGS})])
                     folder = root / 'Portable app' / 'themes'
-                    report['portable_settings'] = (folder / 'settings.ini').is_file()
+                    report['portable_settings'] = (folder.parent / 'settings.ini').is_file()
                     report['theme_ini'] = len(list(folder.glob('theme-*.ini'))) == 1
                     loaded = True
                 if loaded and window.player.duration() > 0 and window.player.isSeekable():

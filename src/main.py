@@ -45,7 +45,7 @@ from case_shell import paint_cd_case, paint_shell, artwork_tray_color, fitted_ca
 from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
 from color_rules import timeline_colors
 from settings_store import create_app_settings, library_cache_path, write_theme_files
-from themes import ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, UI_FONT_DEFAULT, CONTROL_HEADROOM, BUTTON_SHADOW, ThemedMenu, ThemeSaveIcon, button_scale, button_text_color, migrate_button_size
+from themes import ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, UI_FONT_DEFAULT, CONTROL_HEADROOM, BUTTON_SHADOW, ThemedMenu, ThemeSaveIcon, button_scale, migrate_button_size
 from app_theme import classic_artwork_style, artwork_theme_colors, simplify_theme_colors, soften_theme_colors, button_text_color_for_palette
 from button_sounds import prepare_button_sounds, play_button_sound
 from case_sounds import prepare_case_sounds, play_case_sound
@@ -739,7 +739,8 @@ QSlider#timeline::handle:horizontal { width: 60px; height: 48px; margin: -14px 0
             return self.fade_colors
         app = QApplication.instance()
         return timeline_colors(app.property('themeBackground') or BUILDING_GRAY,
-                               app.property('themeAccent') or TIMELINE_COLOR)
+                              app.property('themeAccent') or TIMELINE_COLOR,
+                              app.property('themeBackgroundAccent'))
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -787,7 +788,7 @@ class DiscEjectButton(QToolButton):
     """A real keyboard-accessible eject button without a selection fill."""
     def paintEvent(self, event):
         painter = QPainter(self)
-        color = QApplication.instance().property('textColor') or '#ffffff'
+        color = QApplication.instance().property('themeBackgroundAccent') or '#cfe10e'
         if not self.isEnabled():
             painter.setOpacity(.4)
         icon = transport_icon('eject', color)
@@ -1313,6 +1314,8 @@ class PlayerWindow(QMainWindow):
         self.disc_timer.setInterval(3000)
         self.disc_timer.timeout.connect(self.poll_optical_discs)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            from windows_identity import update_windows_identity
+            update_windows_identity(QApplication.instance())
             self.disc_timer.start()
             QTimer.singleShot(0, self.poll_optical_discs)
 
@@ -1326,8 +1329,7 @@ class PlayerWindow(QMainWindow):
         for prop, color in saved.items():
             QApplication.instance().setProperty(prop, color)
         QApplication.instance().setProperty('artworkTheme', bool(colors) if artwork_active is None else artwork_active)
-        QApplication.instance().setProperty('customColorTheme', self.settings.value('selected_color_theme', '') not in ('', 'album-drive-default')
-                                           and not self.settings.value('artwork_theme_enabled', ARTWORK_THEME_DEFAULT, type=bool))
+        QApplication.instance().setProperty('customColorTheme', self.settings.value('selected_color_theme', '') not in ('', 'album-drive-default'))
         if colors:
             colors = soften_theme_colors(colors)
             for prop, color in colors.items():
@@ -1371,7 +1373,7 @@ class PlayerWindow(QMainWindow):
         if app.font() != interface_font:
             app.setFont(interface_font)
         app.setProperty('trackListFamily', family)
-        self.refresh_theme_colors()
+        self.refresh_theme_colors(update_tracklist=True)
         self.settings.setValue('theme', name)
         if hasattr(self, 'brand'):
             self.brand.updateGeometry()
@@ -1409,15 +1411,22 @@ class PlayerWindow(QMainWindow):
             else:
                 self.update_now_playing_cover()
 
-    def refresh_theme_colors(self):
+    def refresh_theme_colors(self, update_tracklist=False):
         """Update colors without resetting layouts, artwork or UI animations."""
         app = QApplication.instance()
         name = app.property('playerTheme')
-        for prop in ('brandTextColor', 'headingTextColor'):
-            app.setProperty(prop, app.property('themeHighlight'))
+        app.setProperty('brandTextColor', app.property('themeHighlight'))
+        for prop in ('buttonTextColor', 'buttonIconColor', 'disabledTextColor'):
+            app.setProperty(prop, app.property('themeBackgroundAccent'))
+        for prop in ('secondaryTextColor', 'headingTextColor', 'selectedTextColor',
+                     'timelineTextColor', 'paperTextColor'):
+            app.setProperty(prop, app.property('textColor'))
+        if (update_tracklist and getattr(self, 'album_presentation', None) is not None
+                and self.album_presentation.uses_global_text):
+            self.album_presentation.update_theme()
         colors = {prop: app.property(prop) for _, _, _, prop, _ in COLOR_SETTINGS}
         accent, background, timeline = (colors[prop] for prop in ('themeAccent', 'themeBackground', 'timelineColor'))
-        update_theme_icon(app, accent)
+        update_theme_icon(app, colors['themeHighlight'])
         rounding = app.property('cornerRoundness')
         transition = getattr(self, 'theme_renderer', None)
         if transition is not None:
@@ -1487,35 +1496,35 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                                         str(self.settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))
         return None
 
+    def album_track_theme_colors(self, artwork):
+        return artwork_theme_colors(
+            artwork, str(self.settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))
+
     def saved_theme_colors(self):
         colors = {}
-        use_base = (self.settings.value('artwork_theme_enabled', ARTWORK_THEME_DEFAULT, type=bool)
-                    or not self.settings.value('selected_color_theme', ''))
-        base = custom_color_settings(self.settings) if use_base else {}
+        selected = next((preset for preset in saved_color_themes(self.settings)
+                         if preset['id'] == self.settings.value('selected_color_theme', '')), None)
+        base = selected['colors'] if selected is not None else custom_color_settings(self.settings)
         for _, _, key, prop, default in COLOR_SETTINGS:
             canonical = MERGED_COLOR_SETTINGS.get(key, key)
-            color = QColor(base[canonical] if base else str(self.settings.value(canonical, default)))
+            color = QColor(base[canonical])
             colors[prop] = color.name() if color.isValid() else default
-        if not use_base:
-            selected = next((preset for preset in saved_color_themes(self.settings)
-                             if preset['id'] == self.settings.value('selected_color_theme', '')), None)
-            if selected is not None and selected.get('preserve_palette') is True:
-                colors = soften_theme_colors(colors)
-                foreground = button_text_color_for_palette(colors)
-                colors.update({prop: foreground for prop in ('buttonTextColor', 'buttonIconColor', 'disabledTextColor')})
-                return colors
+        if selected is not None and selected.get('preserve_palette') is True:
+            colors = soften_theme_colors(colors)
+            foreground = button_text_color_for_palette(colors)
+            colors.update({prop: foreground for prop in ('buttonTextColor', 'buttonIconColor', 'disabledTextColor')})
+            return colors
         return simplify_theme_colors(colors)
 
     def theme_from_now_playing(self):
         app = QApplication.instance()
-        custom = (self.settings.value('selected_color_theme', '') not in ('', 'album-drive-default')
-                  and not self.settings.value('artwork_theme_enabled', ARTWORK_THEME_DEFAULT, type=bool))
+        custom = self.settings.value('selected_color_theme', '') not in ('', 'album-drive-default')
         mode_changed = app.property('customColorTheme') != custom
         app.setProperty('customColorTheme', custom)
         artwork_colors = self.now_playing_theme_colors()
         target = self.saved_theme_colors()
         target.update(artwork_colors or {})
-        for prop in ('brandTextColor', 'headingTextColor'):
+        for prop in ('brandTextColor',):
             target[prop] = target['themeHighlight']
         # An unchanged album must not restart a transition already in progress.
         if getattr(self, 'theme_target', None) == target and getattr(self, 'theme_fade', None) is not None:
@@ -1544,7 +1553,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             return
         # Keep classic's dynamic surfaces active until the final fallback frame.
         app.setProperty('artworkTheme', True)
-        timeline_target = timeline_colors(target['themeBackground'], target['themeAccent'])
+        timeline_target = timeline_colors(target['themeBackground'], target['themeAccent'],
+                                          target['themeBackgroundAccent'])
         self.seek.fade_colors = timeline_start
         self.theme_renderer = ThemeTransition(self)
         self.theme_renderer.update_colors()
@@ -1688,16 +1698,10 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             (self.save_theme_button, 'save-theme', 'Save current theme'),
         ):
             button.setText('')
-            color = QApplication.instance().property('buttonIconColor') or '#352719'
-            disabled = QApplication.instance().property('disabledTextColor') or '#929292'
-            if QApplication.instance().property('playerTheme') == 'classic':
-                fill = QApplication.instance().property('buttonFill') or '#cccccc'
-                color = button_text_color(fill).name()
-                disabled = button_text_color(fill, enabled=False).name()
-            if button.property('themeRole') == 'highlight':
-                fill = QApplication.instance().property('themeHighlight')
-                color = button_text_color(fill, highlighted=True).name()
-                disabled = button_text_color(fill, enabled=False, highlighted=True).name()
+            app = QApplication.instance()
+            color = (app.property('themeAccent') if button.property('themeRole') == 'highlight'
+                     else app.property('themeBackgroundAccent')) or '#cfe10e'
+            disabled = color
             button.setIcon(transport_icon(name, color, disabled))
             size = round(QApplication.instance().property('buttonIconSize') or 20)
             button.setIconSize(QSize(round(size * 1.5), size) if name == 'save-theme' else QSize(size, size))
@@ -2318,7 +2322,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         if self.viewed_album is not None and self.viewed_album.folder in refreshed:
             album = self.viewed_album
             self.populate_album_tracks(album)
-            self.album_presentation.set_artwork(album.artwork)
+            self.album_presentation.set_artwork(album.artwork, self.album_track_theme_colors(album.artwork))
             self.album_artwork.pixmap = cd_case_pixmap(album.artwork, album.title,
                 handwriting_font=self.artist_handwriting(album.folder.parent), case_key=str(album.folder))
             self.album_artwork.update()
@@ -2360,7 +2364,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         self.viewed_album = album
         self.update_album_header_controls()
         self.album_artwork.sheen_key = str(album.folder)
-        self.album_presentation.set_artwork(album.artwork)
+        self.album_presentation.set_artwork(album.artwork, self.album_track_theme_colors(album.artwork))
         self.grid.suppressed_album = next((index for index, entry in enumerate(self.albums)
                                            if entry.folder == album.folder), None)
         self.grid.viewport().update()

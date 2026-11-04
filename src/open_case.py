@@ -198,6 +198,10 @@ class AlbumPresentation(QWidget):
         self.progress = 1.0
         self.paper_background = None
         self.paper_palette = ()
+        self.artwork_text_color = None
+        self.paper_button_color = None
+        self.paper_background_accent_color = None
+        self.uses_global_text = True
         self.booklet = QWidget(self)
         self.booklet.setObjectName('booklet')
         self.booklet_style = '''
@@ -248,9 +252,15 @@ class AlbumPresentation(QWidget):
     def finish(self):
         self.advance(1.0)
 
-    def set_artwork(self, artwork):
+    def set_artwork(self, artwork, theme_colors=None):
         self.paper_palette = tuple(comfortable_color(color) for color in artwork_palette(artwork))
         self.paper_background = self.paper_palette[0] if self.paper_palette else None
+        text_color = theme_colors.get('textColor') if theme_colors else None
+        color = QColor(text_color) if text_color else QColor()
+        self.artwork_text_color = color if color.isValid() else None
+        self.paper_button_color = theme_colors.get('themeAccent') if theme_colors else None
+        self.paper_background_accent_color = theme_colors.get('themeBackgroundAccent') if theme_colors else None
+        self.uses_global_text = self.artwork_text_color is None and self.paper_background is None
         self.update_theme()
 
     def update_theme(self):
@@ -258,8 +268,9 @@ class AlbumPresentation(QWidget):
         amount = app.property('cornerRoundness')
         families = font_family_css(str(app.property('trackListFamily') or app.font().family()))
         background = self.paper_background or QColor('#f2efdf')
-        preferred = QColor(app.property('paperTextColor') or '#24383f')
-        foreground = readable_paper_text(background, preferred, self.paper_palette) if self.paper_background is not None else preferred
+        preferred = self.artwork_text_color or QColor(app.property('paperTextColor') or '#24383f')
+        foreground = (preferred if self.artwork_text_color is not None or self.paper_background is None
+                      else readable_paper_text(background, preferred, self.paper_palette))
         style = self.booklet_style.replace('#f2efdf', background.name()).replace('#24383f', foreground.name())
         if self.paper_background is not None:
             style = style.replace('#c4c5bb', background.darker(115).name()).replace('#dedfd2', background.name())
@@ -269,7 +280,11 @@ class AlbumPresentation(QWidget):
         if hasattr(self, 'table'):
             self.table.setProperty('paperBackgroundColor', background.name())
             self.table.setProperty('paperForegroundColor', foreground.name())
+            self.table.setProperty('paperButtonColor', self.paper_button_color)
+            self.table.setProperty('paperBackgroundAccentColor', self.paper_background_accent_color)
             self.table.viewport().update()
+            self.table.verticalScrollBar().update()
+            self.table.horizontalScrollBar().update()
             row_height = max(44, self.table.fontMetrics().height() + 12)
             spacing = app.property('trackListVerticalSpacing') or 0
             metrics = QFontMetricsF(self.table.font())

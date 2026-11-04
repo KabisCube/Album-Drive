@@ -25,7 +25,9 @@ def library_cache_path(settings):
 def theme_directory(settings):
     if settings.format() == QSettings.IniFormat:
         path = Path(settings.fileName()).resolve()
-        return path.parent if path.name == 'settings.ini' and path.parent.name == 'themes' else path.with_name(path.stem + '-themes')
+        if path.name == 'settings.ini':
+            return path.parent if path.parent.name == 'themes' else path.parent / 'themes'
+        return path.with_name(path.stem + '-themes')
     return Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)) / 'themes'
 
 
@@ -81,11 +83,12 @@ def create_app_settings(portable_root=None, legacy=None):
     if portable_root is None and not getattr(sys, 'frozen', False):
         return QSettings('LocalMusicPlayer', 'MusicPlayer')
     root = Path(portable_root) if portable_root is not None else Path(sys.executable).resolve().parent
-    folder = root / 'themes'
-    folder.mkdir(parents=True, exist_ok=True)
-    settings = QSettings(str(folder / 'settings.ini'), QSettings.IniFormat)
+    root.mkdir(parents=True, exist_ok=True)
+    settings = QSettings(str(root / 'settings.ini'), QSettings.IniFormat)
     if not settings.contains('storage_version'):
-        previous = legacy if legacy is not None else QSettings('LocalMusicPlayer', 'MusicPlayer')
+        old_path = root / 'themes' / 'settings.ini'
+        previous = (QSettings(str(old_path), QSettings.IniFormat) if old_path.is_file()
+                    else legacy if legacy is not None else QSettings('LocalMusicPlayer', 'MusicPlayer'))
         for key in previous.allKeys():
             if not settings.contains(key):
                 settings.setValue(key, previous.value(key))
@@ -103,5 +106,5 @@ def create_app_settings(portable_root=None, legacy=None):
         settings.setValue('storage_version', 1)
         settings.sync()
     if settings.status() != QSettings.NoError:
-        raise OSError(f'Album Drive needs a writable themes folder beside the executable: {folder}')
+        raise OSError(f'Album Drive needs writable settings beside the executable: {root}')
     return settings

@@ -86,18 +86,17 @@ with tempfile.TemporaryDirectory() as directory:
     assert len(saved_color_themes(settings)) == 2
     assert settings.value('artwork_theme_enabled', False, type=bool)
 
-    # Saving album colors must not replace the artwork-free fallback palette.
     window.queue = [(track, no_art) for track in no_art.tracks]
     window.play_index(0, autoplay=False)
     finish_colors(window)
     assert not app.property('artworkTheme')
-    assert not app.property('customColorTheme')
+    assert app.property('customColorTheme')
     for _, _, key, prop, _ in COLOR_SETTINGS:
-        assert app.property(prop) == base[key], prop
+        assert app.property(prop) == snapshot[key], prop
     image = window.centralWidget().grab().toImage()
-    assert image.pixelColor(image.width() - 2, 2).name() == base['theme_background_color']
+    assert image.pixelColor(image.width() - 2, 2).name() == snapshot['theme_background_color']
     window.apply_settings()
-    assert app.property('themeBackground') == base['theme_background_color']
+    assert app.property('themeBackground') == snapshot['theme_background_color']
 
     window.queue = [(track, gold) for track in gold.tracks]
     window.play_index(0, autoplay=False)
@@ -187,11 +186,19 @@ with tempfile.TemporaryDirectory() as directory:
     persisted.apply()
     finish_colors(restored)
     assert restored.now_playing_theme_colors() is not None
-    # Returning to artwork mode still uses the base for albums without covers.
     restored.queue = [(track, no_art) for track in no_art.tracks]
     restored.play_index(0, autoplay=False)
     finish_colors(restored)
-    assert app.property('themeBackground') == base['theme_background_color']
+    assert app.property('customColorTheme')
+    for _, _, key, prop, _ in COLOR_SETTINGS:
+        assert app.property(prop) == snapshot[key], prop
+    restored.queue = []
+    restored.queue_index = -1
+    restored.theme_from_now_playing()
+    finish_colors(restored)
+    assert app.property('themeBackground') == snapshot['theme_background_color']
+    restored.set_theme('classic')
+    assert app.property('themeBackground') == snapshot['theme_background_color']
     persisted.restore_defaults()
     assert len(persisted.presets) == 2  # Resetting appearance keeps Default and saved palettes.
     assert persisted.artwork_theme.isChecked()

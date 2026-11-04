@@ -13,7 +13,7 @@ from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QIcon, QIconEngi
 from PySide6.QtWidgets import QApplication, QAbstractItemView, QAbstractScrollArea, QCheckBox, QComboBox, QFrame, QLabel, QLayout, QListView, QMenu, QPushButton, QSlider, QStyle, QStyleOptionButton, QStyleOptionSlider, QStylePainter, QStyledItemDelegate, QTabBar, QToolButton, QVBoxLayout, QWidget
 from button_sounds import play_button_sound
 from font_support import font_family_css
-from color_rules import artwork_text_color, disabled_text_color, settings_title_color, slider_rail
+from color_rules import artwork_text_color, disabled_text_color, slider_rail
 from shiboken6 import isValid
 
 
@@ -71,6 +71,7 @@ COLOR_SETTINGS = (
     ('Appearance', 'Accent color', 'theme_accent_color', 'themeHighlight', '#cfe10e'),
     ('Appearance', 'Button color', 'theme_highlight_color', 'themeAccent', GRASS_GREEN),
     ('Appearance', 'Background color', 'theme_background_color', 'themeBackground', BUILDING_GRAY),
+    ('Appearance', 'Background accent color', 'theme_background_accent_color', 'themeBackgroundAccent', '#cfe10e'),
     ('Appearance', 'Timeline color', 'theme_timeline_color', 'timelineColor', TIMELINE_COLOR),
     ('Appearance', 'Logo background color', 'theme_brand_line_color', 'brandLineColor', '#707474'),
     ('Appearance', 'Folder arrow color', 'theme_folder_arrow_color', 'folderArrowColor', '#ffffff'),
@@ -89,7 +90,7 @@ COLOR_SETTINGS = (
 
 # Only these colors are edited; legacy keys still travel with saved themes.
 PRIMARY_COLOR_KEYS = frozenset(('theme_background_color', 'theme_accent_color',
-                              'theme_text_color', 'theme_highlight_color'))
+                              'theme_text_color', 'theme_highlight_color', 'theme_background_accent_color'))
 
 
 # Old keys remain readable in saved themes; the UI uses one shared control.
@@ -148,8 +149,8 @@ def resolve_font(fonts, identity):
 def text_style():
     app = QApplication.instance()
     colors = {prop: app.property(prop) or default for _, _, _, prop, default in COLOR_SETTINGS}
-    disabled_text = disabled_text_color(colors['textColor'])
-    disabled_title = disabled_text_color(settings_title_color(colors['textColor'], colors['themeBackground']))
+    disabled_text = QColor(colors['textColor'])
+    disabled_title = QColor(colors['textColor'])
     sizes = {key: int(app.property(''.join([key.split('_')[0]] + [word.title() for word in key.split('_')[1:]])) or default)
              for key, default in NUMERIC_DEFAULTS.items() if key.endswith('_font_size')}
     scale = button_scale()
@@ -168,7 +169,7 @@ QLabel#muted, QStatusBar {{ font-size: {sizes['secondary_font_size']}px; }}
 QLabel#heading {{ font-size: {sizes['heading_font_size']}px; }}
 QLabel#brand {{ font-size: {sizes['logo_font_size']}px; }}
 QLabel#settingsSection {{ font-size: {sizes['settings_heading_font_size']}px; font-weight: bold; }}
-QLabel[settingsOptionTitle="true"] {{ color: {settings_title_color(colors['textColor'], colors['themeBackground']).name()}; }}
+QLabel[settingsOptionTitle="true"] {{ color: {colors['textColor']}; }}
 QTreeView#fileBrowser {{ font-size: {sizes['folder_font_size']}px; }}
 QListWidget#opticalDiscs {{ font-size: {sizes['folder_font_size']}px; }}
 QListWidget#opticalDiscs::item {{ min-height: {folder_height}px; }}
@@ -185,7 +186,8 @@ QLabel#brand { color: BRAND; }
 QPushButton, QPushButton#play, QPushButton:hover, QPushButton#play:hover,
 QPushButton:focus, QPushButton#play:focus, QPushButton:pressed, QPushButton#play:pressed { color: BUTTON; }
 QPushButton:disabled, QPushButton#play:disabled { color: DISABLED; }
-QWidget:disabled { color: DISABLED; }
+QPushButton[themeRole="highlight"], QPushButton[themeRole="highlight"]:disabled { color: HIGHLIGHTCONTENT; }
+QWidget:disabled { color: TEXT; }
 QDialog#themeSettings QLabel:disabled { color: LABELDIM; }
 QDialog#themeSettings QLabel[settingsOptionTitle="true"]:disabled { color: OPTIONDIM; }
 QDialog#themeSettings QAbstractScrollArea::corner { background: transparent; border: none; }
@@ -194,7 +196,8 @@ QMenu::item:selected, QMenuBar::item:selected { color: SELECTED; }
 QHeaderView::section, QMenu, QMenuBar, QToolTip { color: TEXT; }
 '''.replace('LABELDIM', f'rgba{disabled_text.getRgb()}').replace('OPTIONDIM', f'rgba{disabled_title.getRgb()}').replace('SECONDARY', colors['secondaryTextColor']).replace('SELECTED', colors['selectedTextColor']).replace(
         'HEADING', colors['headingTextColor']).replace('BRAND', colors['brandTextColor']).replace(
-        'BUTTON', colors['buttonTextColor']).replace('DISABLED', colors['disabledTextColor']).replace('TEXT', colors['textColor']) + SCROLLBAR_STYLE
+        'BUTTON', colors['buttonTextColor']).replace('DISABLED', colors['disabledTextColor']).replace(
+        'HIGHLIGHTCONTENT', colors['themeAccent']).replace('TEXT', colors['textColor']) + SCROLLBAR_STYLE
 
 
 def control_property(name):
@@ -598,11 +601,8 @@ def button_text_font(widget):
 
 def button_text_color(background=None, enabled=True, highlighted=False):
     app = QApplication.instance()
-    default = app.property('buttonTextColor' if enabled else 'disabledTextColor') or '#101010'
-    if background is None or not (highlighted or app.property('artworkTheme') or app.property('customColorTheme')):
-        return QColor(default)
-    palette = tuple(app.property(prop) or default for prop in ('buttonTextColor', 'textColor', 'themeAccent', 'themeBackground'))
-    return artwork_text_color((background,), palette)
+    color = app.property('themeAccent') if highlighted else app.property('themeBackgroundAccent')
+    return QColor(color or app.property('buttonTextColor') or '#101010')
 
 
 def accent_shade(accent, amount):
@@ -858,7 +858,8 @@ QSlider::handle:horizontal { width: 48px; height: 36px; margin: -20px 0 -8px 0; 
         clip.addRoundedRect(groove, radius, radius)
         painter.save()
         painter.setClipPath(clip, Qt.IntersectClip)
-        painter.fillRect(groove, slider_rail(app.property('themeBackground') or BUILDING_GRAY))
+        painter.fillRect(groove, QColor(app.property('themeBackgroundAccent') or
+                                       slider_rail(app.property('themeBackground') or BUILDING_GRAY)))
         fill = QRectF(groove)
         if option.upsideDown:
             fill.setLeft(handle.center().x())

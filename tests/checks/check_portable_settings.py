@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory() as directory:
     legacy.sync()
     portable = create_app_settings(root / 'Release', legacy)
     folder = root / 'Release' / 'themes'
-    assert Path(portable.fileName()).resolve() == (folder / 'settings.ini').resolve()
+    assert Path(portable.fileName()).resolve() == (folder.parent / 'settings.ini').resolve()
     assert portable.value('volume', type=int) == 43
     assert legacy.contains('saved_color_themes')  # Migration is read-only at source.
     assert not portable.contains('saved_color_themes')
@@ -96,6 +96,17 @@ with tempfile.TemporaryDirectory() as directory:
     assert saved_color_themes(next_install)[1]['id'] == 'old-preset'
     write_theme_files(next_install, saved_color_themes(next_install))
     assert len(list(theme_directory(next_install).glob('theme-*.ini'))) == 1
+
+    shutil.copytree(root / 'Release', root / 'Old layout')
+    (root / 'Old layout' / 'settings.ini').rename(root / 'Old layout' / 'themes' / 'settings.ini')
+    migrated = create_app_settings(root / 'Old layout', legacy)
+    assert Path(migrated.fileName()).resolve() == (root / 'Old layout' / 'settings.ini').resolve()
+    assert migrated.value('button_font_scale', type=int) == 110
+    assert migrated.value('volume', type=int) == 43
+    assert saved_color_themes(migrated)[1]['colors']['theme_background_color'] == '#27495a'
+    migrated.setValue('volume', 62)
+    migrated.sync()
+    assert create_app_settings(root / 'Old layout', legacy).value('volume', type=int) == 62
 
     executable = root / 'Moved app' / 'AlbumDrive'
     executable.write_text('placeholder')

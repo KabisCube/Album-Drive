@@ -25,20 +25,41 @@ Playback support depends on the bundled Qt/FFmpeg backend and the individual fil
 
 Source runs need Python 3.10+ and the packages in [requirements.txt](requirements.txt):
 
-```sh
-python -m pip install -r requirements.txt
-python src/main.py
+Use a separate virtual environment for each operating system. On Windows, create `.venv-windows` in PowerShell:
+
+```powershell
+py -3 -m venv .venv-windows
+.venv-windows\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-After creating `.venv` and installing the dependencies, you can also use `start-windows.bat` or `./start-linux.sh`.
+Then run `start-windows.bat`.
+
+On Linux, create `.venv-linux`:
+
+```sh
+python3 -m venv .venv-linux
+.venv-linux/bin/python -m pip install -r requirements.txt
+./start-linux.sh
+```
+
+The launchers keep the Windows and Linux environments separate. `start-linux.sh` also supports an existing `.venv` for compatibility.
 
 ### Build executables
 
 Native executable builds must run on the target operating system:
 
+On Windows:
+
+```powershell
+.venv-windows\Scripts\python.exe -m pip install -r requirements-build.txt
+.venv-windows\Scripts\python.exe scripts/build.py
+```
+
+On Linux:
+
 ```sh
-python -m pip install -r requirements-build.txt
-python scripts/build.py
+.venv-linux/bin/python -m pip install -r requirements-build.txt
+.venv-linux/bin/python scripts/build.py
 ```
 
 On Linux, this command adds a launcher for the app's current location. Rerun it if you move the app:

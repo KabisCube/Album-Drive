@@ -15,6 +15,8 @@ class LiveScrollbars(QObject):
         app = QApplication.instance()
         background = QColor(app.property('themeBackground') or '#393939')
         accent = QColor(app.property('themeAccent') or '#888888')
+        rail_accent = QColor(app.property('themeBackgroundAccent')) if app.property('themeBackgroundAccent') else None
+        paper_rail_accent = None
         fill = QColor(app.property('buttonFill') or '#cccccc')
         surface = QColor(background)
         parent = widget.parentWidget()
@@ -22,6 +24,12 @@ class LiveScrollbars(QObject):
             paper = parent.property('paperBackgroundColor')
             if paper:
                 surface = QColor(paper)
+                paper_accent = parent.property('paperButtonColor')
+                paper_rail = parent.property('paperBackgroundAccentColor')
+                if paper_accent:
+                    accent = QColor(paper_accent)
+                if paper_rail:
+                    paper_rail_accent = QColor(paper_rail)
                 break
             if parent.objectName() == 'fileBrowser':
                 surface = background.darker(110)
@@ -60,7 +68,7 @@ class LiveScrollbars(QObject):
             after = QRectF(before)
             before.setRight(face.center().x())
             after.setLeft(face.center().x())
-        painter.setBrush(slider_rail(surface))
+        painter.setBrush(paper_rail_accent or rail_accent or slider_rail(surface))
         painter.drawRoundedRect(before, corner_radius(2), corner_radius(2))
         painter.setBrush(accent)
         painter.drawRoundedRect(after, corner_radius(2), corner_radius(2))

@@ -10,7 +10,7 @@ from themes import ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, COLOR_SETT
 
 def palette_preferences(settings):
     return {
-        'palette_version': 13,
+        'palette_version': 14,
         'theme': settings.value('theme', THEME_DEFAULT),
         'enabled': settings.value('artwork_theme_enabled', ARTWORK_THEME_DEFAULT, type=bool),
         'mode': settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT),

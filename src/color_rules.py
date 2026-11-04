@@ -125,12 +125,12 @@ def slider_rail(value):
     return QColor(_slider_rail(QColor(value).name()))
 
 
-def timeline_colors(background, accent):
+def timeline_colors(background, accent, rail=None):
     background = QColor(background)
     filled = QColor(accent)
-    unfilled = artwork_text_color((filled,), (background.darker(125),), minimum=2.25)
-    filled_text = artwork_text_color((filled,), (background,))
-    unfilled_text = artwork_text_color((unfilled,), (background,))
+    unfilled = QColor(rail) if rail else slider_rail(background)
+    filled_text = unfilled
+    unfilled_text = filled
     return unfilled, filled, filled_text, unfilled_text
 
 

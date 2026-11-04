@@ -6,23 +6,74 @@ import sys
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+os.environ['QT_QPA_PLATFORM'] = 'windows'
 
 if sys.platform != 'win32':
     print('SKIP: Windows shell identity')
     sys.exit(0)
 
 from PIL import Image
-from PySide6.QtWidgets import QApplication
-from app_identity import update_theme_icon
-from windows_identity import APP_ID, GUID, WindowsIdentity, call, check, interface, query
+from PySide6.QtCore import QCoreApplication, QEvent, QSettings
+from PySide6.QtWidgets import QApplication, QMainWindow
+from app_identity import configure_app, update_theme_icon
+from windows_identity import APP_ID, GUID, PROPERTY_FORMAT, STORE_IID, PropertyKey, PropVariant, WindowsIdentity, call, check, interface, query
 
 
 app = QApplication([])
+configure_app(app)
 ole = ct.WinDLL('ole32')
 initialized = ole.CoInitializeEx(None, 2)
 check(initialized)
 shell = WindowsIdentity()
+window = QMainWindow()
+window.winId()
+
+
+class IconInfo(ct.Structure):
+    _fields_ = [('icon', wt.BOOL), ('x', wt.DWORD), ('y', wt.DWORD),
+                ('mask', wt.HBITMAP), ('color', wt.HBITMAP)]
+
+
+class Bitmap(ct.Structure):
+    _fields_ = [('type', wt.LONG), ('width', wt.LONG), ('height', wt.LONG),
+                ('width_bytes', wt.LONG), ('planes', wt.WORD), ('bits_pixel', wt.WORD), ('bits', ct.c_void_p)]
+
+
+shell.user.GetIconInfo.argtypes = [wt.HICON, ct.POINTER(IconInfo)]
+shell.user.GetIconInfo.restype = wt.BOOL
+gdi = ct.WinDLL('gdi32')
+gdi.GetObjectW.argtypes = [wt.HANDLE, ct.c_int, ct.c_void_p]
+gdi.DeleteObject.argtypes = [wt.HANDLE]
+
+
+def native_icon_size(handle):
+    info = IconInfo()
+    if not shell.user.GetIconInfo(handle, ct.byref(info)):
+        return None
+    try:
+        bitmap = Bitmap()
+        assert gdi.GetObjectW(info.color, ct.sizeof(bitmap), ct.byref(bitmap))
+        return bitmap.width, bitmap.height
+    finally:
+        gdi.DeleteObject(info.color)
+        gdi.DeleteObject(info.mask)
+
+
+def window_properties():
+    pointer = ct.c_void_p()
+    check(shell.shell.SHGetPropertyStoreForWindow(int(window.winId()), ct.byref(STORE_IID), ct.byref(pointer)))
+    values = {}
+    with interface(pointer) as store:
+        for identity in (2, 3, 4, 5):
+            key = PropertyKey(PROPERTY_FORMAT, identity)
+            value = PropVariant()
+            try:
+                check(call(store, 5, ct.byref(key), ct.byref(value),
+                           types=(ct.POINTER(PropertyKey), ct.POINTER(PropVariant))))
+                values[identity] = value.value.text if value.type == 31 else None
+            finally:
+                shell.ole.PropVariantClear(ct.byref(value))
+    return values
 
 
 def create_shortcut(path, app_id):
@@ -50,10 +101,22 @@ try:
         create_shortcut(unrelated, 'Other.App')
         original = unrelated.read_bytes()
         paths = []
+        previous_icon = None
         for accent in ('#cfe10e', '#a03070'):
             update_theme_icon(app, accent)
+            app._theme_icon_timer.stop()
             shell.update(app)
-            icon = root / 'Album Drive/icons' / f'theme-{accent[1:]}.ico'
+            native_icon = window._theme_taskbar_icon.value
+            assert native_icon_size(native_icon) == (256, 256)
+            for size in (0, 1):
+                assert shell.user.SendMessageW(int(window.winId()), 0x7f, size, 0) == native_icon
+            if previous_icon:
+                assert native_icon != previous_icon
+                assert native_icon_size(previous_icon) is None
+            previous_icon = native_icon
+            icon = root / 'Album Drive/icons/theme.ico'
+            properties = window_properties()
+            assert properties[3] == f'{icon},0' and properties[5] == APP_ID
             assert icon.is_file()
             with Image.open(icon) as image:
                 assert image.ico.sizes() == {(size, size) for size in (16, 24, 32, 48, 64, 128, 256)}
@@ -75,8 +138,46 @@ try:
                 assert Path(location.value) == icon and index.value == 0
             assert unrelated.read_bytes() == original
             paths.append(icon)
-        assert all(path.is_file() for path in paths)
+        assert len(set(paths)) == 1 and paths[0].is_file()
+        shortcut.unlink()
+        update_theme_icon(app, '#237bb4')
+        app._theme_icon_timer.stop()
+        shell.update(app)
+        properties = window_properties()
+        assert properties[3] == f'{icon},0' and properties[5] == APP_ID
+        assert app.property('taskbarIconAccent') == '#237bb4'
+        with Image.open(icon) as image:
+            pixels = image.convert('RGBA')
+            data = pixels.get_flattened_data() if hasattr(pixels, 'get_flattened_data') else pixels.getdata()
+            opaque = [color for color in data if color[3] == 255]
+            assert opaque and all(color[:3] == (35, 123, 180) for color in opaque)
+        assert native_icon_size(previous_icon) is None
+        previous_icon = window._theme_taskbar_icon.value
+        assert native_icon_size(previous_icon) == (256, 256)
+        for size in (0, 1):
+            assert shell.user.SendMessageW(int(window.winId()), 0x7f, size, 0) == previous_icon
+        assert unrelated.read_bytes() == original
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        assert native_icon_size(previous_icon) is None
+        from main import PlayerWindow
+        music = root / 'Music'
+        music.mkdir()
+        settings = QSettings(str(root / 'player.ini'), QSettings.IniFormat)
+        settings.setValue('folder', str(music))
+        settings.setValue('browser_root', str(music))
+        settings.setValue('welcome_complete', True)
+        window = PlayerWindow(settings)
+        assert not window.isVisible()
+        properties = window_properties()
+        assert properties[3] == f'{icon},0' and properties[5] == APP_ID
+        assert app.property('taskbarIconAccent') == app.property('themeIconAccent')
+        assert native_icon_size(window._theme_taskbar_icon.value) == (256, 256)
+        app._theme_icon_timer.stop()
+        window.close()
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 finally:
     ole.CoUninitialize()
 
-print('PASS: persistent multiresolution theme icons, matching pinned shortcuts, preserved unrelated shortcuts')
+print('PASS: themed taskbar identity before first show, stable icon updates without pinning, native cleanup, pinned updates, unrelated shortcuts preserved')

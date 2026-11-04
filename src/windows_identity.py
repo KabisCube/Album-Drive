@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 from PIL import Image
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice, Qt
+from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QSaveFile, Qt
 
 from windows_taskbar import GUID
 
@@ -29,6 +29,11 @@ class VariantValue(ct.Union):
 
 class PropVariant(ct.Structure):
     _fields_ = [('type', ct.c_ushort), ('reserved', ct.c_ushort * 3), ('value', VariantValue)]
+
+
+class ShellFileInfo(ct.Structure):
+    _fields_ = [('icon', wt.HICON), ('index', ct.c_int), ('attributes', wt.DWORD),
+                ('display_name', wt.WCHAR * 260), ('type_name', wt.WCHAR * 80)]
 
 
 def check(result):
@@ -62,10 +67,21 @@ class WindowsIdentity:
     def __init__(self):
         self.shell = ct.WinDLL('shell32')
         self.ole = ct.WinDLL('ole32')
+        self.user = ct.WinDLL('user32', use_last_error=True)
+        self.user.LoadImageW.argtypes = [wt.HINSTANCE, wt.LPCWSTR, wt.UINT, ct.c_int, ct.c_int, wt.UINT]
+        self.user.LoadImageW.restype = wt.HANDLE
+        self.user.SendMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+        self.user.SendMessageW.restype = wt.LPARAM
+        self.user.DestroyIcon.argtypes = [wt.HICON]
+        self.user.DestroyIcon.restype = wt.BOOL
         self.shell.SHGetPropertyStoreForWindow.argtypes = [wt.HWND, ct.POINTER(GUID), ct.POINTER(ct.c_void_p)]
         self.shell.SHGetPropertyStoreForWindow.restype = ct.c_long
         self.shell.SHChangeNotify.argtypes = [ct.c_long, wt.UINT, wt.LPCWSTR, wt.LPCWSTR]
         self.shell.SHChangeNotify.restype = None
+        self.shell.SHGetFileInfoW.argtypes = [wt.LPCWSTR, wt.DWORD, ct.POINTER(ShellFileInfo), wt.UINT, wt.UINT]
+        self.shell.SHGetFileInfoW.restype = ct.c_size_t
+        self.shell.SHUpdateImageW.argtypes = [wt.LPCWSTR, ct.c_int, wt.UINT, ct.c_int]
+        self.shell.SHUpdateImageW.restype = None
         self.ole.CoCreateInstance.argtypes = [ct.POINTER(GUID), ct.c_void_p, wt.DWORD,
                                              ct.POINTER(GUID), ct.POINTER(ct.c_void_p)]
         self.ole.CoCreateInstance.restype = ct.c_long
@@ -74,10 +90,11 @@ class WindowsIdentity:
     def set_properties(self, store, values):
         for identity, text in values:
             key = PropertyKey(PROPERTY_FORMAT, identity)
-            buffer = ct.create_unicode_buffer(text)
             value = PropVariant()
-            value.type = 31
-            value.value.text = ct.cast(buffer, wt.LPWSTR)
+            if text is not None:
+                buffer = ct.create_unicode_buffer(text)
+                value.type = 31
+                value.value.text = ct.cast(buffer, wt.LPWSTR)
             check(call(store, 6, ct.byref(key), ct.byref(value),
                        types=(ct.POINTER(PropertyKey), ct.POINTER(PropVariant))))
 
@@ -100,6 +117,19 @@ class WindowsIdentity:
         with interface(pointer) as store:
             self.set_properties(store, ((2, subprocess.list2cmdline(command)), (4, 'Album Drive'),
                                         (3, f'{icon_path},0'), (5, APP_ID)))
+        icon = self.user.LoadImageW(None, str(icon_path), 1, 256, 256, 0x10)
+        if not icon:
+            raise ct.WinError(ct.get_last_error())
+        if not hasattr(window, '_theme_taskbar_icon'):
+            window._theme_taskbar_icon = ct.c_void_p()
+            handle = window._theme_taskbar_icon
+            window.destroyed.connect(lambda: self.user.DestroyIcon(handle))
+        previous = window._theme_taskbar_icon.value
+        window._theme_taskbar_icon.value = icon
+        for size in (1, 0):
+            self.user.SendMessageW(int(window.winId()), 0x80, size, icon)
+        if previous:
+            self.user.DestroyIcon(previous)
 
     def update_shortcut(self, path, icon_path):
         pointer = ct.c_void_p()
@@ -110,10 +140,11 @@ class WindowsIdentity:
             check(call(persist, 5, str(path), 0, types=(wt.LPCWSTR, wt.DWORD)))
             with interface(query(link, '886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99')) as store:
                 if self.get_app_id(store) != APP_ID:
-                    return
+                    return False
             check(call(link, 17, str(icon_path), 0, types=(wt.LPCWSTR, ct.c_int)))
             check(call(persist, 6, str(path), True, types=(wt.LPCWSTR, wt.BOOL)))
             self.shell.SHChangeNotify(0x2000, 0x2005, str(path), None)
+            return True
 
     def update(self, app):
         accent = app.property('themeIconAccent')
@@ -121,21 +152,35 @@ class WindowsIdentity:
             return
         directory = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'Album Drive' / 'icons'
         directory.mkdir(parents=True, exist_ok=True)
-        path = directory / f'theme-{accent.lstrip("#")}.ico'
-        if not path.is_file():
+        path = directory / 'theme.ico'
+        changed = app.property('taskbarIconAccent') != accent or not path.is_file()
+        if changed:
             data = QByteArray()
             buffer = QBuffer(data)
             buffer.open(QIODevice.WriteOnly)
             if not app.windowIcon().pixmap(256, 256).save(buffer, 'PNG'):
                 raise OSError('Cannot encode the application icon')
+            encoded = BytesIO()
             with Image.open(BytesIO(bytes(data))) as image:
-                image.save(path, format='ICO', sizes=[(size, size) for size in (16, 24, 32, 48, 64, 128, 256)])
+                image.save(encoded, format='ICO', sizes=[(size, size) for size in (16, 24, 32, 48, 64, 128, 256)])
+            output = QSaveFile(str(path))
+            contents = encoded.getvalue()
+            if (not output.open(QIODevice.WriteOnly) or output.write(contents) != len(contents)
+                    or not output.commit()):
+                raise OSError(f'Cannot save the application icon: {output.errorString()}')
         for window in app.topLevelWidgets():
             if window.windowType() == Qt.Window:
                 self.update_window(window, path)
+        if changed:
+            info = ShellFileInfo()
+            if not self.shell.SHGetFileInfoW(str(path), 0, ct.byref(info), ct.sizeof(info), 0x4000):
+                raise OSError('Cannot locate the taskbar icon in the Windows image cache')
+            self.shell.SHUpdateImageW(str(path), 0, 0, info.index)
+            self.shell.SHChangeNotify(0x2000, 0x1005, str(path), None)
+            app.setProperty('taskbarIconAccent', accent)
         roaming = Path(os.environ.get('APPDATA') or Path.home() / 'AppData' / 'Roaming')
-        pinned = roaming / 'Microsoft' / 'Internet Explorer' / 'Quick Launch' / 'User Pinned' / 'TaskBar'
-        for shortcut in pinned.glob('*.lnk'):
+        pinned_directory = roaming / 'Microsoft' / 'Internet Explorer' / 'Quick Launch' / 'User Pinned' / 'TaskBar'
+        for shortcut in pinned_directory.glob('*.lnk'):
             try:
                 self.update_shortcut(shortcut, path)
             except OSError:
