@@ -3,7 +3,8 @@
 
 Album Drive is a simple local music player that uses your folder structure instead of metadata to organize your music. It supports music folders and audio CDs in a CD/DVD drive.
 
-Albums are displayed in CD cases, using the cover image stored in each album's folder. By default, Album Drive changes its theme to match the album art. There are no playlists, accounts, or servers.
+Albums are displayed in CD cases, using the cover image stored in each album's folder. By default, Album Drive changes its theme to match the album art. If you find one you like, it can then be saved and used globally.
+
 
 ## Download
 
