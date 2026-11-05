@@ -1,0 +1,4 @@
+-r requirements.txt
+fonttools>=4.65,<5
+skia-pathops>=0.9,<1
+ttfautohint-py==0.6.1

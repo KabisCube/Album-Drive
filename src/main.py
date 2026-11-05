@@ -12,7 +12,7 @@ from collections import OrderedDict, deque
 from pathlib import Path
 
 from app_paths import ASSETS_DIR
-from font_support import font_families, load_handwriting_fonts, load_round_fallbacks
+from font_support import configure_font_rendering, font_families, load_handwriting_fonts, load_round_fallbacks
 
 from PySide6.QtCore import QDir, QEvent, QEasingCurve, QElapsedTimer, QFile, QIODevice, QLoggingCategory, QPoint, QPointF, QVariantAnimation, QRectF, QSettings, QSignalBlocker, QSize, Qt, QThread, QTimer, QUrl, Signal
 
@@ -111,7 +111,7 @@ def load_app_font():
         load_round_fallbacks()
         default_font = QFontDatabase.font(families[0], 'Bold', 10)
         default_font.setFamilies(font_families(families[0]))
-        default_font.setStyleStrategy(QFont.ContextFontMerging)
+        configure_font_rendering(default_font)
         app.setFont(default_font)
         marker_fonts = load_handwriting_fonts()
         app.setProperty('handwritingFonts', marker_fonts)
@@ -1362,7 +1362,7 @@ class PlayerWindow(QMainWindow):
         app.setProperty('uiFontFamily', family)
         interface_font = QFontDatabase.font(family, 'Bold' if ui_font_id.split('::')[0] == UI_FONT_DEFAULT else '', 10)
         interface_font.setFamilies(font_families(family))
-        interface_font.setStyleStrategy(QFont.ContextFontMerging)
+        configure_font_rendering(interface_font)
         if app.font() != interface_font:
             app.setFont(interface_font)
         app.setProperty('trackListFamily', family)

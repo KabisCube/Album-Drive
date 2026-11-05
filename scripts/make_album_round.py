@@ -1,13 +1,18 @@
 from pathlib import Path
+from io import BytesIO
 import math
 import unicodedata
 
+import pathops
 from fontTools.fontBuilder import FontBuilder
 from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+from fontTools.pens.cu2quPen import Cu2QuPen
+from fontTools.pens.transformPen import TransformPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from PIL import Image, ImageDraw, ImageFont
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainterPath, QPainterPathStroker, QTransform
+from ttfautohint import ttfautohint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,22 +55,63 @@ def dot(center, bottom):
     return ellipse(center - STROKE / 2, bottom, STROKE, STROKE)
 
 
+def draw_outline(outline, pen):
+    active = False
+    index = 0
+    while index < outline.elementCount():
+        element = outline.elementAt(index)
+        if element.isMoveTo():
+            if active:
+                pen.closePath()
+            pen.moveTo((element.x, element.y))
+            active = True
+        elif element.isLineTo():
+            pen.lineTo((element.x, element.y))
+        elif element.isCurveTo():
+            second = outline.elementAt(index + 1)
+            third = outline.elementAt(index + 2)
+            pen.curveTo((element.x, element.y), (second.x, second.y), (third.x, third.y))
+            index += 2
+        index += 1
+    if active:
+        pen.closePath()
+
+
+def merge_paths(*outlines):
+    merged = pathops.Path()
+    for outline in outlines:
+        if outline.isEmpty():
+            continue
+        current = pathops.Path()
+        draw_outline(outline, current.getPen())
+        merged = pathops.op(merged, current, pathops.PathOp.UNION, clockwise=True)
+    result = QPainterPath()
+    result.setFillRule(Qt.WindingFill)
+    for operation, points in merged.segments:
+        if operation == 'moveTo':
+            result.moveTo(*points[0])
+        elif operation == 'lineTo':
+            result.lineTo(*points[0])
+        elif operation == 'curveTo':
+            result.cubicTo(*(value for point in points for value in point))
+        elif operation == 'qCurveTo':
+            result.quadTo(*(value for point in points for value in point))
+        elif operation == 'closePath':
+            result.closeSubpath()
+    return result
+
+
 def ink(*paths, weight=STROKE):
     stroker = QPainterPathStroker()
     stroker.setWidth(weight)
     stroker.setCapStyle(Qt.RoundCap)
     stroker.setJoinStyle(Qt.RoundJoin)
-    result = QPainterPath()
-    for item in paths:
-        result = result.united(stroker.createStroke(item))
-    return result
+    return merge_paths(*(stroker.createStroke(item) for item in paths))
 
 
 def put(character, width, *paths, filled=False):
     if filled:
-        outline = QPainterPath()
-        for item in paths:
-            outline = outline.united(item)
+        outline = merge_paths(*paths)
     else:
         outline = ink(*paths)
     GLYPHS[character] = (width, outline)
@@ -221,7 +267,7 @@ def draw_accents():
             '\u0301': ink(line((center - 30, height - 30), (center + 80, height + 45)), weight=72),
             '\u0302': ink(line((center - 100, height - 25), (center, height + 45), (center + 100, height - 25)), weight=65),
             '\u0303': ink(path(('M', center - 110, height), ('C', center - 30, height + 95, center + 30, height - 95, center + 110, height)), weight=65),
-            '\u0308': dot(center - 105, height - 42).united(dot(center + 105, height - 42)),
+            '\u0308': merge_paths(dot(center - 105, height - 42), dot(center + 105, height - 42)),
             '\u030a': ink(ellipse(center - (STROKE - 48) / 2, height - 18, STROKE - 48, STROKE - 48), weight=48),
             '\u0327': ink(path(('M', center + 20, -25), ('L', center - 20, -95), ('C', center + 105, -75, center + 90, -205, center - 50, -175)), weight=55),
             '\u030c': ink(line((center - 100, height + 40), (center, height - 30), (center + 100, height + 40)), weight=65),
@@ -261,6 +307,7 @@ def draw_accents():
 
 
 def build_font():
+    GLYPHS.clear()
     draw_alphabet()
     draw_numbers()
     draw_symbols()
@@ -275,15 +322,8 @@ def build_font():
     for character, (width, outline) in {None: (650, missing), **GLYPHS}.items():
         name = '.notdef' if character is None else names[character]
         pen = TTGlyphPen(None)
-        transform = QTransform.fromScale(3, 3)
-        for polygon in outline.toSubpathPolygons(transform):
-            points = [(round(point.x() * GLYPH_SCALE / 3), round(point.y() * GLYPH_SCALE / 3)) for point in polygon]
-            points = [point for index, point in enumerate(points) if index == 0 or point != points[index - 1]]
-            if len(points) > 2:
-                pen.moveTo(points[0])
-                for point in points[1:]:
-                    pen.lineTo(point)
-                pen.closePath()
+        curves = Cu2QuPen(pen, 0.5)
+        draw_outline(outline, TransformPen(curves, (GLYPH_SCALE, 0, 0, GLYPH_SCALE, 0, 0)))
         outlines[name] = pen.glyph()
         spacing = LETTER_SPACING if character is not None and character.isalnum() else 0
         metrics[name] = (round((width + spacing) * GLYPH_SCALE), math.floor(outline.boundingRect().left() * GLYPH_SCALE) if not outline.isEmpty() else 0)
@@ -293,10 +333,10 @@ def build_font():
     builder.setupNameTable({
         'familyName': 'Album Round',
         'styleName': 'Bold',
-        'uniqueFontIdentifier': 'Album Drive:Album Round Bold:1.007',
+        'uniqueFontIdentifier': 'Album Drive:Album Round Bold:1.008',
         'fullName': 'Album Round Bold',
         'psName': 'AlbumRound-Bold',
-        'version': 'Version 1.007',
+        'version': 'Version 1.008',
         'manufacturer': 'Album Drive',
         'designer': 'Album Drive',
         'description': 'Original rounded geometric Latin display font, drawn from procedural paths.',
@@ -307,7 +347,7 @@ def build_font():
     builder.setupPost()
     builder.setupMaxp()
     builder.font['head'].macStyle = 1
-    builder.font['head'].fontRevision = 1.007
+    builder.font['head'].fontRevision = 1.008
     pairs = {
         'AV': -45, 'AW': -35, 'AY': -50, 'AT': -35, 'FA': -25,
         'LT': -25, 'LV': -30, 'LY': -35, 'PA': -30, 'TA': -35,
@@ -318,7 +358,10 @@ def build_font():
     rules = '\n'.join(f'pos {names[left]} {names[right]} {round(value * GLYPH_SCALE)};' for (left, right), value in pairs.items())
     addOpenTypeFeaturesFromString(builder.font, f'feature kern {{\n{rules}\n}} kern;')
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    builder.save(OUTPUT)
+    buffer = BytesIO()
+    builder.save(buffer)
+    OUTPUT.write_bytes(ttfautohint(in_buffer=buffer.getvalue(), no_info=True, increase_x_height=0,
+                                  windows_compatibility=True))
     return len(GLYPHS)
 
 

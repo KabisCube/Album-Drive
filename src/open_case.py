@@ -3,8 +3,8 @@
 from io import BytesIO
 import colorsys
 from PIL import Image
-from PySide6.QtCore import QEasingCurve, QPoint, QRect, QRectF, Qt, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform
+from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRect, QRectF, Qt, QVariantAnimation, Signal
+from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform
 from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QVBoxLayout, QWidget
 from themes import NUMERIC_DEFAULTS, corner_radius, round_stylesheet
 from font_support import font_family_css
@@ -114,23 +114,27 @@ class TrackNumberDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.TextAntialiasing)
         table = self.parent()
         painter.fillRect(option.rect, QColor(table.property('paperBackgroundColor') or '#f2efdf'))
         color = QColor(table.property('paperForegroundColor') or
                        QApplication.instance().property('paperTextColor') or '#24383f')
         center = QRectF(option.rect).center()
-        number = QPainterPath()
-        number.setFillRule(Qt.WindingFill)
-        number.addText(0, 0, option.font, str(index.data(Qt.DisplayRole) or ''))
-        bounds = number.boundingRect()
-        width, height = option.rect.width() - 24, option.rect.height() - 6
-        if bounds.width() > width or bounds.height() > height:
+        text = str(index.data(Qt.DisplayRole) or '')
+        font = QFont(option.font)
+        bounds = QFontMetricsF(font).tightBoundingRect(text)
+        width, height = max(1, option.rect.width() - 24), max(1, option.rect.height() - 6)
+        size = QFontInfo(font).pixelSize()
+        while size > 1 and (bounds.width() > width or bounds.height() > height):
             factor = min(width / max(1, bounds.width()), height / max(1, bounds.height()))
-            number = QTransform().scale(factor, factor).map(number)
-        bounds = number.boundingRect()
-        # Align visible ink to a fixed left inset, keeping the selection with it.
-        number.translate(option.rect.left() + 12 - bounds.left(), center.y() - bounds.center().y())
-        center = number.boundingRect().center()
+            size = max(1, min(size - 1, int(size * factor)))
+            font.setPixelSize(size)
+            bounds = QFontMetricsF(font).tightBoundingRect(text)
+        ratio = painter.device().devicePixelRatioF()
+        origin = QPointF(round((option.rect.left() + 12 - bounds.left()) * ratio) / ratio,
+                         round((center.y() - bounds.center().y()) * ratio) / ratio)
+        center = bounds.translated(origin).center()
+        painter.setFont(font)
         if option.state & QStyle.State_Selected:
             painter.setPen(QPen(color, 3))
             painter.setBrush(Qt.NoBrush)
@@ -150,9 +154,8 @@ class TrackNumberDelegate(QStyledItemDelegate):
             painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             painter.drawPath(triangle)
         else:
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(color)
-            painter.drawPath(number)
+            painter.setPen(color)
+            painter.drawText(origin, text)
         painter.restore()
 
 

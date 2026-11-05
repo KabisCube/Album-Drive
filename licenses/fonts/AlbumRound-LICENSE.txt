@@ -4,8 +4,9 @@ Original procedural font outlines for Album Drive, 2026.
 Distributed under GNU GPL version 3; see the repository's LICENSE file.
 The generator draws its own paths and does not read or modify another font.
 
-Coverage: 294 characters, including printable ASCII, selected accented Latin
+Coverage: 298 characters, including printable ASCII, selected accented Latin
 letters, Swedish letters, punctuation, currency signs, arrows, and a music note.
-One bold weight. No Japanese glyphs, italic style, or manual hinting.
+One bold weight, curved TrueType outlines, and automatic hinting generated with
+ttfautohint. No Japanese glyphs or italic style.
 
 

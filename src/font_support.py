@@ -1,9 +1,15 @@
 import logging
 
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 from app_paths import ASSETS_DIR, HANDWRITING_FONTS_DIR
+
+
+def configure_font_rendering(font):
+    font.setStyleStrategy(QFont.ContextFontMerging | QFont.PreferAntialias)
+    font.setHintingPreference(QFont.PreferNoHinting if font.family() == 'Album Round'
+                              else QFont.PreferDefaultHinting)
 
 
 def load_handwriting_fonts():
