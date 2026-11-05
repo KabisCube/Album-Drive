@@ -26,20 +26,6 @@ Playback support depends on the bundled Qt/FFmpeg backend and the individual fil
 
 Unexpected Python errors are recorded in `logs/errors.log` beside the app. Native crash details are recorded in `logs/crash.log`. If that folder is not writable, logs use the operating system's local app-data folder instead. If you run into bugs, please file a bug report with relevant crash and error logs.
 
-## Project layout
-
-| Folder | Contents |
-| --- | --- |
-| `src/` | Application code |
-| `assets/` | Fonts, icons, and sounds |
-| `scripts/` | Build tools, asset generators, and the test runner |
-| `packaging/` | PyInstaller build specification |
-| `tests/` | Unit tests |
-| `tests/checks/` | UI and integration checks |
-| `licenses/` | Bundled third-party license texts and notices |
-| `build/` | Generated files and previews |
-| `dist/` | Packaged releases |
-| `logs/` | Runtime logs |
 
 
 ## licenses
