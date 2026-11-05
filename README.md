@@ -10,7 +10,7 @@ Albums are displayed in CD cases, using the cover image stored in each album's f
 
 [Download Album Drive from GitHub Releases](https://github.com/KabisCube/Album-Drive/releases).
 
-Release packages include a `licenses/` folder with dependency and font notices.
+Release packages include a `licenses/` folder with dependency and font notices, plus an editable `fonts/handwriting/` folder beside the executable.
 
 ## Requirements
 
@@ -108,20 +108,10 @@ Run all UI checks:
 python scripts/test.py --checks
 ```
 
-## Font credits
-
-Thanks to the designers who made these fonts available. These third-party fonts use the SIL Open Font License 1.1 and retain their own notices.
-
-| Font | Creator | License or notice |
+## licenses
+| Font | Use | License or notice |
 | --- | --- | --- |
-| [Barato](https://www.behance.net/eddy_dsgn) | Edson Silva (eddy.dsgn) | [OFL license](licenses/fonts/handwriting/barato/OFL.txt); [notice](licenses/fonts/handwriting/barato/readme.txt) |
-| [Elatox](https://ggbot.itch.io/elatox-font), regular and italic | GGBotNet | [License](licenses/fonts/handwriting/elatox/License.txt) |
-| [Mistral SingleLine Outline](https://github.com/isdat-type/Mistral-SingleLine) | Francois Chastanet, Elisa Garzelli, Anais Alves and Morgane Autin; isdaT-type | [License](licenses/fonts/handwriting/mistral_singleline/OFL.txt) |
-| [TMT Caffeine](https://toomuchtype.com/), Regular and Scrabble | Gabriel Drozdov / Too Much Type | [License](licenses/fonts/handwriting/TMT_caffeine/license.txt) |
-| [Resource Han Rounded SC Bold](https://github.com/CyanoHao/Resource-Han-Rounded) | Cyano Hao, with portions by Adobe | [License](licenses/fonts/cjk/ResourceHanRounded-LICENSE.txt) |
+| Album Round Bold | Main interface; original for Album Drive | [GPLv3 notice](licenses/fonts/AlbumRound-LICENSE.txt) |
+| Album Marker 01–03 | Handwritten sleeves; original for Album Drive | [GPL-3.0-or-later notice](licenses/fonts/handwriting/AlbumMarker-LICENSE.txt) |
+| [Resource Han Rounded SC Bold](https://github.com/CyanoHao/Resource-Han-Rounded) | Japanese, Korean, and Chinese fallback; Cyano Hao, with portions by Adobe | [SIL Open Font License 1.1](licenses/fonts/cjk/ResourceHanRounded-LICENSE.txt) |
 
-Mistral SingleLine is based on Roger Excoffon's Mistral.
-
-Album Round is the project's original font, distributed under [GPLv3](LICENSE). Its notice is in [AlbumRound-LICENSE.txt](licenses/fonts/AlbumRound-LICENSE.txt).
-
-Album Round uses bundled Resource Han Rounded Bold glyphs for Japanese, Korean, and Chinese text. The fonts work offline and retain their separate licenses in `licenses/fonts/`. Other scripts use fonts available on the operating system.

@@ -12,7 +12,7 @@ from collections import OrderedDict, deque
 from pathlib import Path
 
 from app_paths import ASSETS_DIR
-from font_support import font_families, load_round_fallbacks
+from font_support import font_families, load_handwriting_fonts, load_round_fallbacks
 
 from PySide6.QtCore import QDir, QEvent, QEasingCurve, QElapsedTimer, QFile, QIODevice, QLoggingCategory, QPoint, QPointF, QVariantAnimation, QRectF, QSettings, QSignalBlocker, QSize, Qt, QThread, QTimer, QUrl, Signal
 
@@ -113,22 +113,13 @@ def load_app_font():
         default_font.setFamilies(font_families(families[0]))
         default_font.setStyleStrategy(QFont.ContextFontMerging)
         app.setFont(default_font)
-        app.setProperty('handwritingFamily', 'cursive')
-        marker_fonts = []
-        marker_root = path.parent / 'handwriting'
-        for font_path in sorted(marker_root.rglob('*')):
-            if font_path.suffix.lower() not in {'.ttf', '.otf', '.ttc'}:
-                continue
-            marker_id = QFontDatabase.addApplicationFont(str(font_path))
-            for family in QFontDatabase.applicationFontFamilies(marker_id):
-                styles = QFontDatabase.styles(family)
-                marker_fonts.append({'id': font_path.relative_to(marker_root).as_posix(),
-                                     'family': family, 'style': styles[0] if styles else ''})
+        marker_fonts = load_handwriting_fonts()
         app.setProperty('handwritingFonts', marker_fonts)
+        app.setProperty('handwritingFamily', marker_fonts[0]['family'] if marker_fonts else families[0])
         app.setProperty('trackListFamily', families[0])
         catalog = []
         for font_path in sorted(path.parent.rglob('*')):
-            if 'cjk' in font_path.relative_to(path.parent).parts:
+            if font_path.relative_to(path.parent).parts[0] in {'cjk', 'handwriting'}:
                 continue
             if font_path.suffix.lower() not in {'.otf', '.ttf', '.ttc'}:
                 continue
@@ -139,6 +130,8 @@ def load_app_font():
                 if len(bundled_families) > 1:
                     identity += '::' + family
                 catalog.append({'id': identity, 'name': font_path.name, 'family': family})
+        catalog.extend({'id': 'handwriting/' + font['id'], 'name': font['name'], 'family': font['family']}
+                       for font in marker_fonts)
         app.setProperty('availableFonts', catalog)
         app.setProperty('playerFontLoaded', True)
     else:

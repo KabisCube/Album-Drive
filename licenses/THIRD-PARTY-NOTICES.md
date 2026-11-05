@@ -2,6 +2,10 @@
 
 Album Drive is distributed under GPL-3.0-or-later; see `../LICENSE` or `AlbumDrive-GPL-3.0.txt` in packaged builds. Bundled fonts keep their own licenses, collected under `fonts/`.
 
+Album Round Bold and Album Marker 01–04 are original Album Drive fonts. Their notices are in `fonts/AlbumRound-LICENSE.txt` and `fonts/handwriting/AlbumMarker-LICENSE.txt`. 
+
+The bundled Resource Han Rounded SC Bold fallback is by Cyano Hao, with portions by Adobe, under the SIL Open Font License 1.1. Its license and attribution are in `fonts/cjk/`.
+
 The Windows and Linux packages include these runtime components:
 
 | Component | License information |

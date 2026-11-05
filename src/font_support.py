@@ -1,7 +1,29 @@
+import logging
+
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication
 
-from app_paths import ASSETS_DIR
+from app_paths import ASSETS_DIR, HANDWRITING_FONTS_DIR
+
+
+def load_handwriting_fonts():
+    fonts = []
+    for path in sorted(HANDWRITING_FONTS_DIR.rglob('*')):
+        if not path.is_file() or path.suffix.lower() not in {'.ttf', '.otf', '.ttc', '.otc'}:
+            continue
+        font_id = QFontDatabase.addApplicationFont(str(path))
+        if font_id < 0:
+            logging.warning('Unable to load handwriting font: %s', path)
+            continue
+        families = QFontDatabase.applicationFontFamilies(font_id)
+        for family in families:
+            identity = path.relative_to(HANDWRITING_FONTS_DIR).as_posix()
+            if len(families) > 1:
+                identity += '::' + family
+            styles = QFontDatabase.styles(family)
+            fonts.append({'id': identity, 'name': path.name, 'family': family,
+                          'style': styles[0] if styles else ''})
+    return fonts
 
 
 def load_round_fallbacks():

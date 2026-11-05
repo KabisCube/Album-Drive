@@ -8,7 +8,9 @@ a = Analysis(
     [str(root / 'src' / 'main.py')],
     pathex=[str(root / 'src')],
     binaries=[],
-    datas=[(str(root / 'assets'), 'assets')],
+    datas=[(str(asset), str(Path('assets') / asset.relative_to(root / 'assets').parent))
+           for asset in sorted((root / 'assets').rglob('*'))
+           if asset.is_file() and not asset.is_relative_to(root / 'assets' / 'fonts' / 'handwriting')],
     hiddenimports=[],
     hookspath=[],
     runtime_hooks=[],

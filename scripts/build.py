@@ -13,8 +13,12 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 
 def copy_license_bundle(root, release):
-    target = release / 'licenses'
-    shutil.copytree(root / 'licenses', target, dirs_exist_ok=True)
+    target = release.resolve() / 'licenses'
+    if target.resolve().parent != release.resolve():
+        raise ValueError('License directory must stay inside the release folder')
+    if target.is_dir():
+        shutil.rmtree(target)
+    shutil.copytree(root / 'licenses', target)
     shutil.copy2(root / 'LICENSE', target / 'AlbumDrive-GPL-3.0.txt')
     runtime = target / 'runtime'
     runtime.mkdir(exist_ok=True)
@@ -37,6 +41,12 @@ def copy_license_bundle(root, release):
         'backend under LGPLv2.1-or-later and other permissive licenses. Exact third-party '
         'attributions and license terms: https://doc.qt.io/qt-6/licenses-used-in-qt.html '
         'Qt licensing: https://doc.qt.io/qt-6/licensing.html\n', encoding='utf-8')
+
+
+def copy_handwriting_fonts(root, release):
+    target = release / 'fonts' / 'handwriting'
+    if not target.exists():
+        shutil.copytree(root / 'assets' / 'fonts' / 'handwriting', target)
 
 
 def main():
@@ -70,12 +80,15 @@ def main():
             shutil.copytree(previous / 'themes', release / 'themes')
         if (previous / 'settings.ini').is_file():
             shutil.copy2(previous / 'settings.ini', release / 'settings.ini')
+        if (previous / 'fonts').is_dir():
+            shutil.copytree(previous / 'fonts', release / 'fonts')
         shutil.copy2(native / binary, release / binary)
         print('Existing executable is locked; the update has its own folder and a copy of your themes.')
     shutil.copy2(root / 'README.md', release / 'README.md')
     shutil.copy2(root / 'LICENSE', release / 'LICENSE.txt')
     (release / 'LICENSE').unlink(missing_ok=True)
     copy_license_bundle(root, release)
+    copy_handwriting_fonts(root, release)
     themes = release / 'themes'
     themes.mkdir(exist_ok=True)
     default_settings = '[General]\n'
@@ -88,6 +101,7 @@ def main():
         os.chmod(release / 'AlbumDrive', 0o755)
     contents = [release / binary, release / 'README.md', release / 'LICENSE.txt']
     contents.extend(sorted((release / 'licenses').rglob('*')))
+    contents.extend(sorted((release / 'fonts').rglob('*')))
     contents = [item for item in contents if item.is_file()]
     if sys.platform == 'win32':
         archive = root / 'dist' / f'{name}.zip'
