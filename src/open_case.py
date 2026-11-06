@@ -6,7 +6,7 @@ from PIL import Image
 from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRect, QRectF, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform
 from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QVBoxLayout, QWidget
-from themes import NUMERIC_DEFAULTS, corner_radius, round_stylesheet
+from themes import NUMERIC_DEFAULTS, button_paint_rect, control_face, paint_control
 from font_support import font_family_css
 from shiboken6 import isValid
 from case_shell import paint_cd_case, fitted_case_rect
@@ -190,6 +190,14 @@ class CaseFront(QWidget):
         paint_cd_case(painter, self, target, self.pixmap, self.sheen_key, visible=lighting, shadow=True)
 
 
+class TrackListBackground(QWidget):
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        background = QColor(self.property('paperBackgroundColor') or '#f2efdf')
+        paint_control(painter, self, button_paint_rect(self), background)
+
+
 class AlbumPresentation(QWidget):
     dismissed = Signal()
 
@@ -205,10 +213,10 @@ class AlbumPresentation(QWidget):
         self.paper_button_color = None
         self.paper_background_accent_color = None
         self.uses_global_text = True
-        self.booklet = QWidget(self)
+        self.booklet = TrackListBackground(self)
         self.booklet.setObjectName('booklet')
         self.booklet_style = '''
-            QWidget#booklet { background: #f2efdf; border: 1px solid #c4c5bb; border-radius: 12px; }
+            QWidget#booklet { background: transparent; border: none; }
             QWidget#booklet QTableWidget { background: #f2efdf; color: #24383f;
                 alternate-background-color: #f2efdf; border: none; }
             QWidget#booklet QHeaderView::section { background: #dedfd2; color: #24383f; padding: 5px; }
@@ -268,7 +276,6 @@ class AlbumPresentation(QWidget):
 
     def update_theme(self):
         app = QApplication.instance()
-        amount = app.property('cornerRoundness')
         families = font_family_css(str(app.property('trackListFamily') or app.font().family()))
         background = self.paper_background or QColor('#f2efdf')
         preferred = self.artwork_text_color or QColor(app.property('paperTextColor') or '#24383f')
@@ -276,10 +283,12 @@ class AlbumPresentation(QWidget):
                       else readable_paper_text(background, preferred, self.paper_palette))
         style = self.booklet_style.replace('#f2efdf', background.name()).replace('#24383f', foreground.name())
         if self.paper_background is not None:
-            style = style.replace('#c4c5bb', background.darker(115).name()).replace('#dedfd2', background.name())
+            style = style.replace('#dedfd2', background.name())
         size = app.property('trackListFontSize') or NUMERIC_DEFAULTS['track_list_font_size']
         style += f'QTableWidget {{ font-family: {families}; font-size: {size}px; font-weight: normal; font-style: normal; }}'
-        self.booklet.setStyleSheet(round_stylesheet(style, 100 if amount is None else amount))
+        self.booklet.setStyleSheet(style)
+        self.booklet.setProperty('paperBackgroundColor', background.name())
+        self.booklet.update()
         if hasattr(self, 'table'):
             self.table.setProperty('paperBackgroundColor', background.name())
             self.table.setProperty('paperForegroundColor', foreground.name())
@@ -340,22 +349,14 @@ class AlbumPresentation(QWidget):
         # This also hides it through the transparent margins of the case image.
         cut = max(0, min(self.booklet.width(), round(front_rect.right() - 8 - paper_x)))
         self.booklet.setVisible(cut < self.booklet.width())
-        paper_shape = QPainterPath()
-        radius = corner_radius(12, self.booklet.width(), self.booklet.height())
-        paper_shape.addRoundedRect(QRectF(self.booklet.rect()), radius, radius)
-        paper_mask = QRegion(paper_shape.toFillPolygon().toPolygon())
+        face = control_face(button_paint_rect(self.booklet), widget=self.booklet)
+        self.booklet.layout().setContentsMargins(
+            round(face.left() + 16), round(face.top() + 16),
+            round(self.booklet.width() - face.right() + 16),
+            round(self.booklet.height() - face.bottom() + 14))
         if cut > 0:
-            paper_mask &= QRegion(QRect(cut, 0, self.booklet.width() - cut, self.booklet.height()))
-        self.booklet.setMask(paper_mask)
+            self.booklet.setMask(QRegion(QRect(cut, 0, self.booklet.width() - cut, self.booklet.height())))
+        else:
+            self.booklet.clearMask()
         self.front.update()
         self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, round(24 * self.progress)))
-        paper = QRectF(self.booklet.geometry())
-        painter.setClipRect(QRectF(self.front.geometry().right() - 8, 0, self.width(), self.height()))
-        painter.setRenderHint(QPainter.Antialiasing)
-        radius = corner_radius(12, paper.width(), paper.height())
-        painter.drawRoundedRect(paper.translated(3, 5), radius, radius)

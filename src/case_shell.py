@@ -12,7 +12,8 @@ from themes import control_body, control_offset, control_property, control_shado
 
 
 CASE_DEPTH = 6
-CASE_SHADOW_ENABLED = False
+CASE_SHADOW_ENABLED = True
+CASE_SHADOW_DEPTH = 8
 CASE_RADIUS = 2.4
 CASE_COLOR = '#dddddd'
 CASE_COLORS = (
@@ -54,7 +55,8 @@ def paint_live_frame(painter, target, color):
 
 
 def fitted_case_rect(rect):
-    available = QRectF(rect).adjusted(CASE_DEPTH, CASE_DEPTH, -CASE_DEPTH, 0)
+    shadow = control_shadow(CASE_SHADOW_DEPTH)
+    available = QRectF(rect).adjusted(CASE_DEPTH - shadow.x(), CASE_DEPTH, -CASE_DEPTH, -shadow.y())
     size = QSizeF(CASE_WIDTH, CASE_HEIGHT).scaled(available.size(), Qt.KeepAspectRatio)
     target = QRectF(QPointF(), size)
     target.moveCenter(available.center())
@@ -74,7 +76,7 @@ def paint_cd_case(painter, widget, rect, pixmap, key='', angle=0, visible=None, 
     painter.translate(-rect.center())
     geometry = tuple(round(value, 3) for value in
                      (face.width(), face.height(), CASE_RADIUS * min(scale_x, scale_y), offset.x(), offset.y()))
-    shadow_offset = QTransform().rotate(-angle).map(control_shadow(CASE_DEPTH))
+    shadow_offset = QTransform().rotate(-angle).map(control_shadow(CASE_SHADOW_DEPTH))
     if CASE_SHADOW_ENABLED and shadow and not shadow_offset.isNull():
         footprint = control_shadow_body(*geometry, round(shadow_offset.x(), 3), round(shadow_offset.y(), 3))
         painter.fillPath(footprint.translated(face.topLeft()), QColor(0, 0, 0, 65))

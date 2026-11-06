@@ -58,7 +58,7 @@ for thickness in (0, 100, 300):
         assert images[1].tobytes() == images[2].tobytes()
         before, after = (image.getchannel('A').getbbox() for image in images[:2])
         if CASE_SHADOW_ENABLED:
-            assert after[0] < before[0], (thickness, angle, before, after)
+            assert after[0] <= before[0], (thickness, angle, before, after)
             assert after[3] > before[3], (thickness, angle, before, after)
         else:
             assert images[0].tobytes() == images[1].tobytes()

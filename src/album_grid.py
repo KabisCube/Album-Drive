@@ -8,7 +8,7 @@ from PySide6.QtCore import QEasingCurve, QMimeData, QPoint, QPointF, QRectF, QSi
 from PySide6.QtGui import QCursor, QDrag, QPainter, QPixmap, QTransform
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QStyledItemDelegate
 from themes import CLEANING_DEFAULT, NUMERIC_DEFAULTS, control_offset, control_shadow
-from case_shell import CASE_DEPTH, paint_cd_case
+from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, paint_cd_case
 from case_geometry import CASE_WIDTH, CASE_HEIGHT
 from scroll_shadows import ScrollEdgeFade as AlbumEdgeFade
 
@@ -45,7 +45,7 @@ class AlbumGrid(QListWidget):
         bounds.translate(rect.center())
         depth_offset = QTransform().rotate(angle).map(-control_offset(self.viewport(), rect, CASE_DEPTH))
         bounds = bounds.united(bounds.translated(depth_offset))
-        bounds = bounds.united(bounds.translated(control_shadow(CASE_DEPTH)))
+        bounds = bounds.united(bounds.translated(control_shadow(CASE_SHADOW_DEPTH)))
         # Protect the edges of the whole album grid, not the moving viewport.
         # All cases must translate by exactly the scroll distance, even when
         # their tilt would otherwise extend past the visible bottom edge.
@@ -68,7 +68,7 @@ class AlbumGrid(QListWidget):
             bounds.translate(center)
             depth_offset = QTransform().rotate(angle).map(-control_offset(self.viewport(), rect, CASE_DEPTH))
             bounds = bounds.united(bounds.translated(depth_offset))
-            bounds = bounds.united(bounds.translated(control_shadow(CASE_DEPTH)))
+            bounds = bounds.united(bounds.translated(control_shadow(CASE_SHADOW_DEPTH)))
         dx = dy = 0
         if fits_x:
             dx = max(0, viewport.left() - bounds.left()) - max(0, bounds.right() - viewport.right())
@@ -520,7 +520,7 @@ class AlbumGrid(QListWidget):
         bounds = QTransform().rotate(angle).mapRect(QRectF(-rect.width()/2, -rect.height()/2, rect.width(), rect.height()))
         depth_offset = QTransform().rotate(angle).map(-control_offset(self.viewport(), rect, CASE_DEPTH))
         bounds = bounds.united(bounds.translated(depth_offset))
-        bounds = bounds.united(bounds.translated(control_shadow(CASE_DEPTH)))
+        bounds = bounds.united(bounds.translated(control_shadow(CASE_SHADOW_DEPTH)))
         bounds = bounds.adjusted(-2, -2, 2, 2)
         ratio = self.devicePixelRatioF()
         preview = QPixmap(math.ceil(bounds.width() * ratio), math.ceil(bounds.height() * ratio))
