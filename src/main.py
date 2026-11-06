@@ -37,6 +37,7 @@ from status_bar import FadingStatusBar
 from metadata_editor import MetadataEditor
 from album_grid import AlbumGrid
 from open_case import AlbumPresentation, PLAYING_ROLE
+from overflow_controls import OverflowControls
 from themes import signed_setting_int, resolve_font, THEME_DEFAULT, ALBUM_SORT_DEFAULT, VOLUME_DEFAULT, BUILDING_GRAY, GRASS_GREEN, TIMELINE_COLOR, CLEANING_DEFAULT, COLOR_SETTINGS, NUMERIC_DEFAULTS, ChunkyBrand, ThemedButton as QPushButton, ThemedComboBox, ThemeSlider, accent_knob, chunky_style, corner_radius, draw_centered_text, round_stylesheet, text_style
 from theme_settings import ThemeSettingsDialog, capture_color_theme, custom_color_settings, saved_color_themes
 from theme_transition import ThemeTransition
@@ -1094,14 +1095,10 @@ class PlayerWindow(QMainWindow):
         library.setGraphicsEffect(self.library_opacity)
         content = QVBoxLayout(library)
         content.setContentsMargins(0, 0, 0, 0)
-        header = QHBoxLayout()
-        heading_column = QVBoxLayout()
-        heading_column.setSpacing(0)
         self.count_label = QLabel('No folder selected')
         self.count_label.setObjectName('muted')
-        heading_column.addWidget(self.count_label)
-        header.addLayout(heading_column)
-        header.addStretch()
+        self.album_header = OverflowControls(self.count_label)
+        header = self.album_header.controls
         self.album_scale_control = QWidget()
         self.album_scale_control.setStyleSheet('background: transparent;')
         self.album_scale_control.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
@@ -1160,7 +1157,7 @@ class PlayerWindow(QMainWindow):
             control.setGraphicsEffect(opacity)
             self.album_header_opacities.append(opacity)
         # Keep the header accessible above both the grid and the track overlay.
-        library_layout.addLayout(header)
+        library_layout.addWidget(self.album_header)
         library_layout.addWidget(self.library_pages, 1)
         self.grid = AlbumGrid()
         self.grid.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -1747,6 +1744,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         super().resizeEvent(event)
         if hasattr(self, 'theme_toast') and self.theme_toast.isVisible():
             self.position_theme_toast()
+        if hasattr(self, 'album_presentation'):
+            self.album_presentation.arrange()
 
     def eventFilter(self, watched, event):
         if event.type() in (QEvent.Wheel, QEvent.MouseButtonPress, QEvent.KeyPress):
@@ -1767,6 +1766,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             button.setFixedWidth(round(width * scale) + 2 * CONTROL_HEADROOM)
         self.album_scale_control.setMinimumWidth(self.album_scale_control.minimumSizeHint().width())
         self.sort_albums.setFixedHeight(self.sort_albums.sizeHint().height())
+        self.album_header.refresh()
         self.album_presentation.arrange()
 
     def refresh_audio_output(self):

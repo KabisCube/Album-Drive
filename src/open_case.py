@@ -3,7 +3,7 @@
 from io import BytesIO
 import colorsys
 from PIL import Image
-from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRect, QRectF, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRectF, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform
 from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QVBoxLayout, QWidget
 from themes import NUMERIC_DEFAULTS, button_paint_rect, control_face, paint_control
@@ -14,6 +14,11 @@ from case_geometry import CASE_WIDTH, CASE_HEIGHT
 from color_rules import artwork_text_color, color_contrast, comfortable_color
 
 PLAYING_ROLE = Qt.UserRole + 1
+PORTRAIT_ASPECT_RATIO = 1.1
+
+
+def lerp_rect(start, end, amount):
+    return QRectF(*(first + (second - first) * amount for first, second in zip(start.getRect(), end.getRect())))
 
 
 def artwork_palette(artwork, colors=8, minimum=.025):
@@ -245,6 +250,12 @@ class AlbumPresentation(QWidget):
         self.animation.setEasingCurve(QEasingCurve.OutCubic)
         self.animation.valueChanged.connect(self.advance)
         self.animation.finished.connect(self.finish)
+        self.portrait_mix = None
+        self.portrait_target = None
+        self.layout_animation = QVariantAnimation(self)
+        self.layout_animation.setDuration(350)
+        self.layout_animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self.layout_animation.valueChanged.connect(self.advance_layout)
         self.update_theme()
 
     def reveal(self, front):
@@ -261,6 +272,10 @@ class AlbumPresentation(QWidget):
 
     def finish(self):
         self.advance(1.0)
+
+    def advance_layout(self, amount):
+        self.portrait_mix = float(amount)
+        self.arrange()
 
     def set_artwork(self, artwork, theme_colors=None):
         self.paper_palette = tuple(comfortable_color(color) for color in artwork_palette(artwork))
@@ -310,6 +325,7 @@ class AlbumPresentation(QWidget):
 
     def hideEvent(self, event):
         self.animation.stop()
+        self.layout_animation.stop()
         self.finish()
         super().hideEvent(event)
 
@@ -326,35 +342,71 @@ class AlbumPresentation(QWidget):
         else:
             super().mouseReleaseEvent(event)
 
-    def arrange(self):
+    def layout_rects(self, portrait):
         width = max(1, min(self.width() - 20, 1200))
         available_height = max(1, self.height() - 16)
-        case_width = min(width * .55, available_height * CASE_WIDTH / CASE_HEIGHT, 640)
-        case_height = case_width * CASE_HEIGHT / CASE_WIDTH
-        paper_width = min(width - case_width + 8, case_width * .9)
-        paper_height = case_height * .84
-        top = 8 + (available_height - paper_height) / 2
-        left = (self.width() - case_width - paper_width + 8) / 2
         scale = .94 + .06 * self.progress
-        front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
-        front_rect.moveCenter(QRectF(left, top, case_width, paper_height).center())
+        if portrait:
+            case_width = min(width - 12, available_height * .52 * CASE_WIDTH / CASE_HEIGHT, 640)
+            case_height = case_width * CASE_HEIGHT / CASE_WIDTH
+            paper_width = case_width
+            paper_height = max(1, available_height - case_height - 8)
+            left = (self.width() - case_width) / 2
+            top = 8
+            front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
+            front_rect.moveCenter(QRectF(left, top, case_width, case_height).center())
+            start = top + case_height - paper_height - 24
+            finish = top + case_height + 4
+            paper_y = start + (finish - start) * self.progress
+            paper_rect = QRectF(left, paper_y, paper_width, paper_height)
+        else:
+            case_width = min(width * .55, available_height * CASE_WIDTH / CASE_HEIGHT, 640)
+            case_height = case_width * CASE_HEIGHT / CASE_WIDTH
+            paper_width = min(width - case_width + 8, case_width * .9)
+            paper_height = case_height * .84
+            top = 8 + (available_height - paper_height) / 2
+            left = (self.width() - case_width - paper_width + 8) / 2
+            front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
+            front_rect.moveCenter(QRectF(left, top, case_width, paper_height).center())
+            start = left + case_width - paper_width - 24
+            finish = left + case_width - 8
+            paper_x = start + (finish - start) * self.progress
+            paper_rect = QRectF(paper_x, top, paper_width, paper_height)
         front_rect.translate(0, 6 * (1 - self.progress) - 4 * self.progress)
+        extent = paper_rect.height() if portrait else paper_rect.width()
+        edge = front_rect.bottom() - paper_rect.y() if portrait else front_rect.right() - paper_rect.x()
+        cut = max(0, min(extent, edge - 8))
+        visible = (QRectF(0, cut, paper_width, paper_height - cut) if portrait else
+                   QRectF(cut, 0, paper_width - cut, paper_height))
+        return front_rect, paper_rect, visible
+
+    def arrange(self):
+        window = self.window().frameGeometry()
+        target = float(window.width() < window.height() * PORTRAIT_ASPECT_RATIO)
+        if self.portrait_mix is None or not self.isVisible():
+            self.layout_animation.stop()
+            self.portrait_mix = self.portrait_target = target
+        elif target != self.portrait_target:
+            self.portrait_target = target
+            self.layout_animation.stop()
+            self.layout_animation.setStartValue(self.portrait_mix)
+            self.layout_animation.setEndValue(target)
+            self.layout_animation.start()
+        if self.portrait_mix in (0, 1):
+            front_rect, paper_rect, visible = self.layout_rects(bool(self.portrait_mix))
+        else:
+            front_rect, paper_rect, visible = (lerp_rect(start, end, self.portrait_mix) for start, end in
+                                               zip(self.layout_rects(False), self.layout_rects(True)))
         self.front.setGeometry(front_rect.toRect())
-        start = left + case_width - paper_width - 24
-        finish = left + case_width - 8
-        paper_x = start + (finish - start) * self.progress
-        self.booklet.setGeometry(round(paper_x), round(top), round(paper_width), round(paper_height))
-        # Reveal only the paper that has actually passed the case's right edge.
-        # This also hides it through the transparent margins of the case image.
-        cut = max(0, min(self.booklet.width(), round(front_rect.right() - 8 - paper_x)))
-        self.booklet.setVisible(cut < self.booklet.width())
+        self.booklet.setGeometry(paper_rect.toRect())
+        self.booklet.setVisible(self.progress > 0 and not visible.isEmpty())
         face = control_face(button_paint_rect(self.booklet), widget=self.booklet)
         self.booklet.layout().setContentsMargins(
             round(face.left() + 16), round(face.top() + 16),
             round(self.booklet.width() - face.right() + 16),
             round(self.booklet.height() - face.bottom() + 14))
-        if cut > 0:
-            self.booklet.setMask(QRegion(QRect(cut, 0, self.booklet.width() - cut, self.booklet.height())))
+        if not visible.isEmpty() and (visible.left() > 0 or visible.top() > 0):
+            self.booklet.setMask(QRegion(visible.toAlignedRect()))
         else:
             self.booklet.clearMask()
         self.front.update()
