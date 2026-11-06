@@ -152,8 +152,8 @@ def resolve_font(fonts, identity):
 def text_style():
     app = QApplication.instance()
     colors = {prop: app.property(prop) or default for _, _, _, prop, default in COLOR_SETTINGS}
-    disabled_text = QColor(colors['textColor'])
-    disabled_title = QColor(colors['textColor'])
+    disabled_text = disabled_text_color(colors['textColor'])
+    disabled_title = disabled_text_color(colors['textColor'])
     sizes = {key: int(app.property(''.join([key.split('_')[0]] + [word.title() for word in key.split('_')[1:]])) or default)
              for key, default in NUMERIC_DEFAULTS.items() if key.endswith('_font_size')}
     scale = button_scale()
@@ -308,6 +308,8 @@ def control_shadow(depth=None):
 
 
 def paint_control(painter, widget, rect, color, pressed=False, depth=None, rounding=None, shadow=True):
+    if isinstance(widget, QWidget) and not widget.isEnabled():
+        color = disabled_text_color(color)
     depth = ui_depth() if depth is None else depth
     raised = control_face(rect, widget=widget, depth=depth)
     face = control_face(rect, pressed, widget, depth)
@@ -407,7 +409,9 @@ class ThemeSaveIcon(QIconEngine):
 
     def paint(self, painter, rect, mode, state):
         app = QApplication.instance()
-        color = app.property('disabledTextColor' if mode == QIcon.Disabled else 'buttonIconColor') or '#101010'
+        color = QColor(app.property('buttonIconColor') or '#101010')
+        if mode == QIcon.Disabled:
+            color = disabled_text_color(color)
         if app.property('playerTheme') == 'classic':
             color = button_text_color(app.property('buttonFill') or '#cccccc', mode != QIcon.Disabled)
         painter.save()
@@ -469,7 +473,8 @@ class KnobIcon(QIconEngine):
         canvas = QRectF(0, 0, face_size + 2 * CONTROL_HEADROOM, face_size + CONTROL_HEADROOM)
         canvas.moveCenter(QRectF(rect).center())
         rounding = control_property('cornerRoundness')
-        paint_control(painter, painter.device(), canvas, self.accent,
+        accent = disabled_text_color(self.accent) if mode == QIcon.Disabled else self.accent
+        paint_control(painter, painter.device(), canvas, accent,
                       depth=self.depth, rounding=self.rounding if rounding is None else rounding, shadow=True)
         painter.restore()
 
@@ -605,7 +610,8 @@ def button_text_font(widget):
 def button_text_color(background=None, enabled=True, highlighted=False):
     app = QApplication.instance()
     color = app.property('themeAccent') if highlighted else app.property('themeBackgroundAccent')
-    return QColor(color or app.property('buttonTextColor') or '#101010')
+    color = QColor(color or app.property('buttonTextColor') or '#101010')
+    return color if enabled else disabled_text_color(color)
 
 
 def accent_shade(accent, amount):
@@ -678,8 +684,6 @@ class ThemedButton(QPushButton):
         color = QColor(swatch or app.property('themeHighlight' if highlighted else 'themeAccent') or '#ff9800')
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        if swatch and not self.isEnabled():
-            painter.setOpacity(.45)
         painter.setPen(Qt.NoPen)
         outer = button_paint_rect(self)
         face = paint_control(painter, self, outer, color, self.isDown(), shadow=True)
@@ -698,7 +702,8 @@ class ThemedButton(QPushButton):
         elif not swatch:
             draw_centered_text(painter, button_text_rect(face), button_text_font(self), self.text(),
                 button_text_color(color, self.isEnabled(), highlighted=True) if highlighted else
-                app.property('buttonTextColor' if self.isEnabled() else 'disabledTextColor') or '#352719', fit=True)
+                (QColor(app.property('buttonTextColor') or '#352719') if self.isEnabled() else
+                 disabled_text_color(app.property('buttonTextColor') or '#352719')), fit=True)
         if self.hasFocus() and self.keyboard_focus:
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(color.darker(170), 1, Qt.DotLine))
@@ -873,17 +878,20 @@ QSlider::handle:horizontal { width: 48px; height: 36px; margin: -20px 0 -8px 0; 
         clip.addRoundedRect(groove, radius, radius)
         painter.save()
         painter.setClipPath(clip, Qt.IntersectClip)
-        painter.fillRect(groove, QColor(app.property('themeBackgroundAccent') or
-                                       slider_rail(app.property('themeBackground') or BUILDING_GRAY)))
+        rail = QColor(app.property('themeBackgroundAccent') or
+                      slider_rail(app.property('themeBackground') or BUILDING_GRAY))
+        accent = QColor(app.property('themeAccent') or GRASS_GREEN)
+        painter.fillRect(groove, rail if self.isEnabled() else disabled_text_color(rail))
         fill = QRectF(groove)
         if option.upsideDown:
             fill.setLeft(handle.center().x())
         else:
             fill.setRight(handle.center().x())
-        painter.fillRect(fill, QColor(app.property('themeAccent') or GRASS_GREEN))
+        painter.fillRect(fill, accent if self.isEnabled() else disabled_text_color(accent))
         painter.restore()
         accent_knob(app.property('themeAccent') or GRASS_GREEN,
-                    app.property('buttonFill') or '#f7f5f1', size=24).paint(painter, handle)
+                    app.property('buttonFill') or '#f7f5f1', size=24).paint(
+                        painter, handle, Qt.AlignCenter, QIcon.Normal if self.isEnabled() else QIcon.Disabled)
         if layer is not None:
             painter.end()
             painter = QPainter(self)
@@ -923,11 +931,13 @@ class ChunkyCheckBox(QCheckBox):
             tick.moveTo(8, 13.5)
             tick.lineTo(13, 18.5)
             tick.lineTo(22, 8.5)
-            painter.setPen(QPen(QColor(app.property('buttonIconColor') or '#483d34'), 3,
+            color = QColor(app.property('buttonIconColor') or '#483d34')
+            painter.setPen(QPen(color if self.isEnabled() else disabled_text_color(color), 3,
                                 Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             painter.drawPath(tick)
             painter.restore()
-        painter.setPen(QColor(app.property('textColor') or '#e9edf3'))
+        color = QColor(app.property('textColor') or '#e9edf3')
+        painter.setPen(color if self.isEnabled() else disabled_text_color(color))
         painter.drawText(self.rect().adjusted(round(40 * button_scale()) + 2 * CONTROL_HEADROOM, CONTROL_HEADROOM, 0, -BUTTON_SHADOW),
                          Qt.AlignVCenter | Qt.AlignLeft, self.text())
 
@@ -1131,9 +1141,7 @@ class ChunkyTabBar(QTabBar):
             if not self.isTabVisible(index):
                 continue
             selected = index == self.currentIndex()
-            accent = QColor(app.property('themeAccent') or GRASS_GREEN)
-            if not selected:
-                accent = accent.darker(130)
+            accent = QColor(app.property('themeHighlight' if selected else 'themeAccent') or GRASS_GREEN)
             outer = self.tab_face_rect(index)
             painter.setPen(Qt.NoPen)
             face = paint_control(painter, self, outer, accent, shadow=True)
@@ -1145,6 +1153,7 @@ class ChunkyTabBar(QTabBar):
             clip.addRoundedRect(face, radius, radius)
             painter.setClipPath(clip, Qt.IntersectClip)
             draw_centered_text(painter, button_text_rect(face), button_text_font(self), self.tabText(index),
+                               button_text_color(accent, self.isEnabled(), highlighted=True) if selected else
                                app.property('buttonTextColor') or '#4c3f2f', fit=True)
             painter.restore()
 
@@ -1413,8 +1422,6 @@ class ThemedComboBox(QComboBox):
         app = QApplication.instance()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        if not self.isEnabled():
-            painter.setOpacity(.45)
         outer = button_paint_rect(self)
         accent = QColor(app.property('themeAccent') or GRASS_GREEN)
         painter.setPen(Qt.NoPen)
@@ -1424,6 +1431,8 @@ class ThemedComboBox(QComboBox):
         clip.addRoundedRect(face, radius, radius)
         painter.setClipPath(clip, Qt.IntersectClip)
         color = QColor(app.property('buttonTextColor') or '#4c3f2f')
+        if not self.isEnabled():
+            color = disabled_text_color(color)
         draw_centered_text(painter, button_text_rect(face, dropdown=True), button_text_font(self), self.currentText(), color, fit=True)
         arrow = QPainterPath()
         x, y = face.right() - 16, face.center().y()

@@ -55,11 +55,14 @@ def main():
     root = Path(__file__).resolve().parents[1]
     subprocess.run([sys.executable, str(root / 'scripts' / 'make_icons.py')], cwd=root, check=True)
     subprocess.run([sys.executable, str(root / 'scripts' / 'make_button_sounds.py')], cwd=root, check=True)
-    native = root / 'build' / 'native'
-    subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--distpath', str(native), str(root / 'packaging' / 'AlbumDrive.spec')], cwd=root, check=True)
     system = 'windows' if sys.platform == 'win32' else 'linux'
     architecture = platform.machine().lower()
     architecture = {'amd64': 'x86_64', 'aarch64': 'arm64'}.get(architecture, architecture)
+    work = root / 'build' / 'pyinstaller' / f'{system}-{architecture}-{sys.implementation.cache_tag}'
+    native = root / 'build' / 'native'
+    subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean',
+                    '--workpath', str(work), '--distpath', str(native),
+                    str(root / 'packaging' / 'AlbumDrive.spec')], cwd=root, check=True)
     name = f'AlbumDrive-{system}-{architecture}'
     release = root / 'dist' / name
     release.mkdir(parents=True, exist_ok=True)

@@ -12,6 +12,7 @@ from themes import signed_setting_int, resolve_font, THEME_DEFAULT, CLEANING_DEF
 from themes import ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, UI_FONT_DEFAULT, MARKER_COLOR_DEFAULT
 from settings_store import read_theme_files, write_theme_files
 from color_picker import ColorPickerDialog
+from color_rules import disabled_text_color
 from themes import MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS
 from themes import PRIMARY_COLOR_KEYS, CONTROL_HEADROOM, BUTTON_SHADOW, MAX_FONT_SIZE, FONT_SCALE_KEYS, button_scale, button_text_sizing, local_control_theme, migrate_button_size, migrate_font_settings
 from app_theme import simplify_color_settings, soften_theme_colors
@@ -293,7 +294,9 @@ class SettingResetIcon(QIconEngine):
         painter.translate(rect.topLeft())
         painter.scale(rect.width() / 32, rect.height() / 32)
         app = QApplication.instance()
-        color = app.property('disabledTextColor' if mode == QIcon.Disabled else 'buttonIconColor') or '#101010'
+        color = QColor(app.property('buttonIconColor') or '#101010')
+        if mode == QIcon.Disabled:
+            color = disabled_text_color(color)
         painter.setPen(QPen(QColor(color), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.setBrush(Qt.NoBrush)
         painter.drawArc(QRectF(6, 6, 20, 20), 160 * 16, -300 * 16)

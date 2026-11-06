@@ -20,9 +20,7 @@ def settings_title_color(text, background):
 
 
 def disabled_text_color(value):
-    color = QColor(value)
-    color.setAlphaF(color.alphaF() * .45)
-    return color
+    return QColor(value).darker(120)
 
 
 def color_contrast(first, second):

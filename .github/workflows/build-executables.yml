@@ -73,7 +73,7 @@ jobs:
           name: AlbumDrive-diagnostics-${{ runner.os }}
           path: |
             build/*smoke*.json
-            build/AlbumDrive/warn-AlbumDrive.txt
+            build/pyinstaller/**/warn-AlbumDrive.txt
             logs/*.log
             dist/**/logs/*.log
           if-no-files-found: ignore

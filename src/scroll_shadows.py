@@ -37,31 +37,40 @@ class ScrollEdgeFade(QWidget):
         self.opacity = 0.0
         self.requested_visible = False
         self.animation = QVariantAnimation(self)
-        self.animation.setDuration(260)
+        self.animation.setDuration(400)
         self.animation.setEasingCurve(QEasingCurve.InOutSine)
         self.animation.setStartValue(0.0)
         self.animation.setEndValue(1.0)
         self.animation.valueChanged.connect(self.set_opacity)
+        self.animation.finished.connect(self.finish_fade)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.setStyleSheet('background: transparent;')
         self.hide()
 
     def reveal(self, visible):
-        if not visible:
-            self.requested_visible = False
-            self.animation.stop()
+        if visible == self.requested_visible and not (visible and self.isHidden()):
+            return
+        self.requested_visible = visible
+        if self.isHidden():
+            if visible:
+                self.show()
+            return
+        self.animate_visibility()
+
+    def animate_visibility(self):
+        self.animation.stop()
+        self.animation.setStartValue(self.opacity)
+        self.animation.setEndValue(1.0 if self.requested_visible else 0.0)
+        self.animation.start()
+
+    def finish_fade(self):
+        if not self.requested_visible:
             self.hide()
-            self.set_opacity(0.0)
-        elif not self.requested_visible or self.isHidden():
-            self.requested_visible = True
-            self.show()
 
     def showEvent(self, event):
         super().showEvent(event)
         if self.requested_visible:
-            self.animation.stop()
-            self.set_opacity(0.0)
-            self.animation.start()
+            self.animate_visibility()
 
     def hideEvent(self, event):
         self.animation.stop()
