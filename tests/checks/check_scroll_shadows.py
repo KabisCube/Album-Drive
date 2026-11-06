@@ -3,7 +3,7 @@ import os
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QListWidget, QScrollArea, QTableWidget, QTreeView, QWidget
 from album_grid import AlbumGrid
@@ -27,6 +27,14 @@ areas.append(items)
 table = QTableWidget(80, 2)
 table.setProperty('paperBackgroundColor', '#e7c977')
 areas.append(table)
+browser = QTreeView()
+browser.setObjectName('fileBrowser')
+model = QStandardItemModel(browser)
+for number in range(80):
+    model.appendRow(QStandardItem(f'Folder {number}'))
+browser.setModel(model)
+browser.setHeaderHidden(True)
+areas.append(browser)
 for area in areas:
     area.resize(360, 240)
     area.show()
@@ -86,14 +94,11 @@ for area in areas:
     assert top.isHidden() and bottom.isHidden()
     assert top.opacity == 0 and bottom.opacity == 0
     area.close()
-browser = QTreeView()
-browser.setObjectName('fileBrowser')
-browser.show()
 grid = AlbumGrid()
 grid.setObjectName('albumGrid')
 grid.show()
 app.processEvents()
-assert not hasattr(browser, 'scroll_edge_shadows')
+assert hasattr(browser, 'scroll_edge_shadows')
 assert not hasattr(grid, 'scroll_edge_shadows')
 choice = ThemedComboBox()
 choice.addItems([f'Choice {number}' for number in range(80)])
@@ -107,4 +112,4 @@ choice.hidePopup()
 choice.close()
 browser.close()
 grid.close()
-print('PASS: matching shadows on scroll areas, lists, track tables and dropdowns; themed paper, side taper, fixed edges, scroll limits and file-browser exclusion')
+print('PASS: matching shadows on scroll areas, lists, track tables, file browser and dropdowns; themed paper, side taper, fixed edges and scroll limits')

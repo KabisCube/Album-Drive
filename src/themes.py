@@ -30,7 +30,10 @@ ALBUM_SORT_DEFAULT = 'newest'
 VOLUME_DEFAULT = 100
 CONTROL_HEADROOM = 12
 _control_preview = ContextVar('control_preview', default=None)
-LOGO_BACKGROUND_HEIGHT = 1.63
+LOGO_BACKGROUND_HEIGHT = 1.8
+LOGO_MAX_DEPTH = 12
+LOGO_BACKGROUND_TRIM = 2
+LOGO_VERTICAL_OFFSET = -2
 MARKER_COLOR_DEFAULT = '#1b2834'
 NUMERIC_DEFAULTS = {
     'case_open_volume': 70,
@@ -724,10 +727,22 @@ def lettering_shadow(font_name, text, depth):
     return shadow
 
 
+@lru_cache(maxsize=32)
+def lettering_shadow_pixmap(font_name, text, depth, width, height, ratio, x, y):
+    layer = QPixmap(ceil(width * ratio), ceil(height * ratio))
+    layer.setDevicePixelRatio(ratio)
+    layer.fill(Qt.transparent)
+    painter = QPainter(layer)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.fillPath(lettering_shadow(font_name, text, depth).translated(x, y), QColor(0, 0, 0, 65))
+    painter.end()
+    return layer
+
+
 class ChunkyBrand(QLabel):
     def sizeHint(self):
         size = super().sizeHint()
-        return QSize(size.width(), ceil(self.background_rect().height()))
+        return QSize(size.width(), ceil(self.background_rect().height() + LOGO_BACKGROUND_TRIM + control_shadow(LOGO_MAX_DEPTH).y()))
 
     def minimumSizeHint(self):
         return self.sizeHint()
@@ -735,7 +750,7 @@ class ChunkyBrand(QLabel):
     def background_rect(self):
         path = QPainterPath()
         path.addText(0, 0, self.font(), self.text())
-        height = ceil(path.boundingRect().height() * LOGO_BACKGROUND_HEIGHT + ui_depth())
+        height = ceil(path.boundingRect().height() * LOGO_BACKGROUND_HEIGHT + LOGO_MAX_DEPTH) - LOGO_BACKGROUND_TRIM
         return QRectF(0, 0, self.width(), height)
 
     def paintEvent(self, event):
@@ -748,20 +763,20 @@ class ChunkyBrand(QLabel):
         depth = ui_depth()
         stripe = self.background_rect()
         position = QPointF(self.width() / 2 - bounds.center().x(),
-                           stripe.center().y() - depth / 2 - bounds.center().y())
+                           stripe.center().y() + LOGO_BACKGROUND_TRIM / 2 - depth - bounds.center().y() + LOGO_VERTICAL_OFFSET)
         path.translate(position)
         color = QColor(app.property('brandTextColor') or '#afbe0c')
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(QApplication.instance().property('brandLineColor') or '#f7f5f1'))
         painter.drawRoundedRect(stripe, corner_radius(6, stripe.width(), stripe.height()),
                                corner_radius(6, stripe.width(), stripe.height()))
-        painter.fillPath(lettering_shadow(self.font().toString(), self.text(), depth).translated(position),
-                         QColor(0, 0, 0, 65))
-        painter.setBrush(color.darker(150))
-        # Sweep the lettering through the full depth so thin strokes remain
-        # connected to their shadow even at the largest thickness.
-        for step in range(1, max(1, round(depth * 2)) + 1):
-            painter.drawPath(path.translated(0, min(depth, step * .5)))
+        if depth:
+            painter.drawPixmap(0, 0, lettering_shadow_pixmap(
+                self.font().toString(), self.text(), depth, self.width(), self.height(),
+                self.devicePixelRatioF(), position.x(), position.y()))
+            painter.setBrush(color.darker(150))
+            for step in range(1, max(1, round(depth * 2)) + 1):
+                painter.drawPath(path.translated(0, min(depth, step * .5)))
         painter.setBrush(color)
         painter.drawPath(path)
 
@@ -931,7 +946,7 @@ class TabScrollButton(ThemedButton):
         painter.setRenderHint(QPainter.Antialiasing)
         app = QApplication.instance()
         painter.fillRect(self.rect(), QColor(app.property('themeBackground') or BUILDING_GRAY))
-        outer = button_paint_rect(self).translated(0, (ui_depth() - CONTROL_HEADROOM) / 2)
+        outer = button_paint_rect(self).translated(0, -CONTROL_HEADROOM / 2)
         face = paint_control(painter, self, outer, app.property('themeAccent') or GRASS_GREEN, self.isDown(), shadow=True)
         size = min(face.width(), face.height()) * .45
         center = face.center()
@@ -1103,7 +1118,7 @@ class ChunkyTabBar(QTabBar):
 
     def tab_face_rect(self, index):
         outer = QRectF(self.tabRect(index)).adjusted(3, BUTTON_SHADOW, -5, -BUTTON_SHADOW)
-        outer.translate(0, (ui_depth() - CONTROL_HEADROOM) / 2)
+        outer.translate(0, -CONTROL_HEADROOM / 2)
         return outer
 
     def paintEvent(self, event):

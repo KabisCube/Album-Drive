@@ -5,7 +5,7 @@ from unittest.mock import patch
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 from PySide6.QtCore import QRectF, QSettings, Qt
-from PySide6.QtGui import QColor, QFont, QPainterPath
+from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QScrollBar, QStyle, QStyleOptionSlider, QWidget
 from color_rules import emphasized_text, settings_title_color, slider_rail
@@ -132,7 +132,7 @@ for thickness in (0, 100, 300):
     point.setY(round(base.bottom() + max(1, control_shadow().y() / 2)))
     assert (image.pixelColor(point).lightness() < QColor('#393939').lightness()) == bool(thickness)
     actual = brand.grab().toImage()
-    with patch('themes.lettering_shadow', return_value=QPainterPath()):
+    with patch('themes.lettering_shadow_pixmap', return_value=QPixmap()):
         plain = brand.grab().toImage()
     assert (actual != plain) == bool(thickness)
 checkbox.close()

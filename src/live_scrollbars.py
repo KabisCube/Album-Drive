@@ -3,7 +3,7 @@ from PySide6.QtCore import QEvent, QObject, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QApplication, QAbstractScrollArea, QScrollBar, QStyle, QStyleOptionSlider
 
-from themes import CONTROL_HEADROOM, control_face, corner_radius, paint_control, ui_depth
+from themes import CONTROL_HEADROOM, control_face, corner_radius, paint_control
 from color_rules import slider_rail
 from scroll_shadows import install_scroll_shadows
 
@@ -45,14 +45,15 @@ class LiveScrollbars(QObject):
         option = QStyleOptionSlider()
         widget.initStyleOption(option)
         handle = widget.style().subControlRect(QStyle.CC_ScrollBar, option, QStyle.SC_ScrollBarSlider, widget)
+        knob = QRectF(handle).adjusted(0, 0, 0, -CONTROL_HEADROOM)
         groove = QRectF(widget.style().subControlRect(QStyle.CC_ScrollBar, option, QStyle.SC_ScrollBarGroove, widget))
         before = QRectF(groove)
-        face = control_face(QRectF(handle), widget=widget)
+        face = control_face(knob, widget=widget)
         if widget.orientation() == Qt.Vertical:
             margin = (before.width() - 8) / 2
             before.adjust(margin, 0, -margin, 0)
-            before.setTop(groove.top() + CONTROL_HEADROOM - ui_depth())
-            before.setBottom(groove.bottom() - ui_depth())
+            before.setTop(groove.top() + CONTROL_HEADROOM)
+            before.setBottom(groove.bottom() - CONTROL_HEADROOM)
             after = QRectF(before)
             before.setBottom(face.center().y())
             after.setTop(face.center().y())
@@ -61,9 +62,9 @@ class LiveScrollbars(QObject):
             last = QRectF(handle)
             first.moveLeft(groove.left())
             last.moveRight(groove.right())
-            before.setLeft(control_face(first, widget=widget).left())
-            before.setRight(control_face(last, widget=widget).right())
-            before.setTop(face.center().y() - 4)
+            before.setLeft(control_face(first, widget=widget, depth=0).left())
+            before.setRight(control_face(last, widget=widget, depth=0).right())
+            before.setTop(control_face(knob, widget=widget, depth=0).center().y() - 4)
             before.setHeight(8)
             after = QRectF(before)
             before.setRight(face.center().x())
@@ -74,7 +75,7 @@ class LiveScrollbars(QObject):
         painter.drawRoundedRect(after, corner_radius(2), corner_radius(2))
         if (widget.maximum() > widget.minimum() and handle.width() > 2 * CONTROL_HEADROOM
                 and handle.height() > CONTROL_HEADROOM):
-            paint_control(painter, widget, QRectF(handle), accent, shadow=True)
+            paint_control(painter, widget, knob, accent, shadow=True)
         painter.end()
         return True
 

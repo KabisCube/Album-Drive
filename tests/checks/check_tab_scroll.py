@@ -3,10 +3,11 @@ import os
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QTabWidget, QToolButton, QWidget
 
-from themes import BUTTON_SHADOW, CONTROL_HEADROOM, ChunkyTabBar, button_paint_rect, chunky_style, control_face, text_style, ui_depth
+from themes import CONTROL_HEADROOM, ChunkyTabBar, button_paint_rect, chunky_style, control_face, control_shadow, text_style
 from main import load_app_font
 
 
@@ -30,13 +31,29 @@ def check_gutters():
     for button in (bar.scroll_left, bar.scroll_right):
         if not button.isVisible():
             continue
-        outer = button_paint_rect(button).translated(0, (ui_depth() - CONTROL_HEADROOM) / 2)
+        outer = button_paint_rect(button).translated(0, -CONTROL_HEADROOM / 2)
         body = control_face(outer, widget=button).united(control_face(outer, pressed=True, widget=button))
-        body = body.adjusted(-3, -1, 1, BUTTON_SHADOW + 1)
+        shadow = control_shadow()
+        body = body.adjusted(shadow.x() - 1, -1, 1, shadow.y() + 1)
         for y in range(button.height()):
             for x in range(button.width()):
                 if not body.contains(x, y):
                     assert image.pixelColor(button.x() + x, y).name() == '#393939', (button.accessibleName(), x, y)
+
+bottoms = []
+size = bar.size()
+for thickness in (0, 100, 300):
+    app.setProperty('uiThickness', thickness)
+    image = bar.grab().toImage()
+    face = control_face(bar.tab_face_rect(0), widget=bar)
+    accent = QColor(app.property('themeAccent') or '#888888')
+    x = round(face.center().x())
+    bottoms.append(max(y for y in range(image.height())
+                       if image.pixelColor(x, y).name() in (accent.name(), accent.darker(125).name())))
+    assert bar.size() == size
+    check_gutters()
+assert len(set(bottoms)) == 1, bottoms
+app.setProperty('uiThickness', 100)
 
 assert bar.maximum_scroll() > 0
 assert not bar.scroll_left.isVisible()

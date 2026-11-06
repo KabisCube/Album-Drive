@@ -41,7 +41,9 @@ from themes import signed_setting_int, resolve_font, THEME_DEFAULT, ALBUM_SORT_D
 from theme_settings import ThemeSettingsDialog, capture_color_theme, custom_color_settings, saved_color_themes
 from theme_transition import ThemeTransition
 from live_scrollbars import install_live_scrollbars
-from case_shell import paint_cd_case, paint_shell, artwork_tray_color, fitted_case_rect
+from scroll_shadows import paint_scroll_background
+from case_shell import CASE_DEPTH, paint_cd_case, paint_shell, artwork_tray_color, fitted_case_rect
+from themes import control_offset
 from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
 from color_rules import timeline_colors
 from settings_store import create_app_settings, library_cache_path, write_theme_files
@@ -315,9 +317,9 @@ class NowPlayingCover(QWidget):
     def image_rect(self):
         return fitted_case_rect(self.contentsRect())
 
-    def artwork_center_x(self):
+    def case_center_x(self):
         rect = self.image_rect()
-        return sleeve_rect(rect).center().x()
+        return rect.center().x() - control_offset(self, rect, CASE_DEPTH).x()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and not self._pixmap.isNull() and self.image_rect().contains(event.position()):
@@ -441,7 +443,7 @@ class ArtworkHeading(QLabel):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        rect = QRectF(self.rect()).translated(self.cover.artwork_center_x() - self.width() / 2, 0)
+        rect = QRectF(self.rect()).translated(self.cover.case_center_x() - self.width() / 2, 0)
         draw_centered_text(painter, rect, self.font(), self.text(),
                            QApplication.instance().property('textColor') or '#e9edf3')
 
@@ -638,8 +640,11 @@ class FolderBrowser(QTreeView):
         has_children = model.rowCount(index) > 0
         selected = self.selectionModel().isSelected(index)
         if selected:
-            # Qt can paint the selection beneath the whole indentation region.
+            painter.save()
+            painter.setClipRect(rect, Qt.IntersectClip)
             painter.fillRect(rect, self.palette().base())
+            paint_scroll_background(painter, self.viewport())
+            painter.restore()
         if not has_children and not selected:
             return
         app = QApplication.instance()
@@ -1030,6 +1035,7 @@ class PlayerWindow(QMainWindow):
         self.files.setRootPath(QDir.rootPath())
         self.tree = FolderBrowser()
         self.tree.setObjectName('fileBrowser')
+        self.tree.setStyleSheet('QTreeView#fileBrowser { padding: 16px 16px 14px; }')
         self.tree.setIndentation(28)
         self.tree.setItemDelegate(FolderNameDelegate(self.tree))
         self.tree.setModel(self.files)

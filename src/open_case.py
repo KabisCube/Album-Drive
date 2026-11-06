@@ -116,7 +116,6 @@ class TrackNumberDelegate(QStyledItemDelegate):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.TextAntialiasing)
         table = self.parent()
-        painter.fillRect(option.rect, QColor(table.property('paperBackgroundColor') or '#f2efdf'))
         color = QColor(table.property('paperForegroundColor') or
                        QApplication.instance().property('paperTextColor') or '#24383f')
         center = QRectF(option.rect).center()

@@ -15,6 +15,7 @@ from color_picker import ColorPickerDialog
 from themes import MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS
 from themes import PRIMARY_COLOR_KEYS, CONTROL_HEADROOM, BUTTON_SHADOW, MAX_FONT_SIZE, FONT_SCALE_KEYS, button_scale, button_text_sizing, local_control_theme, migrate_button_size, migrate_font_settings
 from app_theme import simplify_color_settings, soften_theme_colors
+from scroll_shadows import paint_scroll_background
 
 
 def custom_color_settings(settings):
@@ -176,6 +177,7 @@ class SettingsPage(QWidget):
         for index, bounds in enumerate(sections):
             if index % 2:
                 painter.drawRoundedRect(QRectF(8, bounds.top() - 6, self.width() - 16, bounds.height() + 12), 8, 8)
+        paint_scroll_background(painter, self)
 
 
 class SettingsFormLayout(QFormLayout):
