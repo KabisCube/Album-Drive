@@ -24,6 +24,7 @@ public class AlbumDriveActivity extends PythonActivity {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         listenForHaptics();
+        MediaBridge.start(this);
         if (Build.VERSION.SDK_INT >= 30) {
             if (!Environment.isExternalStorageManager()
                     && !getPreferences(MODE_PRIVATE).getBoolean("storageRequested", false)) {

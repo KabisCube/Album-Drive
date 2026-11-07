@@ -86,10 +86,12 @@ def configure_deployment(root, stage, cache, python, sdk, ndk, source):
         'fullscreen': '0', 'android.api': '35', 'android.minapi': '28',
         'android.ndk_api': '28', 'android.accept_sdk_license': 'True',
         'android.ant_path': '/usr/share/ant',
-        'android.permissions': 'READ_EXTERNAL_STORAGE,READ_MEDIA_AUDIO,MANAGE_EXTERNAL_STORAGE,INTERNET',
+        'android.permissions': 'READ_EXTERNAL_STORAGE,READ_MEDIA_AUDIO,MANAGE_EXTERNAL_STORAGE,INTERNET,'
+                               'FOREGROUND_SERVICE,FOREGROUND_SERVICE_MEDIA_PLAYBACK,POST_NOTIFICATIONS,WAKE_LOCK',
         'android.entrypoint': 'org.albumdrive.AlbumDriveActivity', 'android.add_src': 'android',
         'android.release_artifact': 'apk',
         'p4a.source_dir': str(cache / 'p4a'),
+        'p4a.hook': str(stage / 'android/hooks/p4a_hook.py'),
     }
     for key, value in entries.items():
         config.set('app', key, value)

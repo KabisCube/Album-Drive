@@ -61,6 +61,7 @@ from app_identity import APP_NAME
 from responsive import running_on_android
 from touch_input import MINIMUM_TOUCH_TARGET, add_touch
 from audio_levels import volume_gain
+from android_media import AndroidMedia
 from first_run import FirstRunDialog, apply_system_theme, needs_first_run
 from session_palette import load_session_palette, save_session_palette
 from app_identity import update_theme_icon
@@ -1124,6 +1125,10 @@ class PlayerWindow(QMainWindow):
         self.player.seekableChanged.connect(lambda seekable: self.seek.setEnabled(seekable and self.player.duration() > 0))
         self.player.seekableChanged.connect(lambda seekable: self.apply_resume_position())
         self.player.playbackStateChanged.connect(self.playback_changed)
+        self.android_media = AndroidMedia(self)
+        self.android_media.command.connect(self.android_media_command)
+        self.player.playbackStateChanged.connect(self.sync_android_media)
+        self.player.durationChanged.connect(self.sync_android_media)
         self.player.mediaStatusChanged.connect(self.media_status_changed)
         self.player.errorOccurred.connect(self.playback_error)
 
@@ -1424,6 +1429,7 @@ class PlayerWindow(QMainWindow):
         self.seek.setRange(0, 0)
         self.seek.setEnabled(False)
         self.seek.seekRequested.connect(self.player.setPosition)
+        self.seek.seekRequested.connect(self.sync_android_media)
         self.next = QPushButton('Next')
         self.next.setObjectName('next')
         self.next.setFixedHeight(32)
@@ -3113,6 +3119,31 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                 item.setData(PLAYING_ROLE, row == playing_row)
                 item.setData(Qt.AccessibleDescriptionRole, 'Playing' if row == playing_row else '')
 
+    def sync_android_media(self, *_):
+        if not self.is_android:
+            return
+        if not 0 <= self.queue_index < len(self.queue):
+            self.android_media.update(state='stopped')
+            return
+        track, album = self.queue[self.queue_index]
+        playing = self.player.playbackState() == QMediaPlayer.PlayingState
+        self.android_media.update(state='playing' if playing else 'paused', title=track.title,
+                                  artist=track.artist or album.artist, album=album.title,
+                                  cover=self.android_media.cover_file(album.artwork),
+                                  position=self.player.position(), duration=self.player.duration())
+
+    def android_media_command(self, name, value):
+        playing = self.player.playbackState() == QMediaPlayer.PlayingState
+        if name == 'next':
+            self.next_track()
+        elif name == 'previous':
+            self.previous_track()
+        elif name == 'seek':
+            self.player.setPosition(value)
+            self.sync_android_media()
+        elif (name == 'play' and not playing) or (name == 'pause' and playing):
+            self.toggle_play()
+
     def toggle_play(self):
         if not self.queue or self.cd_loading:
             return
@@ -3237,6 +3268,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         self.player.setAudioOutput(None)
 
     def closeEvent(self, event):
+        self.android_media.update(state='stopped')
         metadata = getattr(self, 'metadata_dialog', None)
         if metadata is not None:
             if metadata.job is not None and metadata.job.isRunning():
