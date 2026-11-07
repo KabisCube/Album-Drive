@@ -12,6 +12,7 @@ from PIL import Image
 from app_theme import artwork_theme_colors
 from color_rules import timeline_colors
 from main import PlayerWindow
+from themes import THEME_FADE_MS
 
 
 app = QApplication([])
@@ -40,11 +41,11 @@ with tempfile.TemporaryDirectory() as directory:
         animation.pause()
         assert window.seek.colors() == start
         target = timeline_colors(window.theme_target['themeBackground'], window.theme_target['themeAccent'])
-        end = 2000 if background == '#203070' else 4000
+        end = THEME_FADE_MS // 2 if background == '#203070' else THEME_FADE_MS
         previous = start
         for elapsed in range(0, end + 1, 40):
             animation.setCurrentTime(elapsed)
-            expected = tuple(QColor(*(round(a + (b - a) * elapsed / 4000) for a, b in
+            expected = tuple(QColor(*(round(a + (b - a) * elapsed / THEME_FADE_MS) for a, b in
                                       zip(first.getRgb()[:3], second.getRgb()[:3])))
                              for first, second in zip(start, target))
             actual = window.seek.colors()
@@ -55,7 +56,7 @@ with tempfile.TemporaryDirectory() as directory:
             assert image.pixelColor(60, image.height() // 2) == expected[1]
             assert image.pixelColor(image.width() - 60, image.height() // 2) == expected[0]
             previous = actual
-        if end == 4000:
+        if end == THEME_FADE_MS:
             assert window.seek.fade_colors is None
     window.close()
     for scanner in list(window.scanners):

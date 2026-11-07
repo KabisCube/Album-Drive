@@ -153,11 +153,12 @@ class ScrollEdgeShadows(QObject):
             content.update()
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Paint and (watched is self.area.viewport() or watched is self.content):
+        kind = event.type()
+        if kind == QEvent.Paint and (watched is self.area.viewport() or watched is self.content):
             painter = QPainter(watched)
             paint_scroll_background(painter, watched)
             painter.end()
-        if event.type() in (QEvent.Resize, QEvent.Show, QEvent.LayoutRequest, QEvent.StyleChange, QEvent.PaletteChange):
+        if kind in (QEvent.Resize, QEvent.Show, QEvent.LayoutRequest, QEvent.StyleChange, QEvent.PaletteChange):
             self.update()
         return False
 
@@ -177,13 +178,13 @@ def paint_scroll_background(painter, widget):
 
 class ScrollShadowInstaller(QObject):
     def eventFilter(self, widget, event):
-        if (event.type() == QEvent.Show and isinstance(widget, QAbstractScrollArea)
-                and running_on_android()):
+        if event.type() != QEvent.Show or not isinstance(widget, QAbstractScrollArea):
+            return False
+        if running_on_android():
             add_touch(widget.viewport(), scrolls=True)
             widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        if (event.type() == QEvent.Show and isinstance(widget, QAbstractScrollArea)
-                and not isinstance(widget, QHeaderView) and not hasattr(widget, 'edge_fades')):
+        if not isinstance(widget, QHeaderView) and not hasattr(widget, 'edge_fades'):
             ancestor = widget
             while ancestor is not None:
                 if ancestor.objectName() == 'albumGrid':

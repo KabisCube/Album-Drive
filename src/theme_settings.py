@@ -14,10 +14,12 @@ from themes import ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, UI_FONT_DE
 from settings_store import read_theme_files, write_theme_files
 from color_picker import ColorPickerDialog
 from color_rules import disabled_text_color
-from themes import MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS
+from themes import MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS, THEME_FADE_MAX_SECONDS
 from responsive import NARROW_WIDTH, SHORT_HEIGHT, ScreenFit, running_on_android
 from themes import PRIMARY_COLOR_KEYS, CONTROL_HEADROOM, BUTTON_SHADOW, MAX_FONT_SIZE, FONT_SCALE_KEYS, button_scale, button_text_sizing, local_control_theme, migrate_button_size, migrate_font_settings
 from app_theme import simplify_color_settings, soften_theme_colors
+from first_run import FIXED_THEMES, system_theme_choice
+from themes import DEFAULT_THEME_IDS
 from scroll_shadows import paint_scroll_background
 
 
@@ -34,7 +36,7 @@ def custom_color_settings(settings):
         'theme_background_accent_color', settings.value('theme_accent_color', '#cfe10e')))
     legacy_preset = not stored and any(
         all(preset['colors'][key] == color for key, color in legacy_colors.items() if key != 'theme_highlight_color')
-        for preset in saved_color_themes(settings))
+        for preset in saved_color_themes(settings) if preset['id'] not in DEFAULT_THEME_IDS)
     colors = {}
     for _, _, key, _, default in COLOR_SETTINGS:
         # Older versions replaced these keys with preset colors. With a preset
@@ -50,9 +52,9 @@ def custom_color_settings(settings):
     return simplify_color_settings(colors)
 
 
-def default_color_theme():
-    return {'id': 'album-drive-default', 'name': 'Default',
-            'colors': {key: default for _, _, key, _, default in COLOR_SETTINGS}}
+def default_color_themes():
+    return [{'id': f'album-drive-default-{mode}', 'name': f'Default {mode}', 'colors': dict(FIXED_THEMES[f'fixed_{mode}'])}
+            for mode in ('light', 'dark')]
 
 
 def capture_color_theme(presets, name):
@@ -76,12 +78,12 @@ def saved_color_themes(settings):
         if presets is None:
             presets = json.loads(str(settings.value('saved_color_themes', '[]')))
         if not isinstance(presets, list):
-            return [default_color_theme()]
+            return default_color_themes()
         keys = {key for _, _, key, _, _ in COLOR_SETTINGS}
-        result = [default_color_theme()]
+        result = default_color_themes()
         for preset in presets:
             if not (isinstance(preset, dict)
-                and preset.get('id') != 'album-drive-default'
+                and preset.get('id') not in DEFAULT_THEME_IDS
                 and isinstance(preset.get('id'), str) and isinstance(preset.get('name'), str)
                 and isinstance(preset.get('colors'), dict)):
                 continue
@@ -92,11 +94,11 @@ def saved_color_themes(settings):
                 result.append({key: preset[key] for key in ('id', 'name', 'preserve_palette') if key in preset} | {'colors': colors})
         return result
     except (ValueError, TypeError):
-        return [default_color_theme()]
+        return default_color_themes()
 
 
 NUMERIC_SETTINGS = (
-    ('Colors', 'Theme fade duration', 'theme_fade_seconds', NUMERIC_DEFAULTS['theme_fade_seconds'], 0, 5, ' s', .1),
+    ('Colors', 'Theme fade duration', 'theme_fade_seconds', NUMERIC_DEFAULTS['theme_fade_seconds'], 0, THEME_FADE_MAX_SECONDS, ' s', .1),
     ('Appearance', 'Button size', 'button_size', NUMERIC_DEFAULTS['button_size'], 20, 72, ' px', 1),
     ('Appearance', 'Button thickness', 'ui_thickness', NUMERIC_DEFAULTS['ui_thickness'], 0, 300, ' px', 25),
     ('Appearance', 'Button icon size', 'button_icon_size', NUMERIC_DEFAULTS['button_icon_size'], 8, 96, ' px', 1),
@@ -434,15 +436,14 @@ class ThemeSettingsDialog(QDialog):
         self.continuous_playback.setToolTip('At the end of an album, jump to the next one in the folder.')
         forms['General'].addRow(self.continuous_playback)
         self.artwork_theme_mode = ThemedComboBox()
-        self.artwork_theme_mode.setAccessibleName('Dynamic theme brightness')
+        self.artwork_theme_mode.setAccessibleName('Theme brightness')
         for label, value in (('any', 'any'), ('dark', 'dark'), ('light', 'light')):
             self.artwork_theme_mode.addItem(label, value)
         self.artwork_theme_mode.setCurrentIndex(max(0, self.artwork_theme_mode.findData(
             str(settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))))
-        self.artwork_theme_mode.setToolTip('Choose light, dark, or any album colors.')
-        self.artwork_theme_mode.setEnabled(self.artwork_theme.isChecked())
-        self.artwork_theme.toggled.connect(self.artwork_theme_mode.setEnabled)
-        forms['Colors'].addRow('Dynamic theme brightness', self.artwork_theme_mode)
+        self.dynamic_brightness = 'any'
+        self.fixed_brightness = None
+        forms['Colors'].addRow('Theme brightness', self.artwork_theme_mode)
         self.guide_button = ThemedButton('Start')
         self.guide_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.guide_button.setObjectName('firstTimeSetupButton')
@@ -555,7 +556,14 @@ class ThemeSettingsDialog(QDialog):
         self.organize_settings(forms)
         self.update_reset_buttons()
         self.forms = forms
+        self.artwork_theme.toggled.connect(self.update_brightness_options)
         self.artwork_theme.toggled.connect(self.update_dependencies)
+        self.artwork_theme_mode.activated.connect(self.select_fixed_brightness)
+        self.update_brightness_options()
+        if not self.artwork_theme.isChecked():
+            self.dynamic_brightness = 'any'
+        if self.active_color_choice not in {preset['id'] for preset in self.presets}:
+            self.show_default_theme()
         self.numbers['ui_thickness'].slider.valueChanged.connect(self.update_dependencies)
         self.color_preview_timer = QTimer(self)
         self.color_preview_timer.setInterval(100)
@@ -788,10 +796,10 @@ class ThemeSettingsDialog(QDialog):
         for key, control in self.numbers.items():
             if key not in MERGED_NUMERIC_SETTINGS:
                 self.reset_specs[control] = (key, 100 if key in FONT_SCALE_KEYS else NUMERIC_DEFAULTS[key], control.value, control.setValue, control.slider.valueChanged)
-        defaults = simplify_color_settings({key: default for _, _, key, _, default in COLOR_SETTINGS})
         for key in PRIMARY_COLOR_KEYS:
             button = self.colors[key]
-            self.reset_specs[button] = (key, defaults[key], lambda target=button: target.color().name(),
+            self.reset_specs[button] = (key, lambda name=key: self.brightness_color(name),
+                                        lambda target=button: target.color().name(),
                                         lambda color, target=button: self.set_setting_color(target, QColor(color)), button.colorChanged)
         self.reset_specs[self.marker_color] = ('marker_text_color', MARKER_COLOR_DEFAULT,
                                                lambda: self.marker_color.color().name(), self.marker_color.set_color,
@@ -829,13 +837,13 @@ class ThemeSettingsDialog(QDialog):
             else:
                 layout.addWidget(field, 1)
             field.installEventFilter(self)
-            enabled = field.isEnabled
+            enabled = self.artwork_theme.isChecked if field is self.artwork_theme_mode else field.isEnabled
         else:
             layout.addLayout(field, 1)
             enabled = self.rounding_slider.isEnabled
         button = SettingResetButton(title)
         button.setObjectName(key + 'Reset')
-        button.clicked.connect(lambda checked=False: setter(default))
+        button.clicked.connect(lambda checked=False: setter(default() if callable(default) else default))
         signal.connect(self.update_reset_buttons)
         layout.addWidget(button)
         self.reset_buttons[key] = button
@@ -844,25 +852,26 @@ class ThemeSettingsDialog(QDialog):
 
     def update_reset_buttons(self, *args):
         for button, default, getter, enabled in self.reset_bindings:
-            button.setVisible(enabled() and getter() != default)
+            button.setVisible(enabled() and getter() != (default() if callable(default) else default))
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.FontChange and watched.property('settingsOptionTitle') and hasattr(self, 'page_layout_timer'):
+        kind = event.type()
+        if kind == QEvent.FontChange and watched.property('settingsOptionTitle') and hasattr(self, 'page_layout_timer'):
             self.page_layout_timer.start(0)
-        if isinstance(watched, QLabel) and event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+        if isinstance(watched, QLabel) and kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             checkbox = watched.buddy()
             if isinstance(checkbox, ChunkyCheckBox) and checkbox.isEnabled():
                 checkbox.setFocus(Qt.MouseFocusReason)
                 checkbox.click()
                 return True
-        if (event.type() == QEvent.MouseButtonPress and self.isVisible()
+        if (kind == QEvent.MouseButtonPress and self.isVisible()
                 and isinstance(watched, QWidget) and self.parentWidget() is not None
                 and watched.window() is self.parentWidget().window()
                 and QApplication.activeModalWidget() is None):
             SettingsDismissClick(self.parentWidget().window(), event.button())
             self.accept()
             return True
-        if event.type() == QEvent.EnabledChange:
+        if kind == QEvent.EnabledChange:
             label = self.option_labels.get(watched)
             if label is not None:
                 label.setEnabled(watched.isEnabled())
@@ -876,7 +885,9 @@ class ThemeSettingsDialog(QDialog):
         self.page_layout_timer.start(0)
         self.view_restore_timer.start(0)
         self.color_preview_timer.start()
-        QApplication.instance().installEventFilter(self)
+        # This watches for clicks outside Settings, which fills the screen on Android.
+        if not running_on_android():
+            QApplication.instance().installEventFilter(self)
 
     def restore_view_state(self):
         if not self.isVisible() or not self.pending_view_state:
@@ -968,9 +979,16 @@ class ThemeSettingsDialog(QDialog):
     def open_quick_start(self):
         from first_run import FirstRunDialog
         guide = FirstRunDialog(self.settings, self)
-        mode = self.artwork_theme_mode.currentData() if self.artwork_theme.isChecked() else 'off'
-        guide.choices.get(mode, guide.choices['any']).setChecked(True)
-        if guide.exec() == QDialog.Accepted:
+        if self.artwork_theme.isChecked():
+            guide.choices.get(self.artwork_theme_mode.currentData(), guide.choices['any']).setChecked(True)
+        else:
+            dark = QColor(QApplication.instance().property('themeBackground')).lightnessF() < .5
+            guide.choices['fixed_dark' if dark else 'fixed_light'].setChecked(True)
+        guide.keep_current_colors()
+        accepted = guide.exec() == QDialog.Accepted
+        if not accepted:
+            self.queue_preview()
+        if accepted:
             self.preview_applied = True
             self.library_folder = str(self.settings.value('browser_root', self.library_folder))
             self.library_label.setText('Currently: ' + self.library_folder)
@@ -981,8 +999,13 @@ class ThemeSettingsDialog(QDialog):
             self.saved_theme_choice.setCurrentIndex(max(0, self.saved_theme_choice.findData(
                 self.settings.value('selected_color_theme', ''))))
             self.artwork_theme.setChecked(self.settings.value('artwork_theme_enabled', ARTWORK_THEME_DEFAULT, type=bool))
-            self.artwork_theme_mode.setCurrentIndex(max(0, self.artwork_theme_mode.findData(
-                str(self.settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))))
+            self.show_brightness(str(self.settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))
+            self.active_color_choice = str(self.settings.value('selected_color_theme', ''))
+            self.custom_colors = custom_color_settings(self.settings)
+            for key, button in self.colors.items():
+                button.set_color(str(self.settings.value(key, button.color().name())))
+            if not self.active_color_choice:
+                self.show_default_theme()
             self.applied.emit()
 
     def update_vertical_spacing(self, spacing=None):
@@ -1148,11 +1171,8 @@ class ThemeSettingsDialog(QDialog):
             self.set_setting_color(button, selected)
 
     def set_setting_color(self, button, color):
-        self.saved_theme_choice.blockSignals(True)
-        self.saved_theme_choice.setCurrentIndex(0)
-        self.saved_theme_choice.blockSignals(False)
-        self.active_color_choice = ''
         self.artwork_theme.setChecked(False)
+        self.show_default_theme()
         button.set_color(color)
         self.sync_color_roles()
         self.queue_preview()
@@ -1171,7 +1191,6 @@ class ThemeSettingsDialog(QDialog):
     def update_dependencies(self):
         dynamic = self.artwork_theme.isChecked()
         self.saved_theme_choice.setEnabled(not dynamic)
-        self.artwork_theme_mode.setEnabled(dynamic)
         for key, button in self.colors.items():
             button.setEnabled(not dynamic)
             button.setToolTip('Set by dynamic theming' if not button.isEnabled()
@@ -1182,6 +1201,57 @@ class ThemeSettingsDialog(QDialog):
         sound.setEnabled(self.numbers['ui_thickness'].value() > 0)
         sound.setToolTip('Flat buttons are silent.' if not sound.isEnabled() else '')
         self.update_dynamic_swatches()
+
+    def colors_brightness(self):
+        return 'dark' if self.colors['theme_background_color'].color().lightnessF() < .5 else 'light'
+
+    def brightness_color(self, key):
+        return FIXED_THEMES[f'fixed_{self.fixed_brightness or self.colors_brightness()}'][key]
+
+    def show_default_theme(self):
+        brightness = self.fixed_brightness or self.colors_brightness()
+        self.saved_theme_choice.blockSignals(True)
+        self.saved_theme_choice.setCurrentIndex(self.saved_theme_choice.findData(f'album-drive-default-{brightness}'))
+        self.saved_theme_choice.blockSignals(False)
+        self.active_color_choice = ''
+
+    def show_brightness(self, mode):
+        combo = self.artwork_theme_mode
+        combo.blockSignals(True)
+        combo.setCurrentIndex(max(0, combo.findData(mode)))
+        combo.blockSignals(False)
+        self.fixed_brightness = combo.currentData() if combo.currentData() != 'any' else None
+        self.update_reset_buttons()
+
+    def update_brightness_options(self):
+        combo = self.artwork_theme_mode
+        dynamic = self.artwork_theme.isChecked()
+        selectable_any = combo.findData('any') >= 0
+        combo.blockSignals(True)
+        if dynamic and not selectable_any:
+            combo.insertItem(0, 'any', 'any')
+        elif not dynamic and selectable_any:
+            self.dynamic_brightness = combo.currentData()
+            combo.removeItem(0)
+        combo.blockSignals(False)
+        if dynamic and not selectable_any:
+            self.show_brightness(self.dynamic_brightness)
+        elif not dynamic and selectable_any:
+            self.show_brightness(self.colors_brightness() if self.dynamic_brightness == 'any'
+                                 else self.dynamic_brightness)
+        combo.setToolTip('Choose light, dark, or any album colors.' if dynamic else 'Choose the light or dark theme.')
+
+    def select_fixed_brightness(self):
+        mode = self.artwork_theme_mode.currentData()
+        if self.artwork_theme.isChecked() or mode == self.fixed_brightness:
+            return
+        self.fixed_brightness = mode
+        self.show_default_theme()
+        for key, button in self.colors.items():
+            button.set_color(FIXED_THEMES[f'fixed_{mode}'][key])
+        self.sync_color_roles()
+        self.update_reset_buttons()
+        self.queue_preview()
 
     def update_dynamic_swatches(self):
         app = QApplication.instance()
@@ -1209,6 +1279,7 @@ class ThemeSettingsDialog(QDialog):
             for key, button in self.colors.items():
                 button.set_color(colors[MERGED_COLOR_SETTINGS.get(key, key)])
             self.artwork_theme.setChecked(False)
+            self.show_brightness(self.colors_brightness())
         self.active_color_choice = identity
         self.sync_color_roles()
         self.queue_preview()
@@ -1382,14 +1453,15 @@ QLabel#settingsSection {{ font-size: {font_size('settings_heading_font_size')}px
         self.cleaning.setChecked(CLEANING_DEFAULT)
         self.continuous_playback.setChecked(True)
         self.audio_output_choice.setCurrentIndex(0)
-        self.saved_theme_choice.setCurrentIndex(0)
         self.artwork_theme.setChecked(ARTWORK_THEME_DEFAULT)
         self.artwork_theme_mode.setCurrentIndex(self.artwork_theme_mode.findData(ARTWORK_THEME_MODE_DEFAULT))
         self.marker_color.set_color(MARKER_COLOR_DEFAULT)
-        for _, _, key, _, default in COLOR_SETTINGS:
+        defaults = FIXED_THEMES.get(system_theme_choice(), {key: default for _, _, key, _, default in COLOR_SETTINGS})
+        for _, _, key, _, _ in COLOR_SETTINGS:
             if key not in MERGED_COLOR_SETTINGS:
-                self.colors[key].set_color(default)
-        self.custom_colors = {key: default for _, _, key, _, default in COLOR_SETTINGS}
+                self.colors[key].set_color(defaults[key])
+        self.custom_colors = dict(defaults)
+        self.show_default_theme()
         for _, _, key, default, *_ in NUMERIC_SETTINGS:
             if key not in MERGED_NUMERIC_SETTINGS:
                 self.numbers[key].setValue(100 if key in FONT_SCALE_KEYS else default)
@@ -1402,7 +1474,7 @@ QLabel#settingsSection {{ font-size: {font_size('settings_heading_font_size')}px
         self.settings.setValue('custom_theme_colors', json.dumps(self.custom_colors))
         self.settings.remove('custom_theme_options')
         selected = next((preset for preset in self.presets if preset['id'] == self.active_color_choice), None)
-        if selected is not None and selected['id'] != 'album-drive-default':
+        if selected is not None and selected['id'] not in DEFAULT_THEME_IDS:
             selected['colors'] = {key: button.color().name() for key, button in self.colors.items()}
         if self.reset_album_size:
             self.settings.setValue('album_scale', NUMERIC_DEFAULTS['album_scale'])
@@ -1419,7 +1491,7 @@ QLabel#settingsSection {{ font-size: {font_size('settings_heading_font_size')}px
         self.settings.setValue('artwork_theme_mode', self.artwork_theme_mode.currentData())
         if persist_themes:
             signature = json.dumps(self.presets, sort_keys=True)
-            if signature != self.persisted_presets or (len(self.presets) > 1 and not self.settings.value('theme_files_version', 0, type=int)):
+            if signature != self.persisted_presets or (len(self.presets) > len(default_color_themes()) and not self.settings.value('theme_files_version', 0, type=int)):
                 write_theme_files(self.settings, self.presets)
                 self.persisted_presets = signature
         self.settings.setValue('selected_color_theme', self.active_color_choice)

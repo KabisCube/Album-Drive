@@ -3,6 +3,7 @@ import os
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 Path('build').mkdir(exist_ok=True)
 SCREEN = Path('build/android-phone-screen.json')
@@ -22,6 +23,7 @@ from first_run import FirstRunDialog
 from main import PlayerWindow
 from metadata_editor import MetadataEditor, TagValueDialog
 from music_folders import MusicFolderDialog
+from theme_transition import strip_theme_colors
 from test_library import make_wave
 
 
@@ -77,8 +79,21 @@ with TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         grid_top = window.grid.mapTo(window, window.grid.rect().topLeft()).y()
         assert grid_top >= header_bottom, 'albums stay below the header'
 
+        window.prepare_settings()
+        prepared = window.prepared_settings
+        assert prepared is not None and not prepared.isVisible() and not prepared.color_preview_timer.isActive()
+        settings.setValue('album_sort', 'oldest')
+        assert window.take_prepared_settings() is None, 'a changed setting must not reuse a stale Settings window'
+        settings.setValue('album_sort', 'newest')
+        window.prepare_settings()
+        prepared = window.prepared_settings
+        settings.setValue('session/position', 1234)
+        settings.setValue('volume', 50)
         window.edit_theme_settings()
         dialog = window.settings_dialog
+        assert dialog is prepared and window.prepared_settings is None, 'playback changes keep the prepared window'
+        assert dialog.original_settings['session/position'] in (1234, '1234')
+        assert dialog.color_preview_timer.isActive()
         assert_fits(dialog)
         assert [button.text() for button in dialog.action_buttons] == ['Reset defaults', 'OK']
         assert dialog.action_buttons[0].y() == dialog.action_buttons[1].y()
@@ -100,7 +115,7 @@ with TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         guide = FirstRunDialog(settings, window)
         guide.show()
         assert_fits(guide)
-        for step in range(4):
+        for step in range(3):
             guide.set_step(step)
             QTest.qWait(60)
             for label in guide.scroll.widget().findChildren(QLabel):
@@ -109,8 +124,6 @@ with TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         guide.set_step(0)
         QTest.qWait(60)
         assert guide.scroll.widget().height() == guide.scroll.viewport().height()
-        guide.set_step(3)
-        assert 'beside Settings' in guide.instructions_label.text()
         guide.reject()
 
         picker = ColorPickerDialog('#3366aa', window)
@@ -135,6 +148,78 @@ with TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         folders.show()
         assert_fits(folders)
         folders.reject()
+
+        assert not hasattr(app, '_album_drive_scrollbars'), 'Android must not inspect every event for scrollbars'
+        assert window.live_theme and window.theme_renderer is not None
+        style = app.styleSheet()
+        assert strip_theme_colors(style) == style, 'Android keeps its stylesheet free of theme colors'
+        reloads = []
+        with patch.object(QApplication, 'setStyleSheet', lambda *args: reloads.append(args)):
+            colors = dict(window.saved_theme_colors(), themeBackground='#335b70', themeAccent='#86948d')
+            with patch.object(window, 'saved_theme_colors', lambda: dict(colors)):
+                window.theme_from_now_playing()
+                QTest.qWait(30)
+                assert window.theme_fade is not None, 'a color change must fade'
+                window.theme_fade.setCurrentTime(window.theme_fade.duration())
+                QTest.qWait(30)
+            assert window.theme_renderer is not None and app.property('themeBackground') == '#335b70'
+        assert not reloads, 'a theme fade must not reload the whole stylesheet'
+        renderer = window.theme_renderer
+        window.set_theme(str(settings.value('theme', 'chunky')))
+        assert window.theme_renderer is not None and window.theme_renderer is not renderer, 'full restyles return to live colors'
+        window.show_compact_library()
+        QTest.qWait(450)
+        window.grid.viewport().repaint()
+        cached = set(window.grid.baked_cases)
+        assert cached
+        window.freeze_case_theme((app.property('themeBackground'), 'frozen'))
+        window.grid.viewport().repaint()
+        frozen = set(window.grid.baked_cases) - cached
+        original_background = app.property('themeBackground')
+        app.setProperty('themeBackground', '#123456')
+        window.grid.viewport().repaint()
+        assert set(window.grid.baked_cases) - cached == frozen, 'a color step must not rebuild cached cases'
+        app.setProperty('themeBackground', original_background)
+        window.freeze_case_theme(None)
+        window.workspace.set_page('browser', animate=False)
+        window.update_now_playing_cover(window.albums[0])
+        window.now_playing.animation.setCurrentTime(window.now_playing.animation.duration())
+        QTest.qWait(120)
+        height = window.now_playing.height()
+        window.drag_now_playing(10)
+        window.drag_now_playing(10)
+        assert window.now_playing.height() == height and window.cover.resizing, 'swipes apply once per frame'
+        QTest.qWait(40)
+        assert window.now_playing.height() == height - 20
+        window.settle_now_playing(0)
+        assert not window.cover.resizing
+        portrait = window.geometry()
+        window.setGeometry(0, 0, 740, 360)
+        QTest.qWait(500)
+        assert not window.compact_mode and window.now_playing.resizable, 'landscape can resize Now Playing too'
+        window.now_playing.animation.setCurrentTime(window.now_playing.animation.duration())
+        QTest.qWait(60)
+        minimum, maximum = window.now_playing_limits()
+        window.set_now_playing_height(maximum)
+        QTest.qWait(40)
+        before = window.cover.height()
+        assert before > 0
+        window.drag_now_playing(window.height())
+        window.settle_now_playing(0)
+        QTest.qWait(60)
+        assert window.now_playing.height() == minimum, (window.now_playing.height(), minimum)
+        assert window.cover.height() < before, 'swiping down hides the album in landscape'
+        window.settle_now_playing(-2000)
+        window.split_animation.setCurrentTime(window.split_animation.duration())
+        QTest.qWait(60)
+        assert window.now_playing.height() == maximum, 'a flick up brings it back'
+        window.setGeometry(portrait)
+        QTest.qWait(500)
+        window.now_playing.animation.setCurrentTime(window.now_playing.animation.duration())
+        assert window.compact_mode
+        QTest.qWait(60)
+        assert not window.cover.baked_case.isNull()
+        assert abs(window.cover.baked_width - window.cover.image_rect().width()) <= .5, 'a sharp case returns after a swipe'
 
         for area in window.findChildren(QAbstractScrollArea):
             if area.isVisible():

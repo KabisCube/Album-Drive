@@ -15,6 +15,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from main import PlayerWindow
+from themes import THEME_FADE_MAX_SECONDS, THEME_FADE_MS
 from optical_discs import Disc, prepare_audio
 from test_library import make_wave
 from test_optical_discs import toc
@@ -68,7 +69,7 @@ with TemporaryDirectory() as directory:
 
         dialog = ThemeSettingsDialog(settings, window)
         fade = dialog.numbers['theme_fade_seconds']
-        assert fade.value() == 4 and fade.maximum() == 5
+        assert fade.value() == THEME_FADE_MS / 1000 and fade.maximum() == THEME_FADE_MAX_SECONDS
         fade.setValue(0)
         dialog.apply()
         assert settings.value('theme_fade_seconds', type=float) == 0

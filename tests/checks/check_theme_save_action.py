@@ -8,7 +8,6 @@ os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from first_run import FirstRunDialog
 from main import PlayerWindow
 from test_library import make_wave
 from theme_settings import ThemeSettingsDialog, saved_color_themes
@@ -40,7 +39,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert window.save_theme_button.iconSize().width() > window.save_theme_button.iconSize().height()
     QTest.mouseClick(window.save_theme_button, Qt.LeftButton)
     presets = saved_color_themes(settings)
-    assert len(presets) == 2
+    assert len(presets) == 3
     assert presets[-1]['name'] == album.title
     assert presets[-1]['colors'] == snapshot
     assert window.theme_toast.isVisible()
@@ -52,15 +51,10 @@ with tempfile.TemporaryDirectory() as directory:
     window.settings_dialog = dialog
     dialog.show()
     window.save_current_theme()
-    assert len(saved_color_themes(settings)) == 3
+    assert len(saved_color_themes(settings)) == 4
     assert dialog.saved_theme_choice.findText(f'{album.title} (2)') >= 0
     dialog.reject()
     window.settings_dialog = None
-    guide = FirstRunDialog(settings, window)
-    guide.set_step(3)
-    assert not guide.save_preview.image.isNull()
-    assert 'paintbrush and save button beside Refresh' in guide.instructions_label.text()
-    guide.reject()
     window.theme_toast_timer.setInterval(1)
     QTest.qWait(30)
     assert not window.theme_toast.isVisible()

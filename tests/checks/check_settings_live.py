@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory() as directory:
     QTest.qWait(50)
     opening_text_size = button_text_sizing().pixel_size
     assert not hasattr(dialog, 'apply_button')
-    assert dialog.saved_theme_choice.itemText(0) == 'Default'
+    assert dialog.saved_theme_choice.itemText(0) == 'Default light'
     assert dialog.saved_theme_choice.findText('Custom colors') == -1
     assert dialog.tabs.widget(1).isAncestorOf(dialog.saved_theme_choice)
     assert dialog.option_labels[dialog.colors['theme_accent_color']].text() == 'Accent color'

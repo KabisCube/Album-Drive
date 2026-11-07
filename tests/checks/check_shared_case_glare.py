@@ -61,7 +61,7 @@ cover.setParent(scene)
 cover.lighting_source = viewport
 cover.sheen_key = front.sheen_key
 controller = SimpleNamespace(cover=cover, artist_handwriting=lambda folder: None, compact_mode=False,
-                             now_playing=SimpleNamespace(reveal=lambda expanded: None))
+                             now_playing=SimpleNamespace(reveal=lambda expanded: None, resizable=False))
 album = Album(Path(front.sheen_key), '', '', [], artwork.getvalue())
 PlayerWindow.update_now_playing_cover(controller, album)
 assert cover.pixmap().toImage() == front.pixmap.toImage()

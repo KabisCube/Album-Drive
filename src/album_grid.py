@@ -99,10 +99,10 @@ class AlbumGrid(QListWidget):
     def paint_baked_case(self, painter, rect, source, key):
         """Copy a finished case bitmap; phones cannot repaint every case each frame."""
         view = self.viewport().rect()
-        app = QApplication.instance()
         ratio = self.devicePixelRatioF()
+        theme = self.frozen_theme or (QApplication.instance().property('themeBackground'), case_frame_color().name())
         tag = (key, source.cacheKey(), round(rect.width(), 2), round(rect.height(), 2), round(rect.x(), 2), view.height(),
-               ratio, app.property('themeBackground'), case_frame_color().name())
+               ratio, theme)
         margin = 2 * (CASE_DEPTH + CASE_SHADOW_DEPTH) + 4
         baked = self.baked_cases.get(tag)
         if baked is None:
@@ -165,6 +165,7 @@ class AlbumGrid(QListWidget):
         self.model().modelReset.connect(self.model_layout_changed)
         self.lifts = {}
         self.baked_cases = OrderedDict() if running_on_android() else None
+        self.frozen_theme = None
         self.icon_provider = None
         self.sheen_key_provider = None
         self.suppressed_album = None

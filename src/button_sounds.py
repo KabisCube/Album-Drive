@@ -9,6 +9,7 @@ from PySide6.QtMultimedia import QMediaDevices, QSoundEffect
 from PySide6.QtWidgets import QApplication
 from audio_levels import volume_gain
 from audio_devices import selected_output
+from haptics import press_haptic
 
 
 def sound_depth():
@@ -104,6 +105,7 @@ def prepare_button_sounds():
 
 
 def play_button_sound():
+    press_haptic()
     if sound_depth() == 0 or sound_gain() == 0:
         return
     bank = sound_bank()

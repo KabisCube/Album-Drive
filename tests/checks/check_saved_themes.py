@@ -15,6 +15,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QAbstractSlider
 
 from main import PlayerWindow
+from themes import THEME_FADE_MS
 from theme_settings import ThemeSettingsDialog, custom_color_settings, saved_color_themes
 from themes import BUILDING_GRAY, COLOR_SETTINGS
 from test_library import make_wave
@@ -30,7 +31,7 @@ def wait_until(condition):
 
 def finish_colors(window):
     if getattr(window, 'theme_fade', None) is not None:
-        window.theme_fade.setCurrentTime(4000)
+        window.theme_fade.setCurrentTime(THEME_FADE_MS)
 
 
 app = QApplication([])
@@ -62,14 +63,14 @@ with tempfile.TemporaryDirectory() as directory:
     assert dialog.artwork_theme.isChecked()
     dialog.save_current_colors()
     assert dialog.saved_theme_choice.currentText() == blue.title
-    assert dialog.presets[1]['colors'] == snapshot
-    assert [preset['name'] for preset in saved_color_themes(settings)] == ['Default']
+    assert dialog.presets[2]['colors'] == snapshot
+    assert [preset['name'] for preset in saved_color_themes(settings)] == ['Default light', 'Default dark']
     dialog.apply()
-    preset_id = dialog.presets[1]['id']
+    preset_id = dialog.presets[2]['id']
     dialog.accept()
     dialog = ThemeSettingsDialog(settings, window)
     dialog.applied.connect(window.apply_settings)
-    assert saved_color_themes(settings)[1]['name'] == blue.title
+    assert saved_color_themes(settings)[2]['name'] == blue.title
     # Recover old installs where selecting Custom left preset colors in place.
     legacy = QSettings(str(root / 'legacy.ini'), QSettings.IniFormat)
     legacy.setValue('saved_color_themes', json.dumps(dialog.presets))
@@ -78,12 +79,12 @@ with tempfile.TemporaryDirectory() as directory:
     assert custom_color_settings(legacy)['theme_background_color'] == BUILDING_GRAY
     legacy.setValue('selected_color_theme', preset_id)
     assert custom_color_settings(legacy)['theme_background_color'] == BUILDING_GRAY
-    assert saved_color_themes(legacy)[1]['colors'] == snapshot
+    assert saved_color_themes(legacy)[2]['colors'] == snapshot
     dialog.save_current_colors()
     assert dialog.saved_theme_choice.currentText() == f'{blue.title} (2)'
     dialog.artwork_theme.setChecked(False)
     dialog.reject()
-    assert len(saved_color_themes(settings)) == 2
+    assert len(saved_color_themes(settings)) == 3
     assert settings.value('artwork_theme_enabled', False, type=bool)
 
     window.queue = [(track, no_art) for track in no_art.tracks]
@@ -200,9 +201,9 @@ with tempfile.TemporaryDirectory() as directory:
     restored.set_theme('classic')
     assert app.property('themeBackground') == snapshot['theme_background_color']
     persisted.restore_defaults()
-    assert len(persisted.presets) == 2  # Resetting appearance keeps Default and saved palettes.
+    assert len(persisted.presets) == 3  # Resetting appearance keeps the defaults and saved palettes.
     assert persisted.artwork_theme.isChecked()
-    assert persisted.saved_theme_choice.currentData() == 'album-drive-default'
+    assert persisted.saved_theme_choice.currentData() == 'album-drive-default-dark'
     persisted.close()
     restored.close()
     QTest.qWait(200)

@@ -6,6 +6,7 @@ from PySide6.QtCore import QPointF, QRectF, QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QApplication, QDialog, QFormLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
+from color_rules import disabled_text_color
 from responsive import ScreenFit
 from themes import ColorSwatch, ThemeSlider, ThemedButton, corner_radius
 
@@ -134,9 +135,10 @@ class ColorPickerDialog(QDialog):
         actions.addWidget(self.accept_button)
         root.addLayout(actions)
         app = QApplication.instance()
-        self.hex_edit.setStyleSheet(f'''QLineEdit {{ background: {app.property('buttonFill') or '#eae7e2'};
-            color: {app.property('buttonTextColor') or '#4c3f2f'}; border: 3px solid {app.property('themeAccent') or '#95bd29'};
-            border-radius: {corner_radius(8):g}px; padding: 8px; }}''')
+        background = QColor(app.property('themeBackground') or '#393939').darker(115).name()
+        text = app.property('textColor') or '#ffffff'
+        self.hex_edit.setStyleSheet(f'''QLineEdit {{ background: {background}; color: {text};
+            placeholder-text-color: {QColor(disabled_text_color(text)).name()}; border: none; border-radius: {corner_radius(8):g}px; padding: 11px; }}''')
         self.set_color(self.color)
 
     def set_color(self, color, update_hex=True):

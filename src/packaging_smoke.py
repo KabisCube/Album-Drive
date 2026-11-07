@@ -72,9 +72,7 @@ def run_smoke(app, window_type):
                     guide = FirstRunDialog(settings, window)
                     guide.advance()
                     guide.advance()
-                    guide.advance()
-                    report['welcome_guide'] = (guide.pages.count() == 4 and len(guide.choices) == 4
-                                               and not guide.save_preview.image.isNull())
+                    report['welcome_guide'] = guide.pages.count() == 3 and len(guide.choices) == 5
                     guide.reject()
                     guide.deleteLater()
                     if not report['welcome_guide']:

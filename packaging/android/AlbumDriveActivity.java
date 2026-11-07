@@ -4,13 +4,18 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.ActivityNotFoundException;
 import android.content.pm.PackageManager;
+import android.net.LocalServerSocket;
+import android.net.LocalSocket;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Field;
 import org.kivy.android.PythonActivity;
 
@@ -18,6 +23,7 @@ public class AlbumDriveActivity extends PythonActivity {
     @Override
     public void onCreate(Bundle state) {
         super.onCreate(state);
+        listenForHaptics();
         if (Build.VERSION.SDK_INT >= 30) {
             if (!Environment.isExternalStorageManager()
                     && !getPreferences(MODE_PRIVATE).getBoolean("storageRequested", false)) {
@@ -34,6 +40,39 @@ public class AlbumDriveActivity extends PythonActivity {
                 != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, 1007);
         }
+    }
+
+    private void listenForHaptics() {
+        Thread listener = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try (LocalServerSocket server = new LocalServerSocket("albumdrive-haptics")) {
+                    while (true) {
+                        try (LocalSocket client = server.accept()) {
+                            InputStream requests = client.getInputStream();
+                            while (requests.read() >= 0) {
+                                keyboardTap();
+                            }
+                        } catch (IOException disconnected) {
+                            continue;
+                        }
+                    }
+                } catch (IOException unavailable) {
+                    return;
+                }
+            }
+        });
+        listener.setDaemon(true);
+        listener.start();
+    }
+
+    private void keyboardTap() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            }
+        });
     }
 
     // PythonActivity swallows a key's first press behind a "click again" toast

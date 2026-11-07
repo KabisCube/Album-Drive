@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication
 from app_theme import application_highlight, artwork_theme_colors, simplify_theme_colors
 from open_case import color_contrast
 from themes import PRIMARY_COLOR_KEYS, COLOR_SETTINGS
-from theme_settings import ThemeSettingsDialog, custom_color_settings, default_color_theme, saved_color_themes
+from theme_settings import ThemeSettingsDialog, custom_color_settings, default_color_themes, saved_color_themes
 
 
 class SimplePaletteTests(unittest.TestCase):
@@ -80,13 +80,13 @@ class SimplePaletteTests(unittest.TestCase):
     def test_legacy_saved_theme_gains_highlight_without_disappearing(self):
         with tempfile.TemporaryDirectory() as folder:
             settings = QSettings(str(Path(folder) / 'settings.ini'), QSettings.IniFormat)
-            preset = default_color_theme() | {'id': 'legacy', 'name': 'Old album', 'preserve_palette': True}
+            preset = default_color_themes()[0] | {'id': 'legacy', 'name': 'Old album', 'preserve_palette': True}
             preset['colors'].pop('theme_highlight_color')
             settings.setValue('saved_color_themes', json.dumps([preset]))
             loaded = saved_color_themes(settings)
-            self.assertEqual(len(loaded), 2)
-            self.assertEqual(loaded[1]['colors']['theme_highlight_color'], preset['colors']['theme_brand_text_color'])
-            self.assertTrue(loaded[1]['preserve_palette'])
+            self.assertEqual(len(loaded), 3)
+            self.assertEqual(loaded[2]['colors']['theme_highlight_color'], preset['colors']['theme_brand_text_color'])
+            self.assertTrue(loaded[2]['preserve_palette'])
 
     def test_editable_color_rows_and_old_theme_survive_apply_restart(self):
         with tempfile.TemporaryDirectory() as folder:

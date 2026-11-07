@@ -77,7 +77,7 @@ with tempfile.TemporaryDirectory() as directory:
     dialog.set_setting_color(color, QColor('#123456'))
     assert not dialog.reset_buttons['theme_background_color'].isHidden()
     dialog.reset_buttons['theme_background_color'].click()
-    assert color.color().name() == '#393939'
+    assert color.color().name() == '#2e2426'
     assert dialog.reset_buttons['theme_background_color'].isHidden()
     dialog.set_setting_color(color, QColor('#123456'))
     dialog.artwork_theme.setChecked(True)

@@ -50,7 +50,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert len(files) == 1 and files[0].resolve().is_relative_to(folder.resolve())
     text = files[0].read_text(encoding='utf-8')
     assert '[Colors]' in text and '[Settings]' not in text and '[Theme]' in text
-    assert 'settings' not in saved_color_themes(portable)[1]
+    assert 'settings' not in saved_color_themes(portable)[2]
 
     # Changes to a theme INI are respected at startup, including its settings.
     theme = QSettings(str(files[0]), QSettings.IniFormat)
@@ -73,7 +73,7 @@ with tempfile.TemporaryDirectory() as directory:
     dialog.numbers['button_font_size'].setValue(110)
     dialog.apply()
     assert portable.value('button_font_scale', type=int) == 110
-    assert 'settings' not in saved_color_themes(portable)[1]
+    assert 'settings' not in saved_color_themes(portable)[2]
     count = len(list(folder.glob('theme-*.ini')))
     dialog.accept()
     cancelled = ThemeSettingsDialog(portable, window)
@@ -88,12 +88,12 @@ with tempfile.TemporaryDirectory() as directory:
     moved = create_app_settings(root / 'Moved app', legacy)
     assert theme_directory(moved) == (root / 'Moved app' / 'themes').resolve()
     assert moved.value('volume', type=int) == 43
-    assert saved_color_themes(moved)[1]['colors']['theme_background_color'] == '#27495a'
+    assert saved_color_themes(moved)[2]['colors']['theme_background_color'] == '#27495a'
     assert moved.value('button_font_scale', type=int) == 110
-    assert 'settings' not in saved_color_themes(moved)[1]
+    assert 'settings' not in saved_color_themes(moved)[2]
     # Migrating a newer source install copies its theme INIs too.
     next_install = create_app_settings(root / 'Next install', moved)
-    assert saved_color_themes(next_install)[1]['id'] == 'old-preset'
+    assert saved_color_themes(next_install)[2]['id'] == 'old-preset'
     write_theme_files(next_install, saved_color_themes(next_install))
     assert len(list(theme_directory(next_install).glob('theme-*.ini'))) == 1
 
@@ -103,7 +103,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert Path(migrated.fileName()).resolve() == (root / 'Old layout' / 'settings.ini').resolve()
     assert migrated.value('button_font_scale', type=int) == 110
     assert migrated.value('volume', type=int) == 43
-    assert saved_color_themes(migrated)[1]['colors']['theme_background_color'] == '#27495a'
+    assert saved_color_themes(migrated)[2]['colors']['theme_background_color'] == '#27495a'
     migrated.setValue('volume', 62)
     migrated.sync()
     assert create_app_settings(root / 'Old layout', legacy).value('volume', type=int) == 62

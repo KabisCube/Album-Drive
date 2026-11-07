@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QSplitterHandle
 from app_theme import artwork_theme_colors
 from color_rules import disabled_text_color, settings_title_color
 from main import PlayerWindow
+from themes import THEME_FADE_MS
 from open_case import color_contrast
 from test_library import make_wave
 from themes import accent_assets, button_paint_rect, control_face
@@ -72,7 +73,7 @@ with tempfile.TemporaryDirectory() as directory:
             assert app.property('themeBackground') == previous_background
             assert not window.findChildren(QLabel, 'themeFadeOverlay')
             animation = window.theme_fade
-            assert animation.duration() == 4000
+            assert animation.duration() == THEME_FADE_MS
             window.play_index(1, autoplay=False)
             assert window.theme_fade is animation  # Same album preserves progress.
             QTest.qWait(600)
@@ -84,8 +85,8 @@ with tempfile.TemporaryDirectory() as directory:
             # the target beneath a fading screenshot of the previous UI.
             with patch.object(app, 'setStyleSheet', wraps=app.setStyleSheet) as restyle, \
                     patch('themes.accent_assets', wraps=accent_assets) as assets:
-                animation.setCurrentTime(1000)
-                animation.setCurrentTime(2000)
+                animation.setCurrentTime(THEME_FADE_MS // 4)
+                animation.setCurrentTime(THEME_FADE_MS // 2)
                 app.processEvents()
                 assert restyle.call_count == 0
                 assert assets.call_count == 0
@@ -127,7 +128,7 @@ with tempfile.TemporaryDirectory() as directory:
             settings_dialog.reject()
             settings_dialog.deleteLater()
             animation.resume()
-            animation.setCurrentTime(4000)
+            animation.setCurrentTime(THEME_FADE_MS)
             assert window.theme_fade is None
             assert window.tree.geometry() == browser_geometry
             window_image = window.grab().toImage()
@@ -169,7 +170,7 @@ with tempfile.TemporaryDirectory() as directory:
         window.queue = [(track, window.albums[0]) for track in window.albums[0].tracks]
         window.play_index(0, autoplay=False)
         assert window.theme_fade is not None
-        window.theme_fade.setCurrentTime(2000)
+        window.theme_fade.setCurrentTime(THEME_FADE_MS // 2)
         window.scan(root / 'Empty art')
         wait_until(lambda: not window.scanners)
         assert app.property('artworkTheme')  # Folder browsing cannot reset it.
@@ -178,7 +179,7 @@ with tempfile.TemporaryDirectory() as directory:
         window.play_index(0, autoplay=False)
         assert app.property('themeBackground') != '#54585b'
         assert app.property('themeBackground') == interrupted_color
-        window.theme_fade.setCurrentTime(4000)
+        window.theme_fade.setCurrentTime(THEME_FADE_MS)
         assert not app.property('artworkTheme')
         assert app.property('themeBackground') == '#54585b'
         assert window.theme_fade is None

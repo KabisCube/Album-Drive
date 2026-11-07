@@ -1,5 +1,6 @@
 """Library and button setup, theme choices, previews and first-run persistence."""
 
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -9,9 +10,10 @@ os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 from PySide6.QtCore import QSettings, QTimer, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QScrollBar, QFormLayout
+from PySide6.QtWidgets import QApplication, QLabel, QFormLayout
 
-from first_run import FirstRunDialog, needs_first_run
+from themes import ChunkyCheckBox
+from first_run import FIXED_THEMES, FirstRunDialog, needs_first_run, system_theme_choice
 from main import PlayerWindow
 from theme_settings import ThemeSettingsDialog
 
@@ -38,6 +40,10 @@ with tempfile.TemporaryDirectory() as folder:
     settings.setValue('browser_root', str(root / 'empty'))
     window = PlayerWindow(settings)
     window.show()
+    for scheme, mode in ((Qt.ColorScheme.Dark, 'fixed_dark'), (Qt.ColorScheme.Light, 'fixed_light'),
+                         (Qt.ColorScheme.Unknown, 'any')):
+        with patch('PySide6.QtGui.QStyleHints.colorScheme', return_value=scheme):
+            assert system_theme_choice() == mode
     guide = FirstRunDialog(settings, window)
     guide.show()
     app.processEvents()
@@ -52,6 +58,29 @@ with tempfile.TemporaryDirectory() as folder:
     assert settings.value('browser_root') == str(root / 'empty')
     guide.grab().save('build/welcome-library.png')
     guide.advance()
+    app.processEvents()
+    assert not guide.heading.isVisible()
+    assert not guide.reminder.isVisible()
+    assert guide.dynamic_category.isAncestorOf(guide.subheading)
+    assert all(isinstance(radio, ChunkyCheckBox) for radio in guide.choices.values())
+    guide.choices['dark'].click()
+    assert guide.selected_mode() == 'dark'
+    assert sum(radio.isChecked() for radio in guide.choices.values()) == 1
+    assert abs(guide.dynamic_category.width() - guide.fixed_category.width()) <= 1
+    assert all(guide.dynamic_category.isAncestorOf(guide.choices[mode]) for mode in ('any', 'dark', 'light'))
+    assert guide.fixed_category.isAncestorOf(guide.choices['fixed_dark'])
+    assert guide.pages.currentIndex() == 1
+    assert guide.back_button.isVisible()
+    images = [label.pixmap().toImage() for label in guide.pages.widget(1).findChildren(QLabel)
+              if not label.pixmap().isNull()]
+    assert len(images) == 5
+    assert all(image.width() == image.height() for image in images)
+    assert all(a != b for i, a in enumerate(images) for b in images[i + 1:])
+    assert any('Settings → Style' in label.text() for label in guide.findChildren(QLabel))
+    guide.grab().save('build/welcome-colors.png')
+    guide.choices['light'].setChecked(True)
+    guide.advance()
+    assert guide.heading.isVisible()
     assert guide.heading.text() == 'Make it feel right'
     before = {prop: app.property(prop) for prop in ('uiThickness', 'cornerRoundness', 'buttonSoundVolume')}
     guide.button_thickness.setValue(200)
@@ -61,38 +90,12 @@ with tempfile.TemporaryDirectory() as folder:
     assert app.property('cornerRoundness') == 75
     assert app.property('buttonSoundVolume') == 30
     guide.grab().save('build/welcome-buttons.png')
-    guide.advance()
-    app.processEvents()
-    assert guide.heading.text() == 'Dynamic theming'
-    assert abs(guide.dynamic_category.width() - guide.fixed_category.width()) <= 1
-    assert all(guide.dynamic_category.isAncestorOf(guide.choices[mode]) for mode in ('any', 'dark', 'light'))
-    assert guide.fixed_category.isAncestorOf(guide.choices['off'])
     assert guide.pages.currentIndex() == 2
+    assert guide.pages.count() == 3
+    assert guide.step_label.text() == 'Step 3 of 3'
+    assert guide.next_button.text() == 'Start listening'
+    assert guide.next_button.property('themeRole') == 'highlight'
     assert guide.back_button.isVisible()
-    images = [label.pixmap().toImage() for label in guide.pages.widget(2).findChildren(QLabel)
-              if not label.pixmap().isNull()]
-    assert len(images) == 4
-    assert all(image.width() == image.height() for image in images)
-    assert all(a != b for i, a in enumerate(images) for b in images[i + 1:])
-    assert any('Settings → Style' in label.text() for label in guide.findChildren(QLabel))
-    guide.grab().save('build/welcome-colors.png')
-    guide.choices['light'].setChecked(True)
-    guide.advance()
-    app.processEvents()
-    assert guide.pages.currentIndex() == 3
-    assert not guide.save_preview.image.isNull()
-    assert guide.save_preview.isVisible()
-    assert not guide.pages.widget(3).findChildren(QScrollBar)
-    from themes import ThemedButton, ThemedComboBox
-    assert not guide.pages.widget(3).findChildren(ThemedButton)
-    assert not guide.pages.widget(3).findChildren(ThemedComboBox)
-    assert 'beside Refresh' in guide.instructions_label.text()
-    guide.resize(740, 650)
-    app.processEvents()
-    assert guide.save_preview.isVisible()
-    assert 'change theme colors' in guide.subheading.text()
-    assert guide.back_button.isVisible()
-    guide.grab().save('build/welcome-save-theme.png')
     guide.back_button.click()
     assert guide.selected_mode() == 'light'
     guide.reject()
@@ -101,7 +104,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert not settings.contains('artwork_theme_enabled')
     assert settings.value('browser_root') == str(root / 'empty')
 
-    for mode in ('any', 'dark', 'light', 'off'):
+    for mode in ('any', 'dark', 'light', 'fixed_dark', 'fixed_light'):
         settings = QSettings(str(root / f'{mode}.ini'), QSettings.IniFormat)
         guide = FirstRunDialog(settings, window)
         assert guide.selected_mode() == 'any'
@@ -109,14 +112,14 @@ with tempfile.TemporaryDirectory() as folder:
         guide.advance()
         guide.advance()
         guide.advance()
-        assert ('Choose your colors' in guide.instructions_label.text()) == (mode == 'off')
-        assert 'saved immediately' in guide.instructions_label.text()
-        guide.advance()
         settings.sync()
         reopened = QSettings(settings.fileName(), QSettings.IniFormat)
         assert not needs_first_run(reopened)
-        assert reopened.value('artwork_theme_enabled', type=bool) == (mode != 'off')
-        assert reopened.value('artwork_theme_mode') == (mode if mode != 'off' else 'any')
+        assert reopened.value('artwork_theme_enabled', type=bool) == (not mode.startswith('fixed'))
+        assert reopened.value('artwork_theme_mode') == mode.removeprefix('fixed_')
+        if mode.startswith('fixed'):
+            assert reopened.value('theme_background_color') == FIXED_THEMES[mode]['theme_background_color']
+            assert json.loads(reopened.value('custom_theme_colors')) == FIXED_THEMES[mode]
         guide.deleteLater()
     window.settings.setValue('artwork_theme_enabled', True)
     window.settings.setValue('artwork_theme_mode', 'dark')
@@ -153,7 +156,6 @@ with tempfile.TemporaryDirectory() as folder:
             guide.advance()
             guide.advance()
             guide.advance()
-            guide.advance()
         elif guide:
             guide.reject()
     QTimer.singleShot(0, finish_tutorial)
@@ -169,4 +171,4 @@ with tempfile.TemporaryDirectory() as folder:
         scanner.wait()
     app.processEvents()
 
-print('PASS: four illustrated choices, default any, save-theme tutorial, Back/Cancel and first-run completion/retry')
+print('PASS: five illustrated choices, default any, Back/Cancel and first-run completion/retry')

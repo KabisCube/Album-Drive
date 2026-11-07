@@ -14,6 +14,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QFormLayout, QToolButton
 
 from main import PlayerWindow, cd_case_pixmap
+from themes import THEME_FADE_MS
 from theme_settings import ThemeSettingsDialog, saved_color_themes
 from themes import FONT_SCALE_KEYS, font_sizes, NUMERIC_DEFAULTS, MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS, ThemedButton, ThemedComboBox
 from test_library import make_wave
@@ -133,7 +134,7 @@ with tempfile.TemporaryDirectory() as directory:
     window.play_index(0, autoplay=False)
     QTest.qWait(30)
     assert window.play.height() == heights[-1][0], 'Button size changed when the color fade started'
-    window.theme_fade.setCurrentTime(4000)
+    window.theme_fade.setCurrentTime(THEME_FADE_MS)
     QTest.qWait(30)
     assert window.play.height() == heights[-1][0], 'Button size changed when the color fade finished'
 

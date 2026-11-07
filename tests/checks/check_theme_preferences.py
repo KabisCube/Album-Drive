@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory() as directory:
     dialog.show()
     before = {key: control.value() for key, control in dialog.numbers.items()}
     fonts = dialog.ui_font_choice.currentData()
-    for identity in ('album-drive-default', 'legacy'):
+    for identity in ('album-drive-default-light', 'legacy'):
         dialog.saved_theme_choice.setCurrentIndex(dialog.saved_theme_choice.findData(identity))
         assert {key: control.value() for key, control in dialog.numbers.items()} == before
         assert (dialog.ui_font_choice.currentData()) == fonts

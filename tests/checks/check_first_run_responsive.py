@@ -24,7 +24,7 @@ with TemporaryDirectory() as directory:
     guide.show()
     for width, height in ((900, 680), (393, 780), (320, 600), (600, 320), (900, 680)):
         guide.resize(width, height)
-        for step in range(4):
+        for step in range(3):
             guide.set_step(step)
             QTest.qWait(30)
             assert guide.width() == width, (width, step, guide.size())
@@ -34,11 +34,11 @@ with TemporaryDirectory() as directory:
             assert guide.scroll.widget().width() <= guide.scroll.viewport().width()
             assert guide.categories.direction() == (QBoxLayout.TopToBottom if width < 640 else QBoxLayout.LeftToRight)
             assert guide.button_form.rowWrapPolicy() == (QFormLayout.WrapAllRows if width < 640 else QFormLayout.DontWrapRows)
-            if step == 2 and width < 640:
+            if step == 1 and width < 640:
                 assert guide.fixed_category.y() > guide.dynamic_category.geometry().bottom()
-                guide.scroll.ensureWidgetVisible(guide.choices['off'])
+                guide.scroll.ensureWidgetVisible(guide.choices['fixed_light'])
                 QTest.qWait(20)
-                assert guide.choices['off'].visibleRegion().boundingRect().height() > 0
+                assert guide.choices['fixed_light'].visibleRegion().boundingRect().height() > 0
             guide.grab().save(f'build/setup-{width}-{height}-{step}.png')
     guide.reject()
 

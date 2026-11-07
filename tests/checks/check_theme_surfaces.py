@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionSlider
 from main import PlayerWindow
+from themes import THEME_FADE_MS
 from test_library import make_wave
 
 app = QApplication([])
@@ -73,7 +74,7 @@ with tempfile.TemporaryDirectory() as directory:
     animation = window.theme_fade
     assert animation is not None
     animation.pause()
-    for elapsed in (0, 1, 1000, 2000, 3999, 4000):
+    for elapsed in (0, 1, THEME_FADE_MS // 4, THEME_FADE_MS // 2, THEME_FADE_MS - 1, THEME_FADE_MS):
         if window.theme_fade is not None:
             animation.setCurrentTime(elapsed)
         check_surfaces()
@@ -90,13 +91,13 @@ with tempfile.TemporaryDirectory() as directory:
     settings.setValue('theme_background_color', '#203070')
     window.apply_settings()
     window.theme_fade.pause()
-    window.theme_fade.setCurrentTime(2000)
+    window.theme_fade.setCurrentTime(THEME_FADE_MS // 2)
     check_surfaces()
     before = app.property('themeBackground')
     settings.setValue('theme_background_color', '#503020')
     window.apply_settings()
     assert app.property('themeBackground') == before
-    window.theme_fade.setCurrentTime(4000)
+    window.theme_fade.setCurrentTime(THEME_FADE_MS)
     check_surfaces()
     window.close()
     for scanner in list(window.scanners):

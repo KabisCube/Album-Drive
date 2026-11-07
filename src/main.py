@@ -9,6 +9,7 @@ import subprocess
 import time
 from functools import lru_cache
 from collections import OrderedDict, deque
+from math import ceil
 from pathlib import Path
 
 from app_paths import ASSETS_DIR
@@ -42,15 +43,15 @@ from adaptive_workspace import AdaptiveWorkspace, ResponsiveTransport
 from music_folders import choose_music_directory, music_directory
 from themes import signed_setting_int, resolve_font, THEME_DEFAULT, ALBUM_SORT_DEFAULT, VOLUME_DEFAULT, BUILDING_GRAY, GRASS_GREEN, TIMELINE_COLOR, CLEANING_DEFAULT, COLOR_SETTINGS, NUMERIC_DEFAULTS, ChunkyBrand, ThemedButton as QPushButton, ThemedComboBox, ThemeSlider, accent_knob, chunky_style, corner_radius, draw_centered_text, round_stylesheet, text_style
 from theme_settings import ThemeSettingsDialog, capture_color_theme, custom_color_settings, saved_color_themes
-from theme_transition import ThemeTransition
+from theme_transition import ThemeTransition, strip_theme_colors
 from live_scrollbars import install_live_scrollbars
 from scroll_shadows import paint_scroll_background
-from case_shell import CASE_DEPTH, paint_cd_case, paint_shell, artwork_tray_color, fitted_case_rect
+from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, case_frame_color, paint_cd_case, paint_shell, artwork_tray_color, fitted_case_rect
 from themes import control_offset
 from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
 from color_rules import timeline_colors
 from settings_store import create_app_settings, library_cache_path, write_theme_files
-from themes import ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, UI_FONT_DEFAULT, CONTROL_HEADROOM, BUTTON_SHADOW, ThemedMenu, ThemeSaveIcon, button_scale, migrate_button_size
+from themes import DEFAULT_THEME_IDS, THEME_FADE_MAX_SECONDS, ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, UI_FONT_DEFAULT, CONTROL_HEADROOM, BUTTON_SHADOW, ThemedMenu, ThemeSaveIcon, button_scale, migrate_button_size
 from app_theme import classic_artwork_style, artwork_theme_colors, simplify_theme_colors, soften_theme_colors, button_text_color_for_palette
 from button_sounds import prepare_button_sounds, play_button_sound
 from case_sounds import prepare_case_sounds, play_case_sound
@@ -60,7 +61,7 @@ from app_identity import APP_NAME
 from responsive import running_on_android
 from touch_input import MINIMUM_TOUCH_TARGET, add_touch
 from audio_levels import volume_gain
-from first_run import FirstRunDialog, needs_first_run
+from first_run import FirstRunDialog, apply_system_theme, needs_first_run
 from session_palette import load_session_palette, save_session_palette
 from app_identity import update_theme_icon
 from windows_taskbar import WindowsTaskbar
@@ -79,7 +80,8 @@ QPushButton:hover { background: #3b4959; }
 QPushButton:disabled { color: #68727e; }
 QPushButton#previous, QPushButton#next { padding: 0px; min-height: 0px; }
 QPushButton#play { background: #bddc9c; color: #16191e; border: none; }
-QLineEdit { background: #222831; padding: 10px; border: 1px solid #36414e; border-radius: 6px; }
+QLineEdit { background: #222831; padding: 11px; border: none; border-radius: 6px; }
+QPlainTextEdit { border: none; }
 QTreeView { background: #1c2128; border: none; padding: 5px; }
 QTreeView::item { height: 27px; }
 QTreeView::item:selected { background: #3b4c3a; }
@@ -298,6 +300,12 @@ class NowPlayingCover(QWidget):
         self.sheen_key = ''
         self.cover_pressed = False
         self.auto_height = True
+        self.baked = running_on_android()
+        self.baked_case = QPixmap()
+        self.baked_tag = None
+        self.frozen_theme = None
+        self.baked_width = 0.0
+        self.resizing = False
         self.setMinimumSize(64, 64)
         self.setContentsMargins(10, 0, 10, 0)
 
@@ -351,12 +359,40 @@ class NowPlayingCover(QWidget):
         target = self.image_rect()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        if self.baked:
+            self.paint_baked(painter, target)
+        else:
+            self.paint_case(painter, target)
+
+    def paint_case(self, painter, target):
         lighting = None
         source = getattr(self, 'lighting_source', None)
         if source is not None:
             origin = self.mapFromGlobal(source.mapToGlobal(QPoint()))
             lighting = QRectF(source.rect()).translated(origin)
         paint_cd_case(painter, self, target, self._pixmap, self.sheen_key, visible=lighting, shadow=True)
+
+    def paint_baked(self, painter, target):
+        """Copy a finished case, stretching the last one while a swipe resizes it."""
+        ratio = self.devicePixelRatioF()
+        margin = 2 * (CASE_DEPTH + CASE_SHADOW_DEPTH) + 4
+        theme = self.frozen_theme or QApplication.instance().property('themeBackground')
+        tag = self.sheen_key, self._pixmap.cacheKey(), ratio, theme
+        if tag != self.baked_tag or (not self.resizing and abs(target.width() - self.baked_width) > .5):
+            self.baked_case = QPixmap(ceil((target.width() + 2 * margin) * ratio), ceil((target.height() + 2 * margin) * ratio))
+            self.baked_case.setDevicePixelRatio(ratio)
+            self.baked_case.fill(Qt.transparent)
+            layer = QPainter(self.baked_case)
+            layer.setRenderHint(QPainter.SmoothPixmapTransform)
+            layer.translate(margin - target.x(), margin - target.y())
+            self.paint_case(layer, target)
+            layer.end()
+            self.baked_tag, self.baked_width = tag, target.width()
+        scale = target.width() / self.baked_width
+        painter.drawPixmap(QRectF(target.x() - margin * scale, target.y() - margin * scale,
+                                  self.baked_case.deviceIndependentSize().width() * scale,
+                                  self.baked_case.deviceIndependentSize().height() * scale),
+                           self.baked_case, QRectF(self.baked_case.rect()))
 
 
 class NowPlayingPanel(QWidget):
@@ -945,6 +981,21 @@ class DiscDrivePanel(QWidget):
         painter.fillRect(self.rect(), QColor(QApplication.instance().property('themeBackground') or BUILDING_GRAY).darker(110))
 
 
+class ThemePreparer(QThread):
+    """Work out album colors ahead of time so opening an album does not pause the interface."""
+    ready = Signal(object, object)
+
+    def __init__(self, jobs, parent):
+        super().__init__(parent)
+        self.jobs = jobs
+
+    def run(self):
+        for job in self.jobs:
+            if self.isInterruptionRequested():
+                return
+            self.ready.emit(job, artwork_theme_colors(*job))
+
+
 class Scanner(QThread):
     result = Signal(object, object)
     progress = Signal(int)
@@ -977,6 +1028,11 @@ class Scanner(QThread):
 
 
 NOW_PLAYING_FLICK_SPEED = 900
+THEME_COLOR_CACHE_SIZE = 64
+THEME_PREPARE_DELAY_MS = 400
+ANDROID_THEME_STEP_MS = 100
+SETTINGS_PREPARE_DELAY_MS = 2500
+VOLATILE_SETTINGS = {'browsing_state', 'window_geometry', 'sidebar_width', 'volume', 'settings_view_state'}
 ANDROID_TRANSPORT_ROW_GAP = -8
 PLAYBACK_STALL_MS = 1500
 FILE_MANAGER_LABEL = 'Open in Windows Explorer' if sys.platform == 'win32' else 'Open in file manager'
@@ -990,10 +1046,14 @@ class PlayerWindow(QMainWindow):
         self.resize(1400, 900)
         self.compact_mode = False
         self.is_android = running_on_android()
+        self.live_theme = False
+        self.theme_renderer = None
         self.setMinimumSize(320, 320 if self.is_android else 600)
         self.settings = settings if settings is not None else create_app_settings()
         migrate_font_settings(self.settings)
         self.first_run_needed = needs_first_run(self.settings)
+        if self.first_run_needed:
+            apply_system_theme(self.settings)
         if not self.settings.value('artwork_theme_enabled', ARTWORK_THEME_DEFAULT, type=bool):
             selected = next((preset for preset in saved_color_themes(self.settings)
                              if preset['id'] == self.settings.value('selected_color_theme', '')), None)
@@ -1032,6 +1092,18 @@ class PlayerWindow(QMainWindow):
         self.browsing_restore_timer.setInterval(30)
         self.browsing_restore_timer.timeout.connect(self.restore_browsing_state)
         self.viewed_album = None
+        self.theme_colors = OrderedDict()
+        self.theme_preparer = None
+        self.prepared_settings = None
+        self.prepared_settings_values = None
+        self.settings_prepare_timer = QTimer(self)
+        self.settings_prepare_timer.setSingleShot(True)
+        self.settings_prepare_timer.setInterval(SETTINGS_PREPARE_DELAY_MS)
+        self.settings_prepare_timer.timeout.connect(self.prepare_settings)
+        self.theme_prepare_timer = QTimer(self)
+        self.theme_prepare_timer.setSingleShot(True)
+        self.theme_prepare_timer.setInterval(THEME_PREPARE_DELAY_MS)
+        self.theme_prepare_timer.timeout.connect(self.prepare_visible_themes)
         self.optical_discs = {}
         self.disc_monitor = None
         self.pending_eject = None
@@ -1059,9 +1131,10 @@ class PlayerWindow(QMainWindow):
         self.setCentralWidget(root)
         outer = QVBoxLayout(root)
         outer.setSizeConstraint(QLayout.SetNoConstraint)
-        outer.setContentsMargins(16, 16, 16, 10)
+        outer.setContentsMargins(16, 16, 16, 0 if self.is_android else 10)
         splitter = AdaptiveWorkspace()
         self.workspace = splitter
+        splitter.sidebar_width = self.settings.value('sidebar_width', splitter.sidebar_width, type=int)
         outer.addWidget(splitter, 1)
 
         sidebar = QWidget()
@@ -1135,7 +1208,14 @@ class PlayerWindow(QMainWindow):
         self.split_animation.setDuration(180)
         self.split_animation.setEasingCurve(QEasingCurve.OutCubic)
         self.split_animation.valueChanged.connect(lambda height: self.set_now_playing_height(round(height)))
+        self.split_animation.finished.connect(self.finish_now_playing_resize)
+        self.pending_split_drag = 0.0
+        self.split_drag_timer = QTimer(self)
+        self.split_drag_timer.setSingleShot(True)
+        self.split_drag_timer.setInterval(16)
+        self.split_drag_timer.timeout.connect(self.apply_now_playing_drag)
         if self.is_android:
+            now_playing.set_resizable(True)
             add_touch(now_playing, on_drag=self.drag_now_playing, on_drag_end=self.settle_now_playing)
         browser_column.installEventFilter(now_playing)
         browser_column.setStretchFactor(0, 1)
@@ -1243,9 +1323,14 @@ class PlayerWindow(QMainWindow):
         self.grid.customContextMenuRequested.connect(self.show_album_metadata_menu)
         self.grid.itemPressed.connect(self.cancel_browsing_restore)
         self.grid.verticalScrollBar().sliderPressed.connect(self.cancel_browsing_restore)
-        for widget in (self.tree, self.grid, self.tree.viewport(), self.grid.viewport(),
-                       self.tree.verticalScrollBar(), self.tree.horizontalScrollBar(), self.grid.verticalScrollBar()):
-            widget.installEventFilter(self)
+        if self.is_android:
+            for view in (self.tree, self.grid):
+                QScroller.scroller(view.viewport()).stateChanged.connect(lambda state: self.cancel_browsing_restore())
+            QScroller.scroller(self.grid.viewport()).stateChanged.connect(self.grid_scroll_state_changed)
+        else:
+            for widget in (self.tree, self.grid, self.tree.viewport(), self.grid.viewport(),
+                           self.tree.verticalScrollBar(), self.tree.horizontalScrollBar(), self.grid.verticalScrollBar()):
+                widget.installEventFilter(self)
         self.grid.setObjectName('albumGrid')
         self.grid.setStyleSheet('QListWidget#albumGrid { background: transparent; }')
         self.cover.lighting_source = self.grid.viewport()
@@ -1382,7 +1467,7 @@ class PlayerWindow(QMainWindow):
         self.play_action.setShortcut(QKeySequence('Space'))
         self.play_action.triggered.connect(self.toggle_play)
         self.addAction(self.play_action)
-        QApplication.instance().installEventFilter(self)
+        (self.library_area if self.is_android else QApplication.instance()).installEventFilter(self)
         self.setStatusBar(FadingStatusBar(self))
         last = Path(str(self.settings.value('folder', music_directory())))
         browser_root = Path(str(self.settings.value('browser_root', last)))
@@ -1395,6 +1480,10 @@ class PlayerWindow(QMainWindow):
             self.restoreGeometry(geometry)
         QTimer.singleShot(0, self.restore_last_session)
         self.taskbar = WindowsTaskbar(self, transport_icon)
+        if self.is_android:
+            self.enter_live_theme()
+            QApplication.instance().focusWindowChanged.connect(self.refresh_live_theme)
+            self.settings_prepare_timer.start()
         self.update_responsive_layout(animate=False)
         self.disc_timer = QTimer(self)
         self.disc_timer.setInterval(3000)
@@ -1407,6 +1496,7 @@ class PlayerWindow(QMainWindow):
 
     def set_theme(self, name, colors=None, artwork_active=None):
         self.clear_theme_fade()
+        self.leave_live_theme()
         if name not in THEMES:
             name = 'chunky'
         saved = self.saved_theme_colors()
@@ -1415,7 +1505,7 @@ class PlayerWindow(QMainWindow):
         for prop, color in saved.items():
             QApplication.instance().setProperty(prop, color)
         QApplication.instance().setProperty('artworkTheme', bool(colors) if artwork_active is None else artwork_active)
-        QApplication.instance().setProperty('customColorTheme', self.settings.value('selected_color_theme', '') not in ('', 'album-drive-default'))
+        QApplication.instance().setProperty('customColorTheme', self.settings.value('selected_color_theme', '') not in ('', *DEFAULT_THEME_IDS))
         if colors:
             colors = soften_theme_colors(colors)
             for prop, color in colors.items():
@@ -1546,6 +1636,8 @@ QTreeView#fileBrowser::item:selected, QTreeView#fileBrowser::item:hover {{ backg
 QTreeView#fileBrowser::branch {{ background: transparent; }}
 QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 '''
+        if self.is_android:
+            style = strip_theme_colors(style)
         if QApplication.instance().styleSheet() != style:
             QApplication.instance().setStyleSheet(style)
         if hasattr(self, 'disc_panel') and self.optical_discs:
@@ -1562,29 +1654,122 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.update_transport_icons()
             self.seek.update()
         self.update()
+        if self.live_theme:
+            self.enter_live_theme()
+
+    def theme_fade_seconds(self):
+        seconds = self.settings.value('theme_fade_seconds', NUMERIC_DEFAULTS['theme_fade_seconds'], type=float)
+        return max(0, min(THEME_FADE_MAX_SECONDS, seconds))
 
     def clear_theme_fade(self):
-        if getattr(self, 'theme_fade', None) is not None:
+        fading = getattr(self, 'theme_fade', None) is not None
+        if fading:
             self.theme_fade.stop()
             self.theme_fade.deleteLater()
             self.theme_fade = None
+        if getattr(self, 'theme_renderer', None) is not None and (fading or not self.live_theme):
+            if not self.live_theme:
+                self.leave_live_theme()
+            self.seek.fade_colors = None
+            self.freeze_case_theme(None)
+            self.refresh_theme_colors()
+            self.grid.viewport().update()
+            self.cover.update()
+
+    def leave_live_theme(self):
         if getattr(self, 'theme_renderer', None) is not None:
             self.theme_renderer.finish()
             self.theme_renderer = None
-            self.seek.fade_colors = None
-            self.refresh_theme_colors()
+
+    def enter_live_theme(self):
+        """Android stays on palette colors so a new album never reloads the whole stylesheet."""
+        self.live_theme = True
+        self.theme_renderer = ThemeTransition(self)
+        self.theme_renderer.update_colors()
+
+    def refresh_live_theme(self, *_):
+        if self.live_theme and self.theme_renderer is not None:
+            self.theme_renderer.update_colors()
+
+    def freeze_case_theme(self, theme):
+        """Keep cached cases through a fade; rebuilding them for every color step is what makes it slow."""
+        self.grid.frozen_theme = theme
+        self.cover.frozen_theme = theme
 
     def now_playing_theme_colors(self):
         if not self.settings.value('artwork_theme_enabled', ARTWORK_THEME_DEFAULT, type=bool):
             return None
         if 0 <= self.queue_index < len(self.queue):
-            return artwork_theme_colors(self.queue[self.queue_index][1].artwork,
-                                        str(self.settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))
+            colors = self.cached_theme_colors(self.queue[self.queue_index][1].artwork,
+                                              str(self.settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))
+            if colors is not None:
+                colors.pop('paperBackgroundColor', None)  # Belongs to the track list, not the app.
+            return colors
         return None
 
     def album_track_theme_colors(self, artwork):
-        return artwork_theme_colors(
+        return self.cached_theme_colors(
             artwork, str(self.settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))
+
+    def album_paper_colors(self, artwork):
+        """Album colors for the track list; albums without art use the default theme."""
+        colors = self.album_track_theme_colors(artwork)
+        if colors is None:
+            colors = self.saved_theme_colors()
+            colors['paperBackgroundColor'] = colors['themeBackground']
+        return colors
+
+    def refresh_open_album_colors(self):
+        if self.viewed_album is not None:
+            self.album_presentation.set_artwork(self.viewed_album.artwork, self.album_paper_colors(self.viewed_album.artwork))
+
+    def store_theme_colors(self, job, colors):
+        self.theme_colors[job] = colors
+        self.theme_colors.move_to_end(job)
+        while len(self.theme_colors) > THEME_COLOR_CACHE_SIZE:
+            self.theme_colors.popitem(last=False)
+
+    def cached_theme_colors(self, artwork, mode):
+        job = artwork, mode
+        if job in self.theme_colors:
+            self.theme_colors.move_to_end(job)
+        else:
+            self.store_theme_colors(job, artwork_theme_colors(artwork, mode))
+        colors = self.theme_colors[job]
+        return dict(colors) if colors is not None else None
+
+    def prepare_visible_themes(self):
+        if self.closing or self.theme_preparer is not None or not self.grid.isVisible():
+            return
+        columns = self.grid.layout_columns
+        pitch = max(1, self.grid.row_pitch())
+        first = self.grid.verticalScrollBar().value() // pitch * columns
+        visible = (self.grid.viewport().height() // pitch + 2) * columns
+        mode = str(self.settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT))
+        jobs = []
+        for row in range(first, min(self.grid.count(), first + visible)):
+            job = self.albums[self.grid.item(row).data(Qt.UserRole)].artwork, mode
+            if job[0] and job not in self.theme_colors and job not in jobs:
+                jobs.append(job)
+        if jobs:
+            self.theme_preparer = ThemePreparer(jobs, self)
+            self.theme_preparer.ready.connect(self.store_theme_colors)
+            self.theme_preparer.finished.connect(self.theme_preparer_finished)
+            self.theme_preparer.start(QThread.LowPriority)
+
+    def theme_preparer_finished(self):
+        self.theme_preparer.deleteLater()
+        self.theme_preparer = None
+        if QScroller.scroller(self.grid.viewport()).state() == QScroller.Inactive:
+            self.theme_prepare_timer.start()
+
+    def grid_scroll_state_changed(self, state):
+        self.theme_prepare_timer.stop()
+        if state != QScroller.Inactive:
+            if self.theme_preparer is not None:
+                self.theme_preparer.requestInterruption()
+        else:
+            self.theme_prepare_timer.start()
 
     def saved_theme_colors(self):
         colors = {}
@@ -1604,7 +1789,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
     def theme_from_now_playing(self):
         app = QApplication.instance()
-        custom = self.settings.value('selected_color_theme', '') not in ('', 'album-drive-default')
+        custom = self.settings.value('selected_color_theme', '') not in ('', *DEFAULT_THEME_IDS)
         mode_changed = app.property('customColorTheme') != custom
         app.setProperty('customColorTheme', custom)
         artwork_colors = self.now_playing_theme_colors()
@@ -1630,7 +1815,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         self.clear_theme_fade()
         self.theme_target = target
         target_colors = {prop: QColor(color) for prop, color in target.items()}
-        duration = max(0, min(5, self.settings.value('theme_fade_seconds', NUMERIC_DEFAULTS['theme_fade_seconds'], type=float)))
+        duration = self.theme_fade_seconds()
         if duration == 0:
             for prop, color in target.items():
                 app.setProperty(prop, color)
@@ -1642,7 +1827,9 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         timeline_target = timeline_colors(target['themeBackground'], target['themeAccent'],
                                           target['themeBackgroundAccent'])
         self.seek.fade_colors = timeline_start
-        self.theme_renderer = ThemeTransition(self)
+        self.freeze_case_theme((app.property('themeBackground'), case_frame_color().name()))
+        if self.theme_renderer is None:
+            self.theme_renderer = ThemeTransition(self)
         self.theme_renderer.update_colors()
         self.theme_fade = QVariantAnimation(self)
         self.theme_fade.setDuration(round(duration * 1000))
@@ -1650,11 +1837,12 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         self.theme_fade.setEndValue(1.0)
         self.theme_fade.setEasingCurve(QEasingCurve.Linear)
         last_frame = -100
+        step_interval = ANDROID_THEME_STEP_MS if self.is_android else 16
 
         def advance(amount):
             nonlocal last_frame
             elapsed = self.theme_fade.currentTime()
-            if amount < 1 and elapsed - last_frame < 16:
+            if amount < 1 and elapsed - last_frame < step_interval:
                 return
             last_frame = elapsed
             self.seek.fade_colors = tuple(
@@ -1686,7 +1874,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                               case_key=str(album.folder))
         self.cover.setPixmap(case)
         self.now_playing.reveal(True)
-        if self.compact_mode and self.now_playing.height() == 0:
+        if self.now_playing.resizable and self.now_playing.height() == 0:
             height = self.browser_splitter.height()
             self.browser_splitter.setSizes([round(height * .4), round(height * .6)])
 
@@ -1706,14 +1894,49 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.settings_dialog.activateWindow()
             return
         self._applied_settings = {key: self.settings.value(key) for key in self.settings.allKeys()}
-        dialog = ThemeSettingsDialog(self.settings, self)
+        dialog = self.take_prepared_settings() or ThemeSettingsDialog(self.settings, self)
         self.settings_dialog = dialog
         dialog.applied.connect(self.apply_settings)
         def finished(result):
             self.settings_dialog = None
             dialog.deleteLater()
+            if self.is_android:
+                self.settings_prepare_timer.start()
         dialog.finished.connect(finished)
         dialog.show()
+        self.refresh_live_theme()
+
+    def settings_values(self):
+        return {key: self.settings.value(key) for key in self.settings.allKeys()
+                if key not in VOLATILE_SETTINGS and not key.startswith('session/')}
+
+    def prepare_settings(self):
+        """Build Settings while idle, because phones take most of a second to do it on demand."""
+        if (self.closing or self.prepared_settings is not None or getattr(self, 'settings_dialog', None) is not None
+                or self.first_run_needed or QApplication.activeModalWidget() is not None):
+            return
+        if QScroller.scroller(self.grid.viewport()).state() != QScroller.Inactive:
+            self.settings_prepare_timer.start()
+            return
+        dialog = ThemeSettingsDialog(self.settings, self)
+        dialog.color_preview_timer.stop()
+        dialog.ensurePolished()
+        self.prepared_settings = dialog
+        self.prepared_settings_values = self.settings_values()
+
+    def discard_prepared_settings(self):
+        if self.prepared_settings is not None:
+            self.prepared_settings.deleteLater()
+            self.prepared_settings = None
+
+    def take_prepared_settings(self):
+        dialog = self.prepared_settings
+        if dialog is None or self.prepared_settings_values != self.settings_values():
+            self.discard_prepared_settings()
+            return None
+        self.prepared_settings = None
+        dialog.original_settings = {key: self.settings.value(key) for key in self.settings.allKeys()}
+        return dialog
 
     def apply_settings(self):
         app = QApplication.instance()
@@ -1747,6 +1970,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             'artwork_theme_enabled', 'artwork_theme_mode', 'selected_color_theme', 'custom_theme_colors'}
         if geometry_changed or changed & color_keys:
             self.theme_from_now_playing()
+            self.refresh_open_album_colors()
         if not previous or 'continuous_playback' in changed:
             self.set_controls()
         if not previous or 'audio_output_device' in changed:
@@ -1798,6 +2022,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             button.setToolTip(label)
 
     def save_current_theme(self):
+        self.discard_prepared_settings()
         album = self.queue[self.queue_index][1] if 0 <= self.queue_index < len(self.queue) else self.viewed_album
         if album is None and self.grid.currentItem() is not None:
             album = self.albums[self.grid.currentItem().data(Qt.UserRole)]
@@ -1852,7 +2077,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         compact = frame.width() * 3 <= frame.height() * 2
         if compact != self.compact_mode:
             self.compact_mode = compact
-            self.now_playing.set_resizable(compact)
+            self.now_playing.set_resizable(compact or self.is_android)
             self.browser_splitter.setHandleWidth(8 if compact and not self.is_android else 0)
             self.browser_splitter.setCollapsible(1, compact and not self.is_android)
             self.library_layout.setContentsMargins(0 if compact else 16, 0, 0, 0)
@@ -1886,10 +2111,24 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
     def drag_now_playing(self, delta):
         self.split_animation.stop()
-        self.set_now_playing_height(self.now_playing.height() - round(delta))
+        self.cover.resizing = True
+        self.pending_split_drag += delta
+        if not self.split_drag_timer.isActive():
+            self.split_drag_timer.start()
+
+    def apply_now_playing_drag(self):
+        self.split_drag_timer.stop()
+        distance, self.pending_split_drag = self.pending_split_drag, 0.0
+        self.set_now_playing_height(self.now_playing.height() - round(distance))
+
+    def finish_now_playing_resize(self):
+        self.cover.resizing = False
+        self.cover.update()
 
     def settle_now_playing(self, velocity):
+        self.apply_now_playing_drag()
         if abs(velocity) < NOW_PLAYING_FLICK_SPEED:
+            self.finish_now_playing_resize()
             return
         minimum, maximum = self.now_playing_limits()
         self.split_animation.stop()
@@ -1939,9 +2178,10 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.show_compact_library()
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Resize and watched is self.library_area:
+        kind = event.type()
+        if kind == QEvent.Resize and watched is self.library_area:
             self.place_album_header()
-        if event.type() == QEvent.KeyPress and isinstance(watched, QWidget) and watched.window() is self:
+        if kind == QEvent.KeyPress and isinstance(watched, QWidget) and watched.window() is self:
             key = event.key()
             navigation = (Qt.Key_Tab, Qt.Key_Backtab, Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down,
                           Qt.Key_Home, Qt.Key_End, Qt.Key_PageUp, Qt.Key_PageDown, Qt.Key_Return, Qt.Key_Enter)
@@ -1950,7 +2190,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                     or (item_view and key not in (Qt.Key_Space, Qt.Key_Escape, Qt.Key_Back))):
                 event.accept()
                 return True
-        if event.type() in (QEvent.Wheel, QEvent.MouseButtonPress, QEvent.KeyPress, QEvent.TouchBegin):
+        if kind in (QEvent.Wheel, QEvent.MouseButtonPress, QEvent.KeyPress):
             self.cancel_browsing_restore()
         return super().eventFilter(watched, event)
 
@@ -2311,6 +2551,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                 break
         if self.case_prefetch_rows:
             self.case_prefetch_timer.start(8)
+        elif self.is_android:
+            self.theme_prepare_timer.start()
 
     def custom_order_key(self):
         identity = str(self.current_folder).replace('\\', '/').casefold()
@@ -2543,7 +2785,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         if self.viewed_album is not None and self.viewed_album.folder in refreshed:
             album = self.viewed_album
             self.populate_album_tracks(album)
-            self.album_presentation.set_artwork(album.artwork, self.album_track_theme_colors(album.artwork))
+            self.album_presentation.set_artwork(album.artwork, self.album_paper_colors(album.artwork))
             self.album_artwork.pixmap = cd_case_pixmap(album.artwork, album.title,
                 handwriting_font=self.artist_handwriting(album.folder.parent), case_key=str(album.folder))
             self.album_artwork.update()
@@ -2592,7 +2834,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         self.update_album_header_controls()
         self.album_artwork.sheen_key = str(album.folder)
         self.album_presentation.set_album_title(album.title)
-        self.album_presentation.set_artwork(album.artwork, self.album_track_theme_colors(album.artwork))
+        self.album_presentation.set_artwork(album.artwork, self.album_paper_colors(album.artwork))
         self.grid.suppressed_album = next((index for index, entry in enumerate(self.albums)
                                            if entry.folder == album.folder), None)
         self.grid.viewport().update()
@@ -2724,7 +2966,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                         # Restore the resumed album's final palette immediately;
                         # fades are reserved for later album changes.
                         colors = self.saved_theme_colors()
-                        artwork = (artwork_theme_colors(album.artwork, str(self.settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))
+                        artwork = (self.cached_theme_colors(album.artwork, str(self.settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))
                                    if self.settings.value('artwork_theme_enabled', ARTWORK_THEME_DEFAULT, type=bool) else None)
                         colors.update(artwork or {})
                         self.set_theme(str(self.settings.value('theme', THEME_DEFAULT)), colors, bool(artwork))
@@ -2934,7 +3176,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         play_case_sound('close')
         self.set_controls()
         self.theme_from_now_playing()
-        duration = round(max(0, min(5, self.settings.value('theme_fade_seconds', 4.0, type=float))) * 1000)
+        duration = round(self.theme_fade_seconds() * 1000)
         if duration and opacity < 1:
             self.set_album_backdrop_opacity(opacity)
             self.view_fade = QVariantAnimation(self)
@@ -2995,6 +3237,12 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         self.browsing_restore_timer.stop()
         self.album_scale_timer.stop()
         self.case_prefetch_timer.stop()
+        self.theme_prepare_timer.stop()
+        self.settings_prepare_timer.stop()
+        self.discard_prepared_settings()
+        if self.theme_preparer is not None:
+            self.theme_preparer.requestInterruption()
+            self.theme_preparer.wait()
         self.pending_eject = None
         if getattr(self, 'settings_dialog', None) is not None:
             self.settings_dialog.accept()
@@ -3008,6 +3256,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         self.clear_theme_fade()
         if not self.closing:
             self.settings.setValue('window_geometry', self.saveGeometry())
+            self.settings.setValue('sidebar_width', self.workspace.sidebar_width)
             self.save_browsing_state()
             self.save_session()
         self.settings.setValue('volume', self.volume.value())

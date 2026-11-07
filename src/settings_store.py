@@ -8,7 +8,7 @@ import sys
 
 from PySide6.QtCore import QSettings, QStandardPaths
 
-from themes import CLEANING_DEFAULT, NUMERIC_DEFAULTS, THEME_DEFAULT, UI_FONT_DEFAULT
+from themes import CLEANING_DEFAULT, DEFAULT_THEME_IDS, NUMERIC_DEFAULTS, THEME_DEFAULT, UI_FONT_DEFAULT
 
 
 APPEARANCE_DEFAULTS = dict(NUMERIC_DEFAULTS, theme=THEME_DEFAULT,
@@ -58,8 +58,8 @@ def write_theme_files(settings, presets):
             ini = QSettings(str(path), QSettings.IniFormat)
             existing[str(ini.value('Theme/id', ''))] = path
     for preset in presets:
-        if preset['id'] == 'album-drive-default':
-            continue  # The built-in theme is recreated from the shipped defaults.
+        if preset['id'] in DEFAULT_THEME_IDS:
+            continue  # The built-in themes are recreated from the shipped defaults.
         slug = re.sub(r'[^\w.-]+', '-', preset['name']).strip('.-')[:64] or 'custom'
         suffix = hashlib.sha256(preset['id'].encode()).hexdigest()[:8]
         path = existing.get(preset['id'], folder / f'theme-{slug}-{suffix}.ini')

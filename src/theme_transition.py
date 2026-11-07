@@ -4,11 +4,22 @@ import re
 
 from PySide6.QtCore import QEvent, QObject, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPalette
-from PySide6.QtWidgets import QApplication, QAbstractScrollArea, QLabel, QScrollBar, QSplitterHandle, QStackedWidget, QWidget
+from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QLabel, QLineEdit, QPlainTextEdit, QScrollBar, QSplitterHandle, QStackedWidget, QWidget
 from shiboken6 import isValid
 
 from themes import accent_shade, corner_radius
 from color_rules import disabled_text_color, settings_title_color
+
+
+TEXT_FIELDS = (QLineEdit, QPlainTextEdit)
+
+
+def strip_theme_colors(style):
+    """Keep geometry, fonts and transparent overlays; palettes supply the colors instead."""
+    style = re.sub(r'(?<![-\w])(background(?:-color)?|color|alternate-background-color|placeholder-text-color|'
+                   r'selection-background-color|selection-color|border-color)\s*:\s*([^;{}]+);',
+                   lambda match: match[0] if match[2].strip() == 'transparent' else '', style)
+    return re.sub(r'border-image\s*:[^;{}]+;', '', style)
 
 
 class ThemeTransition(QObject):
@@ -17,15 +28,13 @@ class ThemeTransition(QObject):
         self.window = window
         self.palette = window.palette()
         self.autofill = window.autoFillBackground()
-        # Keep geometry, fonts, transparent overlays and the paper's own style.
         # Solid surfaces and text use live palettes until the final style commit.
-        style = QApplication.instance().styleSheet()
-        style = re.sub(r'(?<![-\w])(background(?:-color)?|color|alternate-background-color|'
-                       r'selection-background-color|selection-color|border-color)\s*:\s*([^;{}]+);',
-                       lambda match: match[0] if match[2].strip() == 'transparent' else '', style)
-        style = re.sub(r'border-image\s*:[^;{}]+;', '', style)
-        QApplication.instance().setStyleSheet(style)
-        window.update_button_sizes()
+        # Reloading a stylesheet restyles every widget, which takes a second on phones.
+        current = QApplication.instance().styleSheet()
+        style = strip_theme_colors(current)
+        if style != current:
+            QApplication.instance().setStyleSheet(style)
+            window.update_button_sizes()
         window.setAutoFillBackground(True)
         self.overrides = []
         self.surfaces = set()
@@ -34,6 +43,8 @@ class ThemeTransition(QObject):
 
     def register_widgets(self):
         # Include settings opened while the transition is already running.
+        self.overrides = [entry for entry in self.overrides if isValid(entry[0])]
+        self.registered = {id(entry[0]) for entry in self.overrides}
         paper = self.window.album_presentation.booklet
         for widget in self.window.findChildren(QWidget):
             if id(widget) in self.registered:
@@ -66,6 +77,13 @@ class ThemeTransition(QObject):
                 widget.setAttribute(Qt.WA_StyledBackground, False)
                 self.surfaces.add(widget)
                 widget.installEventFilter(self)
+
+    def tint_text_field(self, field, background, text, placeholder):
+        # Stylesheets ignore later palette changes on text fields, so each one gets its own rule.
+        tint = field.property('liveThemeTint')
+        if tint != background + text and (tint is not None or not field.styleSheet()):
+            field.setProperty('liveThemeTint', background + text)
+            field.setStyleSheet(f'background: {background}; color: {text}; placeholder-text-color: {placeholder}; border: none;')
 
     def update_colors(self):
         self.register_widgets()
@@ -106,6 +124,8 @@ class ThemeTransition(QObject):
                 special.setColor(QPalette.WindowText, title)
                 special.setColor(QPalette.Disabled, QPalette.WindowText, disabled_text_color(title))
             widget.setPalette(special)
+            if self.window.live_theme and isinstance(widget, TEXT_FIELDS):
+                self.tint_text_field(widget, background.darker(115).name(), text.name(), QColor(disabled_text_color(text)).name())
             widget.update()
         # Paper retains its cover palette; its knobs follow live button colors.
         for bar in self.window.findChildren(QScrollBar):

@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QAbstractItemView, QAbstractScrollAr
 from button_sounds import play_button_sound
 from responsive import running_on_android
 from font_support import font_family_css
-from color_rules import artwork_text_color, disabled_text_color, slider_rail
+from color_rules import artwork_text_color, disabled_text_color, settings_title_color, slider_rail
 from shiboken6 import isValid
 
 
@@ -37,10 +37,12 @@ LOGO_MAX_DEPTH = 12
 LOGO_BACKGROUND_TRIM = 2
 LOGO_VERTICAL_OFFSET = -2
 MARKER_COLOR_DEFAULT = '#1b2834'
+DEFAULT_THEME_IDS = ('album-drive-default', 'album-drive-default-light', 'album-drive-default-dark')
+THEME_FADE_MAX_SECONDS = 5
 NUMERIC_DEFAULTS = {
     'case_open_volume': 70,
     'case_close_volume': 70,
-    'theme_fade_seconds': 4.0,
+    'theme_fade_seconds': 2.0,
     'album_scale': 102,
     'corner_roundness': 32,
     'button_font_size': 17,
@@ -70,6 +72,7 @@ NUMERIC_DEFAULTS = {
     'album_horizontal_spacing': 5,
     'album_vertical_spacing': 5,
 }
+THEME_FADE_MS = round(NUMERIC_DEFAULTS['theme_fade_seconds'] * 1000)
 
 # Shared by the settings dialog, stylesheet, and custom-painted controls.
 COLOR_SETTINGS = (
@@ -155,7 +158,7 @@ def text_style():
     app = QApplication.instance()
     colors = {prop: app.property(prop) or default for _, _, _, prop, default in COLOR_SETTINGS}
     disabled_text = disabled_text_color(colors['textColor'])
-    disabled_title = disabled_text_color(colors['textColor'])
+    disabled_title = disabled_text_color(settings_title_color(colors['textColor'], colors['themeBackground']))
     sizes = {key: int(app.property(''.join([key.split('_')[0]] + [word.title() for word in key.split('_')[1:]])) or default)
              for key, default in NUMERIC_DEFAULTS.items() if key.endswith('_font_size')}
     scale = button_scale()
@@ -168,6 +171,7 @@ def text_style():
     typography = f'''
 QWidget {{ font-family: {families}; font-size: {sizes['main_font_size']}px; }}
 QPushButton {{ font-size: {sizes['button_font_size']}px; }}
+QLineEdit, QPlainTextEdit {{ color: {colors['textColor']}; placeholder-text-color: {QColor(disabled_text).name()}; }}
 QComboBox, QComboBox QAbstractItemView {{ font-size: {sizes['dropdown_font_size']}px; }}
 QTabBar {{ font-size: {sizes['button_font_size']}px; }}
 QLabel#nowPlayingTitle {{ font-size: {sizes['now_playing_font_size']}px; }}
@@ -1510,8 +1514,8 @@ QPushButton:disabled, QPushButton#play:disabled { color: #929292; }
 QPushButton#previous, QPushButton#next {
     padding: 0px 14px; min-height: 0px;
 }
-QLineEdit { border: 2px solid #73502c; padding: 9px; }
-QLineEdit:focus { border-color: #ff9800; }
+QLineEdit { border: none; padding: 11px; }
+QPlainTextEdit { border: none; }
 QTreeView::item:selected, QListWidget::item:selected, QTableWidget::item:selected {
     background: #67401e; color: #ffffff;
 }

@@ -58,6 +58,33 @@ def artwork_palette(artwork, colors=8, minimum=.025):
         return ()
 
 
+def artwork_color_range(artwork, minimum=.01):
+    """Real colors on a cover with their share of it, grouped by hue and lightness.
+
+    Unlike the prominence palette this samples exact pixels instead of blending them down,
+    where fine line art mixes with its surroundings and colors like a salmon fill disappear."""
+    if not artwork:
+        return ()
+    try:
+        with Image.open(BytesIO(artwork)) as image:
+            rgba = image.convert('RGBA').resize((128, 128), Image.Resampling.NEAREST)
+            data = rgba.get_flattened_data() if hasattr(rgba, 'get_flattened_data') else rgba.getdata()
+            pixels = [pixel[:3] for pixel in data if pixel[3] >= 128]
+        groups = {}
+        for rgb in pixels:
+            hue, lightness, _ = colorsys.rgb_to_hls(*(channel / 255 for channel in rgb))
+            family = -1 if max(rgb) - min(rgb) < 26 else int(hue * 12)
+            groups.setdefault((family, int(lightness * 5)), []).append(rgb)
+        colors = []
+        for group in groups.values():
+            if len(group) >= len(pixels) * minimum:
+                color = QColor(*(round(sum(rgb[channel] for rgb in group) / len(group)) for channel in range(3)))
+                colors.append((color, len(group) / len(pixels)))
+        return tuple(sorted(colors, key=lambda entry: entry[1], reverse=True))
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return ()
+
+
 def artwork_accent_palette(artwork):
     if not artwork:
         return ()
@@ -293,8 +320,9 @@ class AlbumPresentation(QWidget):
 
     def set_artwork(self, artwork, theme_colors=None):
         self.paper_palette = tuple(comfortable_color(color) for color in artwork_palette(artwork))
-        self.paper_background = self.paper_palette[0] if self.paper_palette else None
-        text_color = theme_colors.get('textColor') if theme_colors else None
+        paper = theme_colors.get('paperBackgroundColor') if theme_colors else None
+        self.paper_background = QColor(paper) if paper else (self.paper_palette[0] if self.paper_palette else None)
+        text_color = (theme_colors.get('paperTextColor') or theme_colors.get('textColor')) if theme_colors else None
         color = QColor(text_color) if text_color else QColor()
         self.artwork_text_color = color if color.isValid() else None
         self.paper_button_color = theme_colors.get('themeAccent') if theme_colors else None

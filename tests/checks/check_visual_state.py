@@ -14,6 +14,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from main import PlayerWindow
+from themes import THEME_FADE_MS
 from session_palette import load_session_palette
 from test_library import make_wave
 from themes import ChunkyBrand, COLOR_SETTINGS
@@ -54,7 +55,7 @@ with tempfile.TemporaryDirectory() as folder:
     album = next(album for album in window.albums if album.folder.name == 'Blue')
     window.queue = [(track, album) for track in album.tracks]
     window.play_index(0, autoplay=False)
-    window.theme_fade.setCurrentTime(4000)
+    window.theme_fade.setCurrentTime(THEME_FADE_MS)
     expected = current_colors()
     check_icon(window)
     window.close()
@@ -73,9 +74,9 @@ with tempfile.TemporaryDirectory() as folder:
     restored.play_index(0, autoplay=False)
     assert restored.theme_fade is not None
     restored.theme_fade.pause()
-    restored.theme_fade.setCurrentTime(2000)
+    restored.theme_fade.setCurrentTime(THEME_FADE_MS // 2)
     check_icon(restored)
-    restored.theme_fade.setCurrentTime(4000)
+    restored.theme_fade.setCurrentTime(THEME_FADE_MS)
     restored.close()
     wait_until(lambda: not restored.scanners)
     settings.sync()

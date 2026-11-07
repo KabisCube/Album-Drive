@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QApplication, QAbstractScrollArea, QScrollBar, QSt
 
 from themes import CONTROL_HEADROOM, control_face, corner_radius, paint_control
 from color_rules import slider_rail
+from responsive import running_on_android
 from scroll_shadows import install_scroll_shadows
 
 
@@ -82,6 +83,7 @@ class LiveScrollbars(QObject):
 
 def install_live_scrollbars(app):
     install_scroll_shadows(app)
-    if not hasattr(app, '_album_drive_scrollbars'):
+    # Android shows no scrollbars, so it should not pay to inspect every event for them.
+    if not running_on_android() and not hasattr(app, '_album_drive_scrollbars'):
         app._album_drive_scrollbars = LiveScrollbars(app)
         app.installEventFilter(app._album_drive_scrollbars)

@@ -1,17 +1,18 @@
 """First-run setup for the music library, buttons, album colors and saved themes."""
 
+import json
 from pathlib import Path
 from music_folders import choose_music_directory, music_directory
-from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QSize, QSizeF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QButtonGroup, QDialog, QFormLayout, QFrame, QHBoxLayout,
-    QLabel, QLayout, QRadioButton, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
+    QLabel, QLayout, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
-from themes import CONTROL_HEADROOM, ThemedButton, ThemeSaveIcon, button_paint_rect, button_scale, control_face, corner_radius, paint_control, NUMERIC_DEFAULTS
-from button_sounds import prepare_button_sounds
-from responsive import ScreenFit, running_on_android, wrap_freely, wrappable_path
+from themes import CONTROL_HEADROOM, ChunkyCheckBox, ThemedButton, paint_control, NUMERIC_DEFAULTS
+from button_sounds import play_button_sound, prepare_button_sounds
+from responsive import ScreenFit, wrap_freely, wrappable_path
 
 
 def needs_first_run(settings):
@@ -23,54 +24,134 @@ def needs_first_run(settings):
                    ('window_geometry', 'folder', 'browser_root', 'custom_theme_colors'))
 
 
+FIXED_THEMES = {
+    'fixed_dark': {
+        'theme_accent_color': '#d77341', 'theme_highlight_color': '#815948', 'theme_background_color': '#2e2426',
+        'theme_background_accent_color': '#4a322d', 'theme_timeline_color': '#815948',
+        'theme_brand_line_color': '#2a2123', 'theme_folder_arrow_color': '#bfa799', 'theme_button_fill': '#4a322d',
+        'theme_button_icon_color': '#4a322d', 'theme_button_text_color': '#4a322d',
+        'theme_disabled_text_color': '#4a322d', 'theme_text_color': '#bfa799', 'theme_secondary_text_color': '#bfa799',
+        'theme_heading_text_color': '#bfa799', 'theme_brand_text_color': '#d77341',
+        'theme_selected_text_color': '#bfa799', 'theme_timeline_text_color': '#bfa799',
+        'theme_paper_text_color': '#bfa799'},
+    'fixed_light': {
+        'theme_accent_color': '#da7d5d', 'theme_highlight_color': '#d6c399', 'theme_background_color': '#eee4c4',
+        'theme_background_accent_color': '#816555', 'theme_timeline_color': '#d6c399',
+        'theme_brand_line_color': '#d8cfb2', 'theme_folder_arrow_color': '#97774b', 'theme_button_fill': '#9f8f6e',
+        'theme_button_icon_color': '#816555', 'theme_button_text_color': '#816555',
+        'theme_disabled_text_color': '#816555', 'theme_text_color': '#97774b', 'theme_secondary_text_color': '#97774b',
+        'theme_heading_text_color': '#97774b', 'theme_brand_text_color': '#da7d5d',
+        'theme_selected_text_color': '#97774b', 'theme_timeline_text_color': '#97774b',
+        'theme_paper_text_color': '#97774b'},
+}
+THEME_CHOICE_KEYS = (*FIXED_THEMES['fixed_light'], 'custom_theme_colors', 'selected_color_theme',
+                     'artwork_theme_enabled', 'artwork_theme_mode')
+
+
+def system_theme_choice():
+    return {Qt.ColorScheme.Dark: 'fixed_dark', Qt.ColorScheme.Light: 'fixed_light'}.get(
+        QApplication.styleHints().colorScheme(), 'any')
+
+
+def apply_system_theme(settings):
+    for key, value in FIXED_THEMES.get(system_theme_choice(), {}).items():
+        settings.setValue(key, value)
+
+
+def fixed_palette(mode):
+    colors = FIXED_THEMES[mode]
+    return tuple(colors[key] for key in ('theme_background_color', 'theme_text_color', 'theme_highlight_color',
+                                         'theme_accent_color', 'theme_background_accent_color'))
+
+
+def paint_cover(painter, rect, background, text, button, accent, rail):
+    paper = max(text, rail, button, key=QColor.lightnessF) if text.lightnessF() > background.lightnessF() else background.lighter(106)
+    painter.fillRect(rect, paper)
+    painter.setClipRect(rect)
+    painter.setPen(Qt.NoPen)
+    x, y, side = rect.x(), rect.y(), rect.width()
+    painter.setBrush(accent)
+    painter.drawEllipse(QRectF(x + side * .56, y + side * .14, side * .26, side * .26))
+    painter.setBrush(button)
+    painter.drawEllipse(QRectF(x - side * .3, y + side * .5, side * 1.1, side))
+    painter.setBrush(text if paper != text else rail)
+    painter.drawEllipse(QRectF(x + side * .3, y + side * .66, side, side))
+    painter.setClipping(False)
+
+
+def paint_case(painter, x, y, side, background, text, button, accent, rail):
+    spine = side * .13
+    edge = side * .035
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(0, 0, 0, 70))
+    painter.drawRoundedRect(QRectF(x - 4, y + 3, side + 4, side + 5), 4, 4)
+    painter.setBrush(QColor('#d6d6d2'))
+    painter.drawRoundedRect(QRectF(x, y, side, side), 4, 4)
+    painter.fillRect(QRectF(x + 3, y + 3, spine, side - 6), QColor('#2f332f'))
+    paint_cover(painter, QRectF(x + spine + edge, y + edge, side - spine - edge * 2, side - edge * 2),
+                background, text, button, accent, rail)
+
+
 def example_image(mode):
-    """Draw illustrative app previews, with the same cover in each palette."""
+    """Draw a small Albums view in the option's colors, with the app's chunky controls and CD cases."""
     palettes = {
-        'any': ('#456e76', '#e9a36b', '#e5e8df', '#ffffff'),
-        'dark': ('#202b3b', '#7899bc', '#b9cad5', '#ffffff'),
-        'light': ('#e8ddd0', '#b06e4a', '#fff9ed', '#242833'),
-        'off': ('#393939', '#888888', '#cccccc', '#ffffff'),
+        'any': ('#7f8459', '#e8dfc4', '#465640', '#f0883a', '#c7b27a'),
+        'dark': ('#26242c', '#e9efec', '#8a9656', '#d85a42', '#3d4c67'),
+        'light': ('#fadcc7', '#592430', '#886e91', '#de6c71', '#e4988a'),
+        'fixed_dark': fixed_palette('fixed_dark'),
+        'fixed_light': fixed_palette('fixed_light'),
     }
-    background, accent, fill, text = map(QColor, palettes[mode])
+    background, text, button, accent, rail = map(QColor, palettes[mode])
+    panel = background.darker(112) if background.lightnessF() > .25 else background.lighter(135)
     pixmap = QPixmap(512, 512)
     pixmap.fill(background)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.fillRect(QRectF(0, 0, 112, 448), background.darker(115))
-    painter.setPen(text)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(panel)
+    painter.drawRoundedRect(QRectF(16, 16, 164, 54), 6, 6)
+    painter.drawRoundedRect(QRectF(16, 82, 164, 214), 6, 6)
     font = QFont(QApplication.font())
-    font.setPixelSize(20)
+    font.setPixelSize(27)
     font.setBold(True)
     painter.setFont(font)
-    painter.drawText(QRectF(132, 18, 150, 30), 'Albums')
-    font.setPixelSize(12)
-    painter.setFont(font)
-    painter.drawText(QRectF(12, 20, 100, 24), 'Album Drive')
-    for y, width in ((82, 90), (112, 72), (142, 85), (172, 63), (202, 77)):
-        painter.setPen(QPen(text, 4, Qt.SolidLine, Qt.RoundCap))
-        painter.drawLine(QPointF(20, y), QPointF(width, y))
-    for x, y in ((132, 86), (316, 86), (132, 262), (316, 262)):
-        painter.setPen(QPen(accent, 3))
-        painter.setBrush(background.lighter(120))
-        painter.drawRoundedRect(QRectF(x, y, 164, 148), corner_radius(3), corner_radius(3))
-        painter.fillRect(QRectF(x + 14, y + 7, 134, 134), QColor('#e7ac83'))
+    painter.setPen(accent.darker(150))
+    painter.drawText(QRectF(18, 19, 164, 54), Qt.AlignCenter, 'Album Drive')
+    painter.setPen(accent)
+    painter.drawText(QRectF(16, 16, 164, 54), Qt.AlignCenter, 'Album Drive')
+    for row, width in enumerate((98, 74, 110, 84, 66)):
+        y = 106 + row * 38
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor('#466a77'))
-        painter.drawEllipse(QRectF(x + 40, y + 30, 82, 82))
-        painter.setBrush(QColor('#f4debc'))
-        painter.drawEllipse(QRectF(x + 64, y + 54, 34, 34))
-        painter.setPen(QPen(background.darker(150), 3))
-        painter.drawLine(QPointF(x + 8, y + 5), QPointF(x + 8, y + 142))
-    painter.setPen(QPen(accent, 3))
-    for rect in (QRectF(378, 20, 104, 32), QRectF(18, 462, 44, 32)):
-        paint_control(painter, pixmap, rect.adjusted(-CONTROL_HEADROOM, -CONTROL_HEADROOM, CONTROL_HEADROOM, 0), fill)
+        painter.setBrush(text)
+        painter.drawConvexPolygon([QPointF(30, y - 9), QPointF(30, y + 9), QPointF(44, y)])
+        painter.setPen(QPen(text, 9, Qt.SolidLine, Qt.RoundCap))
+        painter.drawLine(QPointF(58, y), QPointF(58 + width, y))
+    paint_case(painter, 44, 308, 112, background, text, button, accent, rail)
+    paint_case(painter, 206, 96, 286, background, text, button, accent, rail)
+    for left in (344, 424):
+        paint_control(painter, pixmap, QRectF(left - CONTROL_HEADROOM, 16 - CONTROL_HEADROOM,
+                                              72 + 2 * CONTROL_HEADROOM, 50 + CONTROL_HEADROOM), button,
+                      depth=7, rounding=30)
     painter.setPen(Qt.NoPen)
-    painter.setBrush(background.darker(130))
-    painter.drawRoundedRect(QRectF(132, 475, 350, 8), 3, 3)
-    painter.setBrush(accent)
-    painter.drawRoundedRect(QRectF(132, 475, 130, 8), 3, 3)
+    painter.setBrush(rail)
+    painter.drawRoundedRect(QRectF(100, 456, 392, 34), 5, 5)
+    painter.setBrush(button)
+    painter.drawRoundedRect(QRectF(100, 456, 200, 34), 5, 5)
+    paint_control(painter, pixmap, QRectF(16 - CONTROL_HEADROOM, 446 - CONTROL_HEADROOM,
+                                          66 + 2 * CONTROL_HEADROOM, 50 + CONTROL_HEADROOM), accent,
+                  depth=7, rounding=30)
+    paint_control(painter, pixmap, QRectF(284 - CONTROL_HEADROOM, 448 - CONTROL_HEADROOM,
+                                          36 + 2 * CONTROL_HEADROOM, 46 + CONTROL_HEADROOM), button,
+                  depth=7, rounding=30)
+    painter.setBrush(background)
+    painter.drawRect(QRectF(39, 460, 7, 20))
+    painter.drawRect(QRectF(52, 460, 7, 20))
     painter.end()
     return pixmap
+
+
+CARD_SPACING = 6
+CARD_TEXT_GAP = 4
 
 
 class ColorChoice(QFrame):
@@ -81,7 +162,7 @@ class ColorChoice(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(5)
-        self.radio = QRadioButton(title)
+        self.radio = ChunkyCheckBox(title)
         self.radio.setAccessibleName(title)
         image = QLabel()
         self.preview = example_image(mode)
@@ -95,153 +176,26 @@ class ColorChoice(QFrame):
         caption.setAttribute(Qt.WA_TransparentForMouseEvents)
         if compact:
             row = QHBoxLayout()
+            row.setSpacing(CARD_SPACING)
             row.addWidget(image)
             text = QVBoxLayout()
+            text.setSpacing(CARD_TEXT_GAP)
             text.addWidget(self.radio)
+            caption.setContentsMargins(CONTROL_HEADROOM, 0, 0, 0)
             text.addWidget(caption)
+            text.addStretch()
             row.addLayout(text, 1)
             layout.addLayout(row)
         else:
             layout.addWidget(self.radio)
             layout.addWidget(image)
             layout.addWidget(caption)
-        self.radio.toggled.connect(self.update_border)
-        self.update_border()
-
-    def update_border(self):
-        app = QApplication.instance()
-        accent = app.property('themeAccent') or '#888888'
-        text = app.property('textColor') or '#ffffff'
-        self.setStyleSheet(f'''
-QFrame#welcomeColorChoice {{ border: 2px solid {accent if self.radio.isChecked() else 'transparent'}; border-radius: 8px; }}
-QRadioButton {{ color: {text}; font-weight: bold; }}
-QRadioButton::indicator {{ width: 15px; height: 15px; border: 2px solid {accent}; border-radius: 8px; }}
-QRadioButton::indicator:checked {{ background: {accent}; }}
-''')
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            play_button_sound()
             self.radio.setChecked(True)
         super().mousePressEvent(event)
-
-
-SAVE_PREVIEW_PADDING = 16
-
-
-def save_theme_neighbor():
-    return 'Settings' if running_on_android() else 'Refresh'
-
-
-def theme_save_image(window):
-    while window is not None and not hasattr(window, 'save_theme_button'):
-        window = window.parentWidget()
-    button = getattr(window, 'save_theme_button', None)
-    android = running_on_android()
-    if button is not None:
-        if android:
-            enabled = button.isEnabled()
-            button.setEnabled(True)
-            try:
-                return button.grab()
-            finally:
-                button.setEnabled(enabled)
-        area = button.parentWidget()
-        width = min(800, area.width())
-        crop = QRect(max(0, min(button.x() - 420, area.width() - width)), 0,
-                     width, min(area.height(), max(160, button.geometry().bottom() + 90)))
-        image = area.grab(crop)
-        target = control_face(button_paint_rect(button), widget=button).translated(button.pos() - crop.topLeft())
-    else:
-        app = QApplication.instance()
-        image = QPixmap(512, 180)
-        image.fill(QColor(app.property('themeBackground') or '#393939'))
-        button = ThemedButton()
-        button.setIcon(QIcon(ThemeSaveIcon()))
-        size = round(app.property('buttonIconSize') or 20)
-        button.setIconSize(QSize(round(size * 1.5), size))
-        button.resize(round(64 * button_scale()) + 2 * CONTROL_HEADROOM, button.sizeHint().height())
-        if android:
-            image = button.grab()
-            button.deleteLater()
-            return image
-        position = QPointF((image.width() - button.width()) / 2, 12)
-        painter = QPainter(image)
-        painter.drawPixmap(position, button.grab())
-        painter.end()
-        target = control_face(button_paint_rect(button), widget=button).translated(position)
-        button.deleteLater()
-    painter = QPainter(image)
-    painter.setRenderHint(QPainter.Antialiasing)
-    app = QApplication.instance()
-    color = QColor(app.property('textColor') or '#ffffff')
-    painter.setBrush(Qt.NoBrush)
-    painter.setPen(QPen(color, 2))
-    painter.drawRoundedRect(target.adjusted(-4, -4, 4, 4), 6, 6)
-    x, y = target.center().x(), target.bottom() + 8
-    painter.drawLine(QPointF(x, y + 26), QPointF(x, y))
-    painter.drawLine(QPointF(x, y), QPointF(x - 5, y + 7))
-    painter.drawLine(QPointF(x, y), QPointF(x + 5, y + 7))
-    label = QRectF(max(0, min(x - 75, image.width() - 150)), y + 30, 150, 30)
-    painter.fillRect(label, QColor(app.property('themeBackground') or '#393939'))
-    painter.setPen(color)
-    painter.drawText(label, Qt.AlignCenter, 'Save theme')
-    painter.end()
-    return image
-
-
-class ThemeSavePreview(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.image = QPixmap()
-        self.source_window = None
-        self.refresh_timer = QTimer(self)
-        self.refresh_timer.setSingleShot(True)
-        self.refresh_timer.setInterval(40)
-        self.refresh_timer.timeout.connect(self.refresh)
-        QApplication.instance().installEventFilter(self)
-        self.setAccessibleName(f'Save theme button in the top right of the Albums view, beside {save_theme_neighbor()}')
-        self.setMinimumHeight(0 if running_on_android() else 160)
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed if running_on_android() else QSizePolicy.Expanding)
-
-    def sizeHint(self):
-        return QSize(720, 200)
-
-    def capture(self, window):
-        self.source_window = window
-        self.image = theme_save_image(window)
-        if running_on_android():
-            self.setFixedHeight(round(self.image.deviceIndependentSize().height()) + 2 * SAVE_PREVIEW_PADDING)
-        self.update()
-
-    def refresh(self):
-        if self.isVisible():
-            self.capture(self.source_window)
-
-    def eventFilter(self, watched, event):
-        if watched is QApplication.instance() and event.type() == QEvent.DynamicPropertyChange:
-            if bytes(event.propertyName()) in (b'themeBackground', b'themeAccent', b'themeBackgroundAccent', b'textColor', b'buttonFill',
-                                               b'buttonIconColor', b'playerTheme', b'uiThickness', b'cornerRoundness',
-                                               b'buttonSize', b'buttonIconSize') and self.isVisible():
-                if not self.refresh_timer.isActive():
-                    self.refresh_timer.start()
-        return super().eventFilter(watched, event)
-
-    def hideEvent(self, event):
-        self.refresh_timer.stop()
-        super().hideEvent(event)
-
-    def paintEvent(self, event):
-        if self.image.isNull():
-            return
-        target = QRectF(0, 0, self.image.width(), self.image.height())
-        bounds = self.size()
-        if running_on_android():
-            bounds = bounds.boundedTo(self.image.deviceIndependentSize().toSize())
-        target.setSize(QSizeF(self.image.size().scaled(bounds, Qt.KeepAspectRatio)))
-        target.moveCenter(QRectF(self.rect()).center())
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        painter.drawPixmap(target, self.image, QRectF(self.image.rect()))
 
 
 class StepPage(QWidget):
@@ -279,14 +233,13 @@ class FirstRunDialog(QDialog):
         body.addWidget(self.heading)
         self.subheading = QLabel('Let Album Drive change theme colors to match the playing album.')
         self.subheading.setWordWrap(True)
-        body.addWidget(self.subheading)
         self.pages = QStackedWidget()
         body.addWidget(self.pages, 1)
         self.library_folder = str(settings.value('browser_root', settings.value('folder', '')))
         library_page = StepPage()
         library_layout = QVBoxLayout(library_page)
         library_layout.setContentsMargins(0, 0, 0, 0)
-        explanation = QLabel('Choose your music library root. This is usually the root folder where you store your music, with artist and album folders inside.')
+        explanation = QLabel('Choose your music library root. This is the root folder where you store your music, with artist and album folders inside.')
         explanation.setWordWrap(True)
         library_layout.addWidget(explanation)
         self.library_button = ThemedButton('Choose music folder')
@@ -303,7 +256,7 @@ class FirstRunDialog(QDialog):
         button_page = StepPage()
         button_layout = QVBoxLayout(button_page)
         button_layout.setContentsMargins(0, 0, 0, 0)
-        explanation = QLabel('Choose how your buttons look and sound. Click the preview to try them.')
+        explanation = QLabel('Choose how your buttons look and sound.')
         explanation.setWordWrap(True)
         button_layout.addWidget(explanation)
         button_form = QFormLayout()
@@ -337,47 +290,40 @@ class FirstRunDialog(QDialog):
         dynamic_heading = QLabel('Dynamic colors')
         dynamic_heading.setObjectName('settingsSection')
         dynamic.addWidget(dynamic_heading)
+        dynamic.addWidget(self.subheading)
         self.fixed_category = QWidget()
         fixed = QVBoxLayout(self.fixed_category)
         fixed.setContentsMargins(0, 0, 0, 0)
         fixed_heading = QLabel('Fixed colors')
         fixed_heading.setObjectName('settingsSection')
         fixed.addWidget(fixed_heading)
+        fixed_hint = QLabel('You can manually tune the colors in the Settings')
+        fixed_hint.setWordWrap(True)
+        fixed.addWidget(fixed_hint)
         categories.addWidget(self.dynamic_category, 1)
         categories.addWidget(self.fixed_category, 1)
         self.group = QButtonGroup(self)
         self.choices = {}
         options = (
-            ('any', 'any', 'Use light or dark colors to match each album.'),
-            ('dark', 'dark', 'Favor deeper, darker colors.'),
-            ('light', 'light', 'Favor softer, lighter colors.'),
-            ('off', 'no dynamic colors', 'Keep a steady, neutral theme.'),
+            ('any', 'any', 'Use what fits the album art.'),
+            ('dark', 'dark', 'Favor darker colors.'),
+            ('light', 'light', 'Favor lighter colors.'),
+            ('fixed_dark', 'dark', 'Warm, dark colors.'),
+            ('fixed_light', 'light', 'Soft, light colors.'),
         )
         for mode, title, description in options:
             card = ColorChoice(mode, title, description, compact=True)
             self.choices[mode] = card.radio
             self.group.addButton(card.radio)
-            (fixed if mode == 'off' else dynamic).addWidget(card)
-        dynamic.addStretch()
-        fixed.addStretch()
+            (fixed if mode in FIXED_THEMES else dynamic).addWidget(card)
+        dynamic.addStretch(1)
+        fixed.addStretch(1)
+        self.original_theme = {key: settings.value(key) for key in THEME_CHOICE_KEYS if settings.contains(key)}
+        self.kept_choice = None
+        self.previewing = False
         self.choices['any'].setChecked(True)
-        self.pages.addWidget(choices_page)
-        tutorial = StepPage()
-        instructions = QVBoxLayout(tutorial)
-        instructions.setContentsMargins(0, 0, 0, 0)
-        instructions.setSpacing(14)
-        text = QLabel()
-        self.instructions_label = text
-        text.setWordWrap(True)
-        instructions.addWidget(text)
-        self.save_preview = ThemeSavePreview()
-        instructions.addWidget(self.save_preview, 1)
-        saved = QLabel('Find saved themes at the top of Settings → Style.\n'
-                       'Choose it anytime to bring those colors back.')
-        saved.setWordWrap(True)
-        instructions.addWidget(saved)
-        instructions.addStretch()
-        self.pages.addWidget(tutorial)
+        self.group.buttonToggled.connect(self.choice_toggled)
+        self.pages.insertWidget(1, choices_page)
         reminder = QLabel('You can change this anytime in Settings → General.')
         self.reminder = reminder
         reminder.setWordWrap(True)
@@ -388,6 +334,7 @@ class FirstRunDialog(QDialog):
         actions.addWidget(self.back_button)
         actions.addStretch()
         self.next_button = ThemedButton('Next')
+        self.next_button.setProperty('themeRole', 'highlight')
         self.next_button.setDefault(True)
         self.next_button.clicked.connect(self.advance)
         actions.addWidget(self.next_button)
@@ -407,8 +354,7 @@ class FirstRunDialog(QDialog):
         narrow = self.width() < 640
         index = self.pages.currentIndex()
         self.library_button.setText('Browse' if narrow else 'Choose music folder')
-        self.choices['off'].setText('Off' if narrow else 'no dynamic colors')
-        self.next_button.setText(('Start' if narrow else 'Start listening') if index == 3 else
+        self.next_button.setText(('Start' if narrow else 'Start listening') if index == self.pages.count() - 1 else
                                  ('Skip' if narrow else 'Skip for now') if index == 0 and not self.library_folder else 'Next')
         self.categories.setDirection(QBoxLayout.TopToBottom if narrow else QBoxLayout.LeftToRight)
         self.button_form.setRowWrapPolicy(QFormLayout.WrapAllRows if narrow else QFormLayout.DontWrapRows)
@@ -431,32 +377,73 @@ class FirstRunDialog(QDialog):
                 QSizePolicy.Preferred if page_index == index else QSizePolicy.Ignored)
         self.pages.setCurrentIndex(index)
         self.pages.updateGeometry()
-        self.step_label.setText(f'Step {index + 1} of 4')
-        self.heading.setText(('Choose your music library', 'Make it feel right', 'Dynamic theming', 'Keep a color theme you love')[index])
-        self.subheading.setVisible(index == 2)
+        self.step_label.setText(f'Step {index + 1} of {self.pages.count()}')
+        self.heading.setText(('Choose your music library', '', 'Make it feel right')[index])
+        self.heading.setVisible(index != 1)
         self.back_button.setVisible(index > 0)
         self.update_layout()
         self.reminder.setText('Change button shape in Settings → Style and sound volume in Settings → Audio.'
-                              if index == 1 else 'Find saved themes and appearance in Settings → Style.')
-        if index == 3:
-            first = ('1. Choose your colors in Settings → Style.' if self.selected_mode() == 'off'
-                     else '1. Play an album and let its colors appear.')
-            self.instructions_label.setText(first + f'\n2. In the Albums view, press the paintbrush and save button beside {save_theme_neighbor()}.\n'
-                                            'Your theme is saved immediately, named after the playing album.')
-            self.save_preview.capture(self.parentWidget())
+                              if index == 2 else 'Find saved themes in Settings → Style.')
+        self.reminder.setVisible(index != 1)
         self.scroll.verticalScrollBar().setValue(0)
 
     def advance(self):
-        if self.pages.currentIndex() < 3:
+        if self.pages.currentIndex() < self.pages.count() - 1:
             self.set_step(self.pages.currentIndex() + 1)
         else:
             self.accept()
 
+    def keep_current_colors(self):
+        self.kept_choice = self.selected_mode()
+
+    def choice_colors(self):
+        mode = self.selected_mode()
+        if mode == self.kept_choice:
+            return None
+        base = {'any': system_theme_choice(), 'dark': 'fixed_dark', 'light': 'fixed_light'}.get(mode, mode)
+        return FIXED_THEMES.get(base)
+
+    def store_choice_colors(self):
+        colors = self.choice_colors()
+        if colors is None:
+            self.restore_original_theme()
+            return
+        for key, value in colors.items():
+            self.settings.setValue(key, value)
+        self.settings.setValue('custom_theme_colors', json.dumps(colors))
+        self.settings.setValue('selected_color_theme', '')
+        mode = self.selected_mode()
+        self.settings.setValue('artwork_theme_enabled', mode not in FIXED_THEMES)
+        self.settings.setValue('artwork_theme_mode', mode.removeprefix('fixed_'))
+
+    def restore_original_theme(self):
+        for key in THEME_CHOICE_KEYS:
+            if key in self.original_theme:
+                self.settings.setValue(key, self.original_theme[key])
+            else:
+                self.settings.remove(key)
+
+    def choice_toggled(self, _button, checked):
+        if checked:
+            self.preview_choice()
+
+    def player_window(self):
+        window = self.parent()
+        while window is not None and not hasattr(window, 'apply_settings'):
+            window = window.parent()
+        return window
+
+    def preview_choice(self):
+        window = self.player_window()
+        if window is None or not self.isVisible():
+            return
+        self.previewing = True
+        self.store_choice_colors()
+        window.apply_settings()
+        self.preview_buttons()
+
     def accept(self):
-        if self.selected_mode() == 'off':
-            from theme_settings import custom_color_settings
-            for key, value in custom_color_settings(self.settings).items():
-                self.settings.setValue(key, value)
+        self.store_choice_colors()
         if self.library_folder and Path(self.library_folder).is_dir():
             self.settings.setValue('browser_root', self.library_folder)
             self.settings.setValue('folder', self.library_folder)
@@ -464,8 +451,8 @@ class FirstRunDialog(QDialog):
         self.settings.setValue('corner_roundness', self.button_roundness.value())
         self.settings.setValue('button_sound_volume', self.button_volume.value())
         mode = self.selected_mode()
-        self.settings.setValue('artwork_theme_enabled', mode != 'off')
-        self.settings.setValue('artwork_theme_mode', mode if mode != 'off' else 'any')
+        self.settings.setValue('artwork_theme_enabled', mode not in FIXED_THEMES)
+        self.settings.setValue('artwork_theme_mode', mode.removeprefix('fixed_'))
         self.settings.setValue('selected_color_theme', '')
         self.settings.setValue('welcome_complete', True)
         self.settings.sync()
@@ -494,4 +481,7 @@ class FirstRunDialog(QDialog):
         for prop, value in self.original_button_properties.items():
             app.setProperty(prop, value)
         prepare_button_sounds()
+        if self.previewing:
+            self.restore_original_theme()
+            self.player_window().apply_settings()
         super().reject()

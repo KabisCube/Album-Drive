@@ -19,8 +19,9 @@ from PySide6.QtWidgets import QApplication
 from app_theme import artwork_theme_colors
 from color_rules import disabled_text_color, settings_title_color
 from main import PlayerWindow
+from themes import THEME_FADE_MS
 from test_library import make_wave
-from theme_settings import ThemeSettingsDialog, default_color_theme, saved_color_themes
+from theme_settings import ThemeSettingsDialog, default_color_themes, saved_color_themes
 from themes import FONT_SCALE_KEYS, font_sizes, COLOR_SETTINGS, NUMERIC_DEFAULTS
 
 
@@ -34,7 +35,7 @@ def wait_until(condition):
 
 def finish(window):
     if getattr(window, 'theme_fade', None) is not None:
-        window.theme_fade.setCurrentTime(4000)
+        window.theme_fade.setCurrentTime(THEME_FADE_MS)
 
 
 app = QApplication([])
@@ -90,7 +91,7 @@ with TemporaryDirectory() as directory:
         window.apply_settings()
         assert app.property('themeBackground') == before
         assert window.theme_fade is not None
-        window.theme_fade.setCurrentTime(2000)
+        window.theme_fade.setCurrentTime(THEME_FADE_MS // 2)
         assert app.property('themeBackground') not in (before, window.now_playing_theme_colors()['themeBackground'])
         finish(window)
 
@@ -120,8 +121,9 @@ with TemporaryDirectory() as directory:
         finish(window)
         dialog.artwork_theme.setChecked(False)
         assert title.isEnabled()
-        assert not dialog.option_labels[dialog.artwork_theme_mode].isEnabled()
-        assert not dialog.artwork_theme_mode.isEnabled()
+        assert dialog.option_labels[dialog.artwork_theme_mode].isEnabled()
+        assert dialog.artwork_theme_mode.isEnabled()
+        assert dialog.artwork_theme_mode.findData('any') < 0
         assert all(button.isEnabled() for button in dialog.colors.values())
         assert dialog.colors['theme_brand_text_color'].property('previewSwatchColor') is None
         before = app.property('themeBackground')
@@ -136,12 +138,12 @@ with TemporaryDirectory() as directory:
         dialog.numbers['ui_thickness'].setValue(100)
         assert dialog.numbers['button_sound_volume'].isEnabled()
         assert dialog.option_labels[dialog.numbers['button_sound_volume']].isEnabled()
-        default_id = default_color_theme()['id']
+        default_id = default_color_themes()[0]['id']
         assert dialog.saved_theme_choice.findData(default_id) == 0
         dialog.saved_theme_choice.setCurrentIndex(dialog.saved_theme_choice.findData(default_id))
         dialog.rounding_slider.setValue(20)
         dialog.apply()
-        assert next(p for p in saved_color_themes(settings) if p['id'] == default_id) == default_color_theme()
+        assert next(p for p in saved_color_themes(settings) if p['id'] == default_id) == default_color_themes()[0]
         dialog.restore_defaults()
         assert dialog.continuous_playback.isChecked()
         assert dialog.artwork_theme.isChecked()

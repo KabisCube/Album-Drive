@@ -6,6 +6,8 @@ cd /d "%~dp0"
 
 set "PACKAGE=org.albumdrive.albumdrive"
 set "APK=dist\AlbumDrive-android-arm64-debug.apk"
+rem Drawing size in percent: 100, or 30 to 90 in steps of 5. Lower scrolls smoother but looks softer.
+set "RENDER_SCALE=60"
 set "TOOLS=%LOCALAPPDATA%\AlbumDrive"
 set "ADB_ZIP=https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
 
@@ -32,6 +34,12 @@ echo.
 echo Installing on the phone...
 "%ADB%" install -r "%APK%"
 if errorlevel 1 goto install_failed
+rem Android only allows this per-app override on debug builds, set from a computer.
+"%ADB%" shell am compat reset-all %PACKAGE% >nul 2>&1
+if not "%RENDER_SCALE%"=="100" (
+    "%ADB%" shell am compat enable DOWNSCALED %PACKAGE% >nul 2>&1
+    "%ADB%" shell am compat enable DOWNSCALE_%RENDER_SCALE% %PACKAGE% >nul 2>&1
+)
 "%ADB%" shell monkey -p %PACKAGE% -c android.intent.category.LAUNCHER 1 >nul 2>&1
 if errorlevel 1 goto launch_failed
 
