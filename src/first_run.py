@@ -1,15 +1,17 @@
 """First-run setup for the music library, buttons, album colors and saved themes."""
 
 from pathlib import Path
+from music_folders import choose_music_directory, music_directory
 from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QSize, QSizeF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QDialog, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
-    QLabel, QRadioButton, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
+    QApplication, QBoxLayout, QButtonGroup, QDialog, QFormLayout, QFrame, QHBoxLayout,
+    QLabel, QLayout, QRadioButton, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from themes import CONTROL_HEADROOM, ThemedButton, ThemeSaveIcon, button_paint_rect, button_scale, control_face, corner_radius, paint_control, NUMERIC_DEFAULTS
 from button_sounds import prepare_button_sounds
+from responsive import ScreenFit, running_on_android, wrap_freely, wrappable_path
 
 
 def needs_first_run(settings):
@@ -82,11 +84,12 @@ class ColorChoice(QFrame):
         self.radio = QRadioButton(title)
         self.radio.setAccessibleName(title)
         image = QLabel()
-        image.setPixmap(example_image(mode).scaled(104, 104,
-                                                  Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.preview = example_image(mode)
+        image.setPixmap(self.preview.scaled(104, 104, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         image.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         image.setAccessibleName(f'{title}: example album colors')
         image.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.image = image
         caption = QLabel(description)
         caption.setWordWrap(True)
         caption.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -122,11 +125,26 @@ QRadioButton::indicator:checked {{ background: {accent}; }}
         super().mousePressEvent(event)
 
 
+SAVE_PREVIEW_PADDING = 16
+
+
+def save_theme_neighbor():
+    return 'Settings' if running_on_android() else 'Refresh'
+
+
 def theme_save_image(window):
     while window is not None and not hasattr(window, 'save_theme_button'):
         window = window.parentWidget()
     button = getattr(window, 'save_theme_button', None)
+    android = running_on_android()
     if button is not None:
+        if android:
+            enabled = button.isEnabled()
+            button.setEnabled(True)
+            try:
+                return button.grab()
+            finally:
+                button.setEnabled(enabled)
         area = button.parentWidget()
         width = min(800, area.width())
         crop = QRect(max(0, min(button.x() - 420, area.width() - width)), 0,
@@ -142,6 +160,10 @@ def theme_save_image(window):
         size = round(app.property('buttonIconSize') or 20)
         button.setIconSize(QSize(round(size * 1.5), size))
         button.resize(round(64 * button_scale()) + 2 * CONTROL_HEADROOM, button.sizeHint().height())
+        if android:
+            image = button.grab()
+            button.deleteLater()
+            return image
         position = QPointF((image.width() - button.width()) / 2, 12)
         painter = QPainter(image)
         painter.drawPixmap(position, button.grab())
@@ -177,9 +199,9 @@ class ThemeSavePreview(QWidget):
         self.refresh_timer.setInterval(40)
         self.refresh_timer.timeout.connect(self.refresh)
         QApplication.instance().installEventFilter(self)
-        self.setAccessibleName('Save theme button in the top right of the Albums view, beside Refresh')
-        self.setMinimumHeight(160)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setAccessibleName(f'Save theme button in the top right of the Albums view, beside {save_theme_neighbor()}')
+        self.setMinimumHeight(0 if running_on_android() else 160)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed if running_on_android() else QSizePolicy.Expanding)
 
     def sizeHint(self):
         return QSize(720, 200)
@@ -187,6 +209,8 @@ class ThemeSavePreview(QWidget):
     def capture(self, window):
         self.source_window = window
         self.image = theme_save_image(window)
+        if running_on_android():
+            self.setFixedHeight(round(self.image.deviceIndependentSize().height()) + 2 * SAVE_PREVIEW_PADDING)
         self.update()
 
     def refresh(self):
@@ -210,11 +234,21 @@ class ThemeSavePreview(QWidget):
         if self.image.isNull():
             return
         target = QRectF(0, 0, self.image.width(), self.image.height())
-        target.setSize(QSizeF(self.image.size().scaled(self.size(), Qt.KeepAspectRatio)))
+        bounds = self.size()
+        if running_on_android():
+            bounds = bounds.boundedTo(self.image.deviceIndependentSize().toSize())
+        target.setSize(QSizeF(self.image.size().scaled(bounds, Qt.KeepAspectRatio)))
         target.moveCenter(QRectF(self.rect()).center())
         painter = QPainter(self)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         painter.drawPixmap(target, self.image, QRectF(self.image.rect()))
+
+
+class StepPage(QWidget):
+    """A setup step; hidden steps report no height so the stack fits only the visible one."""
+
+    def heightForWidth(self, width):
+        return -1 if self.isHidden() else super().heightForWidth(width)
 
 
 class FirstRunDialog(QDialog):
@@ -223,23 +257,33 @@ class FirstRunDialog(QDialog):
         self.settings = settings
         self.setWindowTitle('First time setup — Album Drive')
         self.setModal(True)
-        self.resize(900, 680)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 18, 20, 18)
-        outer.setSpacing(10)
+        outer.setSizeConstraint(QLayout.SetNoConstraint)
+        outer.setContentsMargins(12, 12, 12, 12)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        body = QVBoxLayout(content)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(10)
+        self.scroll.setWidget(content)
+        outer.addWidget(self.scroll, 1)
         self.step_label = QLabel()
         self.step_label.setObjectName('muted')
-        outer.addWidget(self.step_label)
+        body.addWidget(self.step_label)
         self.heading = QLabel()
         self.heading.setObjectName('heading')
-        outer.addWidget(self.heading)
+        self.heading.setWordWrap(True)
+        body.addWidget(self.heading)
         self.subheading = QLabel('Let Album Drive change theme colors to match the playing album.')
         self.subheading.setWordWrap(True)
-        outer.addWidget(self.subheading)
+        body.addWidget(self.subheading)
         self.pages = QStackedWidget()
-        outer.addWidget(self.pages)
+        body.addWidget(self.pages, 1)
         self.library_folder = str(settings.value('browser_root', settings.value('folder', '')))
-        library_page = QWidget()
+        library_page = StepPage()
         library_layout = QVBoxLayout(library_page)
         library_layout.setContentsMargins(0, 0, 0, 0)
         explanation = QLabel('Choose your music library root. This is usually the root folder where you store your music, with artist and album folders inside.')
@@ -248,7 +292,7 @@ class FirstRunDialog(QDialog):
         self.library_button = ThemedButton('Choose music folder')
         self.library_button.clicked.connect(self.choose_library)
         library_layout.addWidget(self.library_button)
-        self.library_label = QLabel(self.library_folder or 'No folder selected. You can choose one later in settings.')
+        self.library_label = QLabel(wrappable_path(self.library_folder) or 'No folder selected. You can choose one later in settings.')
         self.library_label.setWordWrap(True)
         library_layout.addWidget(self.library_label)
         library_layout.addStretch()
@@ -256,13 +300,14 @@ class FirstRunDialog(QDialog):
         from theme_settings import NumericSlider
         self.original_button_properties = {prop: QApplication.instance().property(prop)
                                            for prop in ('uiThickness', 'cornerRoundness', 'buttonSoundVolume')}
-        button_page = QWidget()
+        button_page = StepPage()
         button_layout = QVBoxLayout(button_page)
         button_layout.setContentsMargins(0, 0, 0, 0)
         explanation = QLabel('Choose how your buttons look and sound. Click the preview to try them.')
         explanation.setWordWrap(True)
         button_layout.addWidget(explanation)
         button_form = QFormLayout()
+        self.button_form = button_form
         self.button_thickness = NumericSlider(NUMERIC_DEFAULTS['ui_thickness'], 0, 300, ' px', 25, display_scale=.04)
         self.button_roundness = NumericSlider(NUMERIC_DEFAULTS['corner_roundness'], 0, 100, ' %', 1)
         self.button_volume = NumericSlider(NUMERIC_DEFAULTS['button_sound_volume'], 0, 100, ' %', 1)
@@ -276,11 +321,14 @@ class FirstRunDialog(QDialog):
         button_layout.addLayout(button_form)
         self.button_preview = ThemedButton('Try a button')
         button_layout.addWidget(self.button_preview, alignment=Qt.AlignHCenter)
-        button_layout.addWidget(QLabel('0 px makes buttons flat and silent. Set volume to 0% to mute clicks.'))
+        hint = QLabel('0 px makes buttons flat and silent. Set volume to 0% to mute clicks.')
+        hint.setWordWrap(True)
+        button_layout.addWidget(hint)
         button_layout.addStretch()
         self.pages.addWidget(button_page)
-        choices_page = QWidget()
+        choices_page = StepPage()
         categories = QHBoxLayout(choices_page)
+        self.categories = categories
         categories.setContentsMargins(0, 0, 0, 0)
         categories.setSpacing(14)
         self.dynamic_category = QWidget()
@@ -314,7 +362,7 @@ class FirstRunDialog(QDialog):
         fixed.addStretch()
         self.choices['any'].setChecked(True)
         self.pages.addWidget(choices_page)
-        tutorial = QWidget()
+        tutorial = StepPage()
         instructions = QVBoxLayout(tutorial)
         instructions.setContentsMargins(0, 0, 0, 0)
         instructions.setSpacing(14)
@@ -333,7 +381,7 @@ class FirstRunDialog(QDialog):
         reminder = QLabel('You can change this anytime in Settings → General.')
         self.reminder = reminder
         reminder.setWordWrap(True)
-        outer.addWidget(reminder)
+        body.addWidget(reminder)
         actions = QHBoxLayout()
         self.back_button = ThemedButton('Back')
         self.back_button.clicked.connect(lambda: self.set_step(max(0, self.pages.currentIndex() - 1)))
@@ -348,25 +396,55 @@ class FirstRunDialog(QDialog):
         self.button_volume_title.setProperty('settingsOptionTitle', True)
         self.preview_buttons()
         self.set_step(0)
+        for label in content.findChildren(QLabel):
+            if label.wordWrap():
+                label.setMinimumWidth(0)
+                wrap_freely(label)
+        ScreenFit(self, 900, 680)
+        self.update_layout()
+
+    def update_layout(self):
+        narrow = self.width() < 640
+        index = self.pages.currentIndex()
+        self.library_button.setText('Browse' if narrow else 'Choose music folder')
+        self.choices['off'].setText('Off' if narrow else 'no dynamic colors')
+        self.next_button.setText(('Start' if narrow else 'Start listening') if index == 3 else
+                                 ('Skip' if narrow else 'Skip for now') if index == 0 and not self.library_folder else 'Next')
+        self.categories.setDirection(QBoxLayout.TopToBottom if narrow else QBoxLayout.LeftToRight)
+        self.button_form.setRowWrapPolicy(QFormLayout.WrapAllRows if narrow else QFormLayout.DontWrapRows)
+        for radio in self.choices.values():
+            card = radio.parentWidget()
+            size = 72 if narrow else 104
+            card.image.setPixmap(card.preview.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.update_layout()
 
     def selected_mode(self):
         return next(mode for mode, radio in self.choices.items() if radio.isChecked())
 
     def set_step(self, index):
+        for page_index in range(self.pages.count()):
+            self.pages.widget(page_index).setSizePolicy(
+                QSizePolicy.Preferred if page_index == index else QSizePolicy.Ignored,
+                QSizePolicy.Preferred if page_index == index else QSizePolicy.Ignored)
         self.pages.setCurrentIndex(index)
+        self.pages.updateGeometry()
         self.step_label.setText(f'Step {index + 1} of 4')
         self.heading.setText(('Choose your music library', 'Make it feel right', 'Dynamic theming', 'Keep a color theme you love')[index])
         self.subheading.setVisible(index == 2)
         self.back_button.setVisible(index > 0)
-        self.next_button.setText('Start listening' if index == 3 else 'Skip for now' if index == 0 and not self.library_folder else 'Next')
+        self.update_layout()
         self.reminder.setText('Change button shape in Settings → Style and sound volume in Settings → Audio.'
                               if index == 1 else 'Find saved themes and appearance in Settings → Style.')
         if index == 3:
             first = ('1. Choose your colors in Settings → Style.' if self.selected_mode() == 'off'
                      else '1. Play an album and let its colors appear.')
-            self.instructions_label.setText(first + '\n2. In the Albums view, press the paintbrush and save button beside Refresh.\n'
+            self.instructions_label.setText(first + f'\n2. In the Albums view, press the paintbrush and save button beside {save_theme_neighbor()}.\n'
                                             'Your theme is saved immediately, named after the playing album.')
             self.save_preview.capture(self.parentWidget())
+        self.scroll.verticalScrollBar().setValue(0)
 
     def advance(self):
         if self.pages.currentIndex() < 3:
@@ -394,10 +472,10 @@ class FirstRunDialog(QDialog):
         super().accept()
 
     def choose_library(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Choose music library root', self.library_folder or str(Path.home() / 'Music'))
+        folder = choose_music_directory(self, 'Choose music library root', self.library_folder or music_directory())
         if folder:
             self.library_folder = folder
-            self.library_label.setText(folder)
+            self.library_label.setText(wrappable_path(folder))
             self.next_button.setText('Next')
 
     def preview_buttons(self):

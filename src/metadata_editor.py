@@ -4,11 +4,12 @@ from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QPlainTextEdit, QScrollArea, QTabWidget, QTableWidget,
+    QLabel, QLayout, QLineEdit, QPlainTextEdit, QScrollArea, QSizePolicy, QTabWidget, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from file_paths import filesystem_path
+from responsive import NARROW_WIDTH, SHORT_HEIGHT, ScreenFit, wrap_freely
 from library import scan_library
 from metadata import FIELDS, read_documents, write_metadata
 from settings_store import library_cache_path
@@ -33,14 +34,18 @@ class TagValueDialog(QDialog):
     def __init__(self, key='', value=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle('Edit metadata tag' if key else 'Add metadata tag')
-        self.resize(620, 440)
+        ScreenFit(self, 620, 440)
         self.original_key, self.original_value = key, value
         layout = QVBoxLayout(self)
+        layout.setSizeConstraint(QLayout.SetNoConstraint)
         self.key = QLineEdit(key)
         self.key.setPlaceholderText('Native tag name, such as TXXX:Custom or a Vorbis field name')
         layout.addWidget(QLabel('Tag name'))
         layout.addWidget(self.key)
-        layout.addWidget(QLabel('Value (JSON). Binary values use base64; ID3 frames include their fields.'))
+        value_hint = QLabel('Value (JSON). Binary values use base64; ID3 frames include their fields.')
+        value_hint.setWordWrap(True)
+        wrap_freely(value_hint)
+        layout.addWidget(value_hint)
         self.value = QPlainTextEdit()
         self.value.setPlainText(json.dumps(json.loads(value), ensure_ascii=False, indent=2) if value is not None else '""')
         self.value.document().setModified(False)
@@ -86,7 +91,7 @@ class MetadataEditor(QDialog):
         self.setObjectName('metadataEditor')
         self.setWindowTitle('Album metadata' if track is None else 'Track metadata')
         self.setWindowModality(Qt.WindowModal)
-        self.resize(800, 720)
+        ScreenFit(self, 800, 720)
         self.album = album
         self.tracks = list(album.tracks) if track is None else [track]
         self.cache_path = library_cache_path(parent.settings) if parent is not None else None
@@ -100,6 +105,7 @@ class MetadataEditor(QDialog):
         self.pending_result = None
         self.loading_fields = False
         layout = QVBoxLayout(self)
+        layout.setSizeConstraint(QLayout.SetNoConstraint)
         scope = QLabel(f'Editing all {len(self.tracks)} tracks in “{album.title}”' if track is None else f'Editing “{track.title}”')
         scope.setObjectName('settingsSection')
         scope.setTextFormat(Qt.PlainText)
@@ -109,8 +115,11 @@ class MetadataEditor(QDialog):
         hint = QLabel('Only fields you change will be applied to every track.' if track is None else str(track.path))
         hint.setTextFormat(Qt.PlainText)
         hint.setWordWrap(True)
+        wrap_freely(hint)
+        self.hint = hint
         layout.addWidget(hint)
         self.tabs = QTabWidget()
+        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         self.tabs.setTabBar(ChunkyTabBar(self.tabs))
         layout.addWidget(self.tabs, 1)
         scroll = QScrollArea()
@@ -118,6 +127,7 @@ class MetadataEditor(QDialog):
         scroll.setFrameShape(QScrollArea.NoFrame)
         page = QWidget()
         form = QFormLayout(page)
+        self.form = form
         form.setContentsMargins(18, 16, 18, 16)
         form.setSpacing(10)
         self.fields = {}
@@ -148,11 +158,16 @@ class MetadataEditor(QDialog):
         artwork_actions.addWidget(replace)
         artwork_actions.addWidget(remove)
         artwork_layout.addLayout(artwork_actions)
-        self.tabs.addTab(artwork_page, 'Artwork')
+        artwork_scroll = QScrollArea()
+        artwork_scroll.setWidgetResizable(True)
+        artwork_scroll.setFrameShape(QScrollArea.NoFrame)
+        artwork_scroll.setWidget(artwork_page)
+        self.tabs.addTab(artwork_scroll, 'Artwork')
         native_page = QWidget()
         native_layout = QVBoxLayout(native_page)
         native_hint = QLabel('All stored tags, including custom fields. Double-click a tag to edit its value. Edits apply to every selected track. Edited Fields take precedence over matching tags here.')
         native_hint.setWordWrap(True)
+        self.native_hint = native_hint
         native_layout.addWidget(native_hint)
         self.tags = QTableWidget(0, 2)
         self.tags.setHorizontalHeaderLabels(['Tag', 'Value'])
@@ -201,7 +216,28 @@ class MetadataEditor(QDialog):
         layout.addLayout(actions)
         self.tabs.setEnabled(False)
         self.save_button.setEnabled(False)
+        self.update_layout()
         self.start_job('load', lambda cancelled: read_documents(self.tracks, cancelled))
+
+    def update_layout(self):
+        narrow = self.width() < NARROW_WIDTH
+        self.form.setRowWrapPolicy(QFormLayout.WrapAllRows if narrow else QFormLayout.DontWrapRows)
+        margin = 8 if narrow else 18
+        self.form.setContentsMargins(margin, 16, margin, 16)
+        compact = narrow or self.height() < SHORT_HEIGHT
+        self.hint.setHidden(compact)
+        self.write_hint.setHidden(compact)
+        self.native_hint.setHidden(compact)
+        self.artwork_preview.setMinimumHeight(120 if narrow else 250)
+        for button, wide, short in zip(self.edit_buttons,
+                                       ('Replace artwork', 'Remove all artwork', 'Add tag', 'Edit tag', 'Remove tag'),
+                                       ('Replace', 'Remove', 'Add', 'Edit', 'Remove')):
+            button.setText(short if narrow else wide)
+            button.setAccessibleName(wide)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.update_layout()
 
     def start_job(self, kind, operation):
         self.job_kind = kind
@@ -291,7 +327,8 @@ class MetadataEditor(QDialog):
     def show_artwork(self, data):
         pixmap = QPixmap()
         if data and pixmap.loadFromData(data):
-            self.artwork_preview.setPixmap(pixmap.scaled(360, 360, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            size = max(1, min(360, self.width() - 48))
+            self.artwork_preview.setPixmap(pixmap.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             self.artwork_preview.setPixmap(QPixmap())
             self.artwork_preview.setText('No embedded artwork')

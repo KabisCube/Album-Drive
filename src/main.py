@@ -25,9 +25,9 @@ logging.basicConfig(level=logging.WARNING)
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontDatabase, QIcon, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QTextLayout, QTextOption, QTransform
 from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QFileDialog, QFileSystemModel, QGraphicsOpacityEffect, QHBoxLayout,
-    QHeaderView, QLabel, QListView, QListWidget, QListWidgetItem,
-    QMainWindow, QSlider, QSizePolicy, QSplitter, QStackedLayout, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionSlider, QStyleOptionViewItem, QTableWidget,
+    QApplication, QDialog, QFileSystemModel, QGraphicsOpacityEffect, QHBoxLayout,
+    QHeaderView, QLabel, QListView, QListWidget, QListWidgetItem, QLayout,
+    QMainWindow, QScroller, QSlider, QSizePolicy, QSplitter, QStackedLayout, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionSlider, QStyleOptionViewItem, QTableWidget,
     QTableWidgetItem, QToolButton, QTreeView, QVBoxLayout, QWidget,
 )
 
@@ -38,6 +38,8 @@ from metadata_editor import MetadataEditor
 from album_grid import AlbumGrid
 from open_case import AlbumPresentation, PLAYING_ROLE
 from overflow_controls import OverflowControls
+from adaptive_workspace import AdaptiveWorkspace, ResponsiveTransport
+from music_folders import choose_music_directory, music_directory
 from themes import signed_setting_int, resolve_font, THEME_DEFAULT, ALBUM_SORT_DEFAULT, VOLUME_DEFAULT, BUILDING_GRAY, GRASS_GREEN, TIMELINE_COLOR, CLEANING_DEFAULT, COLOR_SETTINGS, NUMERIC_DEFAULTS, ChunkyBrand, ThemedButton as QPushButton, ThemedComboBox, ThemeSlider, accent_knob, chunky_style, corner_radius, draw_centered_text, round_stylesheet, text_style
 from theme_settings import ThemeSettingsDialog, capture_color_theme, custom_color_settings, saved_color_themes
 from theme_transition import ThemeTransition
@@ -55,6 +57,8 @@ from case_sounds import prepare_case_sounds, play_case_sound
 from audio_devices import selected_output
 from themes import MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS, MARKER_COLOR_DEFAULT, FONT_SCALE_KEYS, font_sizes, migrate_font_settings
 from app_identity import APP_NAME
+from responsive import running_on_android
+from touch_input import MINIMUM_TOUCH_TARGET, add_touch
 from audio_levels import volume_gain
 from first_run import FirstRunDialog, needs_first_run
 from session_palette import load_session_palette, save_session_palette
@@ -293,6 +297,7 @@ class NowPlayingCover(QWidget):
         self._pixmap = QPixmap()
         self.sheen_key = ''
         self.cover_pressed = False
+        self.auto_height = True
         self.setMinimumSize(64, 64)
         self.setContentsMargins(10, 0, 10, 0)
 
@@ -301,6 +306,8 @@ class NowPlayingCover(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if not self.auto_height:
+            return
         height = self.heightForWidth(self.width())
         if self.minimumHeight() != height or self.maximumHeight() != height:
             self.setFixedHeight(height)
@@ -353,11 +360,14 @@ class NowPlayingCover(QWidget):
 
 
 class NowPlayingPanel(QWidget):
+    geometryChanged = Signal()
+
     def __init__(self):
         super().__init__()
         self.content = QWidget(self)
         self.content.installEventFilter(self)
         self.cover = None
+        self.resizable = False
         self.progress = 0.0
         self.content_height = 0
         self.expanded = False
@@ -394,9 +404,21 @@ class NowPlayingPanel(QWidget):
 
     def set_progress(self, value):
         self.progress = float(value)
+        if self.resizable:
+            return
         height = round(self.content_height * self.progress)
         if self.maximumHeight() != height:
             self.setFixedHeight(height)
+            self.geometryChanged.emit()
+
+    def set_resizable(self, resizable):
+        if resizable == self.resizable:
+            return
+        self.resizable = resizable
+        if resizable:
+            self.setMinimumHeight(0)
+            self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.arrange()
 
     def arrange(self):
         if self.arranging or self.cover is None or self.content.layout() is None:
@@ -404,9 +426,20 @@ class NowPlayingPanel(QWidget):
         self.arranging = True
         try:
             cover_height = self.cover.heightForWidth(self.width())
+            other_height = self.content.layout().sizeHint().height() - self.cover.height()
+            if self.resizable:
+                maximum = cover_height + other_height
+                if self.maximumHeight() != maximum:
+                    self.setMaximumHeight(maximum)
+                    self.geometryChanged.emit()
+                cover_height = min(cover_height, max(0, self.height() - other_height))
+            elif isinstance(self.parentWidget(), QSplitter):
+                splitter = self.parentWidget()
+                available = splitter.height() - splitter.widget(0).minimumHeight() - splitter.handleWidth()
+                cover_height = min(cover_height, max(0, available - other_height))
             if self.cover.maximumHeight() != cover_height:
                 self.cover.setFixedHeight(cover_height)
-            height = self.content.layout().sizeHint().height()
+            height = self.height() if self.resizable else self.content.layout().sizeHint().height()
             self.content_height = height
             if self.content.size() != QSize(self.width(), height):
                 self.content.setGeometry(0, 0, self.width(), height)
@@ -423,8 +456,13 @@ class NowPlayingPanel(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if event.size().width() != event.oldSize().width():
+        if self.resizable or event.size().width() != event.oldSize().width():
             self.arrange()
+        self.geometryChanged.emit()
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self.geometryChanged.emit()
 
     def event(self, event):
         if event.type() == QEvent.LayoutRequest and hasattr(self, 'arranging'):
@@ -434,6 +472,9 @@ class NowPlayingPanel(QWidget):
     def eventFilter(self, watched, event):
         if watched is self.content and event.type() == QEvent.LayoutRequest:
             self.arrange()
+        elif watched is self.parentWidget() and event.type() == QEvent.Resize:
+            self.arrange()
+            self.geometryChanged.emit()
         return super().eventFilter(watched, event)
 
 
@@ -935,13 +976,21 @@ class Scanner(QThread):
             self.failed.emit(str(error))
 
 
+NOW_PLAYING_FLICK_SPEED = 900
+ANDROID_TRANSPORT_ROW_GAP = -8
+PLAYBACK_STALL_MS = 1500
+FILE_MANAGER_LABEL = 'Open in Windows Explorer' if sys.platform == 'win32' else 'Open in file manager'
+
+
 class PlayerWindow(QMainWindow):
     def __init__(self, settings=None):
         super().__init__()
         load_app_font()
         self.setWindowTitle(APP_NAME)
         self.resize(1400, 900)
-        self.setMinimumSize(860, 600)
+        self.compact_mode = False
+        self.is_android = running_on_android()
+        self.setMinimumSize(320, 320 if self.is_android else 600)
         self.settings = settings if settings is not None else create_app_settings()
         migrate_font_settings(self.settings)
         self.first_run_needed = needs_first_run(self.settings)
@@ -951,10 +1000,6 @@ class PlayerWindow(QMainWindow):
             if selected is not None:
                 for key, value in selected['colors'].items():
                     self.settings.setValue(key, value)
-        open_settings = QAction('Settings', self)
-        self.addAction(open_settings)
-        open_settings.setShortcut(QKeySequence('Ctrl+,'))
-        open_settings.triggered.connect(self.edit_theme_settings)
         palette = load_session_palette(self.settings)
         self.set_theme(str(self.settings.value('theme', THEME_DEFAULT)),
                        palette['colors'] if palette else None, palette.get('artwork', False) if palette else None)
@@ -1013,13 +1058,16 @@ class PlayerWindow(QMainWindow):
         root = QWidget()
         self.setCentralWidget(root)
         outer = QVBoxLayout(root)
+        outer.setSizeConstraint(QLayout.SetNoConstraint)
         outer.setContentsMargins(16, 16, 16, 10)
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = AdaptiveWorkspace()
+        self.workspace = splitter
         outer.addWidget(splitter, 1)
 
         sidebar = QWidget()
         side = QVBoxLayout(sidebar)
-        side.setContentsMargins(0, 0, 14, 0)
+        self.sidebar_layout = side
+        side.setContentsMargins(0, 0, 0, 0)
         brand = ChunkyBrand(APP_NAME)
         self.brand = brand
         brand.setObjectName('brand')
@@ -1044,8 +1092,8 @@ class PlayerWindow(QMainWindow):
         self.tree.customContextMenuRequested.connect(self.show_folder_menu)
         self.folder_menu = ThemedMenu(self.tree)
         self.folder_menu.setObjectName('folderContextMenu')
-        self.open_folder_action = self.folder_menu.addAction('Open in Windows Explorer' if sys.platform == 'win32' else 'Open in file manager')
-        self.open_folder_action.triggered.connect(self.open_folder_in_explorer)
+        self.open_folder_action = self.folder_menu.addAction(FILE_MANAGER_LABEL)
+        self.open_folder_action.triggered.connect(lambda: self.open_in_file_manager(self.folder_menu_path))
         self.folder_menu_path = None
         self.files.directoryLoaded.connect(self.schedule_browsing_restore)
         self.tree.pressed.connect(self.cancel_browsing_restore)
@@ -1057,16 +1105,20 @@ class PlayerWindow(QMainWindow):
         for column in range(1, self.files.columnCount()):
             self.tree.hideColumn(column)
         self.tree.selectionModel().currentChanged.connect(self.folder_selected)
+        self.tree.clicked.connect(self.open_compact_folder)
         self.tree.setMinimumHeight(70)
-        browser_column = QVBoxLayout()
-        browser_column.setSpacing(0)
-        browser_column.addWidget(self.tree, 1)
+        browser_column = QSplitter(Qt.Vertical)
+        self.browser_splitter = browser_column
+        browser_column.setHandleWidth(0)
+        browser_column.addWidget(self.tree)
+        browser_column.setCollapsible(0, False)
         now_playing = NowPlayingPanel()
         self.now_playing = now_playing
         playing_layout = QVBoxLayout(now_playing.content)
         playing_layout.setContentsMargins(0, side.spacing(), 0, 0)
         playing_layout.setSpacing(2)
         self.cover = NowPlayingCover()
+        self.cover.auto_height = False
         now_playing.cover = self.cover
         self.cover.setObjectName('cover')
         self.cover.clicked.connect(self.open_now_playing_album)
@@ -1078,13 +1130,25 @@ class PlayerWindow(QMainWindow):
         self.track_title.setObjectName('nowPlayingTitle')
         playing_layout.addWidget(self.track_title)
         browser_column.addWidget(now_playing)
-        side.addLayout(browser_column, 1)
+        now_playing.geometryChanged.connect(self.restore_sidebar_split, Qt.QueuedConnection)
+        self.split_animation = QVariantAnimation(self)
+        self.split_animation.setDuration(180)
+        self.split_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.split_animation.valueChanged.connect(lambda height: self.set_now_playing_height(round(height)))
+        if self.is_android:
+            add_touch(now_playing, on_drag=self.drag_now_playing, on_drag_end=self.settle_now_playing)
+        browser_column.installEventFilter(now_playing)
+        browser_column.setStretchFactor(0, 1)
+        browser_column.setStretchFactor(1, 0)
+        side.addWidget(browser_column, 1)
         splitter.addWidget(sidebar)
 
         library_area = QWidget()
-        splitter.addWidget(library_area)
+        self.library_area = library_area
         library_layout = QVBoxLayout(library_area)
+        self.library_layout = library_layout
         library_layout.setContentsMargins(16, 0, 0, 0)
+        splitter.addWidget(library_area)
         self.library_pages = QStackedWidget()
         library = QWidget()
         library.setObjectName('albumLibrary')
@@ -1094,6 +1158,7 @@ class PlayerWindow(QMainWindow):
         self.library_opacity.setOpacity(1)
         library.setGraphicsEffect(self.library_opacity)
         content = QVBoxLayout(library)
+        self.album_content = content
         content.setContentsMargins(0, 0, 0, 0)
         self.count_label = QLabel('No folder selected')
         self.count_label.setObjectName('muted')
@@ -1147,17 +1212,31 @@ class PlayerWindow(QMainWindow):
         self.tidy_button = QPushButton('Tidy up')
         self.tidy_button.clicked.connect(lambda: self.grid.tidy_up())
         header.addWidget(self.tidy_button)
+        if self.is_android:
+            # Phones need the header space more than these two controls.
+            self.album_scale_control.hide()
+            refresh.hide()
+            self.sort_albums.setProperty('fitButtonTextLocally', True)
+            self.album_header.flexible = self.sort_albums
+            self.pinch_scale = NUMERIC_DEFAULTS['album_scale']
         self.album_header_opacities = []
         # The fixed-size slider moves during resize; an opacity-effect source
         # cache can retain an old clipped area until the next hover repaint.
         # Its own painter handles dimming instead.
-        for control in (self.count_label, self.album_scale_icon, self.sort_albums, self.save_theme_button, refresh, self.tidy_button):
+        fading_controls = [self.count_label, self.album_scale_icon, self.sort_albums, self.save_theme_button, refresh, self.tidy_button]
+        if self.is_android:
+            fading_controls.append(self.settings_button)
+        for control in fading_controls:
             opacity = QGraphicsOpacityEffect(control)
             opacity.setOpacity(1)
             control.setGraphicsEffect(opacity)
             self.album_header_opacities.append(opacity)
         # Keep the header accessible above both the grid and the track overlay.
-        library_layout.addWidget(self.album_header)
+        if self.is_android:
+            # The open case slides over this header to leave more room for tracks.
+            self.album_header.setParent(library_area)
+        else:
+            library_layout.addWidget(self.album_header)
         library_layout.addWidget(self.library_pages, 1)
         self.grid = AlbumGrid()
         self.grid.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -1210,6 +1289,8 @@ class PlayerWindow(QMainWindow):
         self.change_album_size(self.album_size.value())
         self.grid.itemActivated.connect(self.open_album)
         self.grid.itemClicked.connect(self.open_album)
+        if self.is_android:
+            add_touch(self.grid.viewport(), scrolls=True, on_pinch=self.pinch_albums, on_pinch_end=self.finish_album_pinch)
         content.addWidget(self.grid, 1)
         self.album_page = AlbumOverlay()
         self.album_page.setObjectName('albumOverlay')
@@ -1225,6 +1306,8 @@ class PlayerWindow(QMainWindow):
         album_layout.addWidget(self.album_presentation, 1)
         self.album_artwork = self.album_presentation.front
         self.album_artwork.lighting_source = self.grid.viewport()
+        if self.is_android:
+            add_touch(self.album_artwork)
         self.album_table = self.album_presentation.table
         self.album_table.setShowGrid(False)
         self.album_table.setAlternatingRowColors(False)
@@ -1241,34 +1324,25 @@ class PlayerWindow(QMainWindow):
         self.album_artwork.setContextMenuPolicy(Qt.CustomContextMenu)
         self.album_artwork.customContextMenuRequested.connect(self.show_open_metadata_menu)
         self.album_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.album_table.cellDoubleClicked.connect(lambda row, column: self.play_album(self.viewed_album, row) if self.viewed_album else None)
-        splitter.setSizes([285, 1080])
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setChildrenCollapsible(False)
-
-        controls = QHBoxLayout()
+        (self.album_table.cellClicked if self.is_android else self.album_table.cellDoubleClicked).connect(
+            lambda row, column: self.play_album(self.viewed_album, row) if self.viewed_album else None)
         self.play = QPushButton('Play')
         self.play.setObjectName('play')
         self.play.setProperty('themeRole', 'highlight')
         self.play.setFixedHeight(44)
         self.play.clicked.connect(self.toggle_play)
-        controls.addWidget(self.play)
         self.previous = QPushButton('Previous')
         self.previous.setObjectName('previous')
         self.previous.setFixedHeight(32)
         self.previous.clicked.connect(self.previous_track)
-        controls.addWidget(self.previous)
         self.seek = TimelineSlider()
         self.seek.setRange(0, 0)
         self.seek.setEnabled(False)
         self.seek.seekRequested.connect(self.player.setPosition)
-        controls.addWidget(self.seek, 1)
         self.next = QPushButton('Next')
         self.next.setObjectName('next')
         self.next.setFixedHeight(32)
         self.next.clicked.connect(self.next_track)
-        controls.addWidget(self.next)
         self.volume = ThemeSlider()
         self.volume.setAccessibleName('Volume')
         self.volume.setRange(0, 100)
@@ -1278,24 +1352,39 @@ class PlayerWindow(QMainWindow):
         self.volume.valueChanged.connect(lambda value: self.volume.setToolTip(f'{value}%'))
         self.audio.setVolume(volume_gain(self.volume.value()))
         self.volume.valueChanged.connect(lambda value: self.audio.setVolume(volume_gain(value)))
-        controls.insertSpacing(1, 12)
-        controls.insertWidget(2, self.volume)
-        controls.insertSpacing(3, 12)
         for button in (self.play, self.previous, self.next):
             button.setProperty('centerFlatFace', True)
-        controls.setAlignment(Qt.AlignVCenter)
-        outer.addLayout(controls)
+        self.transport = ResponsiveTransport(self.play, self.previous, self.next, self.seek, self.volume)
+        if self.is_android:
+            self.transport.compact_row_gap = ANDROID_TRANSPORT_ROW_GAP
+        self.workspace.mode_animation.valueChanged.connect(self.transport.set_mix)
+        outer.addWidget(self.transport)
+        self.back_button = QPushButton('Back')
+        self.back_button.setAccessibleName('Back to file browser')
+        self.back_button.clicked.connect(self.navigate_back)
+        self.back_button.hide()
+        outer.addWidget(self.back_button)
+        self.back_action = QAction(self)
+        self.back_action.setShortcut(QKeySequence('Back'))
+        self.back_action.triggered.connect(self.navigate_back)
+        self.back_action.setEnabled(False)
+        self.addAction(self.back_action)
+        self.escape_action = QAction(self)
+        self.escape_action.setShortcut(QKeySequence('Esc'))
+        self.escape_action.triggered.connect(self.navigate_back)
+        self.escape_action.setEnabled(False)
+        self.addAction(self.escape_action)
         self.update_transport_icons()
         self.set_controls()
         self.update_button_sizes()
 
-        for shortcut, callback in [('Space', self.toggle_play), ('Alt+Left', self.previous_track), ('Alt+Right', self.next_track), ('Ctrl+O', self.choose_folder)]:
-            action = QAction(self)
-            action.setShortcut(QKeySequence(shortcut))
-            action.triggered.connect(callback)
-            self.addAction(action)
+        self.play_action = QAction(self)
+        self.play_action.setShortcut(QKeySequence('Space'))
+        self.play_action.triggered.connect(self.toggle_play)
+        self.addAction(self.play_action)
+        QApplication.instance().installEventFilter(self)
         self.setStatusBar(FadingStatusBar(self))
-        last = Path(str(self.settings.value('folder', Path.home() / 'Music')))
+        last = Path(str(self.settings.value('folder', music_directory())))
         browser_root = Path(str(self.settings.value('browser_root', last)))
         if filesystem_path(browser_root).is_dir():
             QTimer.singleShot(0, lambda: self.select_folder(browser_root, last))
@@ -1306,6 +1395,7 @@ class PlayerWindow(QMainWindow):
             self.restoreGeometry(geometry)
         QTimer.singleShot(0, self.restore_last_session)
         self.taskbar = WindowsTaskbar(self, transport_icon)
+        self.update_responsive_layout(animate=False)
         self.disc_timer = QTimer(self)
         self.disc_timer.setInterval(3000)
         self.disc_timer.timeout.connect(self.poll_optical_discs)
@@ -1596,6 +1686,9 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                               case_key=str(album.folder))
         self.cover.setPixmap(case)
         self.now_playing.reveal(True)
+        if self.compact_mode and self.now_playing.height() == 0:
+            height = self.browser_splitter.height()
+            self.browser_splitter.setSizes([round(height * .4), round(height * .6)])
 
     def show_first_run_setup(self):
         if not self.first_run_needed:
@@ -1746,9 +1839,118 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.position_theme_toast()
         if hasattr(self, 'album_presentation'):
             self.album_presentation.arrange()
+        if hasattr(self, 'back_action'):
+            self.update_responsive_layout()
+
+    def restore_sidebar_split(self):
+        height = self.now_playing.height()
+        available = self.browser_splitter.height() - self.browser_splitter.handleWidth()
+        self.browser_splitter.setSizes([max(0, available - height), height])
+
+    def update_responsive_layout(self, animate=True):
+        frame = self.frameGeometry()
+        compact = frame.width() * 3 <= frame.height() * 2
+        if compact != self.compact_mode:
+            self.compact_mode = compact
+            self.now_playing.set_resizable(compact)
+            self.browser_splitter.setHandleWidth(8 if compact and not self.is_android else 0)
+            self.browser_splitter.setCollapsible(1, compact and not self.is_android)
+            self.library_layout.setContentsMargins(0 if compact else 16, 0, 0, 0)
+            self.place_album_header()
+            if compact and self.viewed_album is not None:
+                self.workspace.set_page('library', animate=False)
+            if compact:
+                height = self.browser_splitter.height()
+                self.browser_splitter.setSizes([round(height * .4), round(height * .6)])
+        self.workspace.set_compact(compact, animate)
+        self.transport.set_mix(self.workspace.mode_mix)
+        self.update_compact_navigation()
+
+    def place_album_header(self):
+        if not self.is_android:
+            return
+        height = self.album_header.minimumHeight()
+        left = self.library_layout.contentsMargins().left()
+        self.album_header.setGeometry(left, 0, max(0, self.library_area.width() - left), height)
+        self.album_content.setContentsMargins(0, height + self.library_layout.spacing(), 0, 0)
+
+    def now_playing_limits(self):
+        panel = self.now_playing
+        minimum = max(MINIMUM_TOUCH_TARGET, panel.content.layout().sizeHint().height() - panel.cover.height())
+        return minimum, min(panel.maximumHeight(), self.browser_splitter.height() - self.tree.minimumHeight())
+
+    def set_now_playing_height(self, height):
+        minimum, maximum = self.now_playing_limits()
+        height = max(minimum, min(maximum, height))
+        self.browser_splitter.setSizes([self.browser_splitter.height() - height, height])
+
+    def drag_now_playing(self, delta):
+        self.split_animation.stop()
+        self.set_now_playing_height(self.now_playing.height() - round(delta))
+
+    def settle_now_playing(self, velocity):
+        if abs(velocity) < NOW_PLAYING_FLICK_SPEED:
+            return
+        minimum, maximum = self.now_playing_limits()
+        self.split_animation.stop()
+        self.split_animation.setStartValue(float(self.now_playing.height()))
+        self.split_animation.setEndValue(float(maximum if velocity < 0 else minimum))
+        self.split_animation.start()
+
+    def pinch_albums(self, scale, started):
+        if started:
+            self.pinch_scale = self.album_size.value()
+            self.album_size.setSliderDown(True)
+        self.album_size.setValue(round(self.pinch_scale * scale))
+
+    def finish_album_pinch(self):
+        self.album_size.setSliderDown(False)
+        self.apply_album_size()
+
+    def update_compact_navigation(self):
+        library = self.compact_mode and self.workspace.page == 'library'
+        self.transport.setVisible(self.is_android or not library)
+        self.back_button.setVisible(library and not self.is_android)
+        self.back_action.setEnabled(library)
+        self.escape_action.setEnabled(library or (not self.compact_mode and self.viewed_album is not None))
+        self.back_button.setAccessibleName('Back to albums' if self.viewed_album is not None else 'Back to file browser')
+
+    def navigate_back(self):
+        if self.viewed_album is not None and (not self.compact_mode or self.workspace.page == 'library'):
+            self.show_albums()
+        elif self.compact_mode and self.workspace.page == 'library':
+            self.show_compact_browser()
+
+    def show_compact_browser(self):
+        if not self.compact_mode:
+            return
+        self.workspace.set_page('browser')
+        self.update_compact_navigation()
+        self.tree.setFocus()
+
+    def show_compact_library(self):
+        if self.compact_mode:
+            self.workspace.set_page('library')
+            self.update_compact_navigation()
+
+    def open_compact_folder(self, index):
+        if self.compact_mode and index.isValid():
+            self.show_albums()
+            self.show_compact_library()
 
     def eventFilter(self, watched, event):
-        if event.type() in (QEvent.Wheel, QEvent.MouseButtonPress, QEvent.KeyPress):
+        if event.type() == QEvent.Resize and watched is self.library_area:
+            self.place_album_header()
+        if event.type() == QEvent.KeyPress and isinstance(watched, QWidget) and watched.window() is self:
+            key = event.key()
+            navigation = (Qt.Key_Tab, Qt.Key_Backtab, Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down,
+                          Qt.Key_Home, Qt.Key_End, Qt.Key_PageUp, Qt.Key_PageDown, Qt.Key_Return, Qt.Key_Enter)
+            item_view = watched in (self.tree, self.grid, self.album_table)
+            if (key in navigation or (key == Qt.Key_Space and event.modifiers() != Qt.NoModifier)
+                    or (item_view and key not in (Qt.Key_Space, Qt.Key_Escape, Qt.Key_Back))):
+                event.accept()
+                return True
+        if event.type() in (QEvent.Wheel, QEvent.MouseButtonPress, QEvent.KeyPress, QEvent.TouchBegin):
             self.cancel_browsing_restore()
         return super().eventFilter(watched, event)
 
@@ -1761,12 +1963,15 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                 widget.ensurePolished()
                 widget.updateGeometry()
         for button, base in ((self.play, 44), (self.previous, 32), (self.next, 32)):
+            base = max(base, MINIMUM_TOUCH_TARGET - 2 * CONTROL_HEADROOM) if self.is_android else base
             button.setFixedHeight(round(base * scale) + 2 * CONTROL_HEADROOM + 2 * BUTTON_SHADOW)
         for button, width in ((self.save_theme_button, 64), (self.refresh_button, 44), (self.settings_button, 44)):
             button.setFixedWidth(round(width * scale) + 2 * CONTROL_HEADROOM)
         self.album_scale_control.setMinimumWidth(self.album_scale_control.minimumSizeHint().width())
         self.sort_albums.setFixedHeight(self.sort_albums.sizeHint().height())
         self.album_header.refresh()
+        self.place_album_header()
+        self.transport.arrange()
         self.album_presentation.arrange()
 
     def refresh_audio_output(self):
@@ -1778,7 +1983,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.audio.setDevice(device)
 
     def choose_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Choose music library root', str(self.current_folder or Path.home()))
+        folder = choose_music_directory(self, 'Choose music library root', self.current_folder or music_directory())
         if folder:
             self.select_folder(Path(folder))
 
@@ -1939,7 +2144,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
     def show_folder_menu(self, position):
         index = self.tree.indexAt(position)
-        if not index.isValid():
+        if not index.isValid() or self.is_android:
             return
         folder = Path(self.files.filePath(index))
         if not filesystem_path(folder).is_dir():
@@ -1947,8 +2152,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         self.folder_menu_path = folder
         self.folder_menu.popup(self.tree.viewport().mapToGlobal(position))
 
-    def open_folder_in_explorer(self):
-        folder = self.folder_menu_path
+    def open_in_file_manager(self, folder, selected_file=None):
         if folder is None:
             return
         try:
@@ -1956,7 +2160,11 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                 raise OSError('The folder is no longer available.')
             if sys.platform == 'win32':
                 path = filesystem_path(folder) if any(part.endswith(('.', ' ')) for part in folder.parts) else folder
-                subprocess.Popen(['explorer.exe', str(path)])
+                if selected_file is not None and filesystem_path(selected_file).is_file():
+                    # A plain string keeps Explorer's unusual /select,"path" quoting intact.
+                    subprocess.Popen(f'explorer.exe /select,"{selected_file}"')
+                else:
+                    subprocess.Popen(['explorer.exe', str(path)])
             elif not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
                 raise OSError('Could not open the file manager.')
         except OSError as error:
@@ -2061,7 +2269,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                 album = self.albums[index]
                 source = cd_case_pixmap(album.thumbnail or album.artwork, album.title,
                     handwriting_font=self.artist_handwriting(album.folder.parent), case_key=str(album.folder),
-                    tray_color=artwork_tray_color(album.artwork) or '')
+                    tray_color=artwork_tray_color(
+                        album.thumbnail if self.is_android and album.thumbnail else album.artwork) or '')
                 self.cache_case_pixmap(self.case_source_cache, 'sources', index, source)
             self.case_source_cache.move_to_end(index)
             ratio = self.grid.devicePixelRatioF()
@@ -2090,6 +2299,9 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
     def prefetch_album_icon(self):
         if self.closing or not self.grid.isVisible():
             self.case_prefetch_rows.clear()
+            return
+        if self.is_android and QScroller.scroller(self.grid.viewport()).state() != QScroller.Inactive:
+            self.case_prefetch_timer.start(120)  # Keep the finger's frames free.
             return
         while self.case_prefetch_rows:
             row = self.case_prefetch_rows.popleft()
@@ -2216,8 +2428,18 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.metadata_menu.setObjectName('metadataContextMenu')
             self.metadata_action = self.metadata_menu.addAction('View metadata')
             self.metadata_action.triggered.connect(self.open_metadata_editor)
+            if not self.is_android:
+                self.metadata_folder_action = self.metadata_menu.addAction(FILE_MANAGER_LABEL)
+                self.metadata_folder_action.triggered.connect(self.open_metadata_target_folder)
         self.metadata_target = album, track
         self.metadata_menu.popup(position)
+
+    def open_metadata_target_folder(self):
+        album, track = self.metadata_target
+        if track is None:
+            self.open_in_file_manager(album.folder)
+        else:
+            self.open_in_file_manager(Path(track.path).parent, track.path)
 
     def show_album_metadata_menu(self, position):
         item = self.grid.itemAt(position)
@@ -2341,7 +2563,12 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         enabled = self.viewed_album is None
         for control in (self.album_scale_control, self.sort_albums, self.save_theme_button, self.refresh_button):
             control.setEnabled(enabled)
+        if self.is_android:
+            self.settings_button.setEnabled(enabled)
+            self.album_header.raise_() if enabled else self.album_header.lower()
         self.tidy_button.setEnabled(enabled and not self.grid.tidying)
+        if hasattr(self, 'escape_action'):
+            self.update_compact_navigation()
 
     def set_album_backdrop_opacity(self, amount):
         self.library_opacity.setOpacity(amount)
@@ -2357,12 +2584,14 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.view_fade = None
 
     def show_album(self, album, play_sound=True):
+        self.show_compact_library()
         if play_sound and (self.viewed_album is None or self.viewed_album.folder != album.folder):
             play_case_sound('open')
         self.stop_view_fade()
         self.viewed_album = album
         self.update_album_header_controls()
         self.album_artwork.sheen_key = str(album.folder)
+        self.album_presentation.set_album_title(album.title)
         self.album_presentation.set_artwork(album.artwork, self.album_track_theme_colors(album.artwork))
         self.grid.suppressed_album = next((index for index, entry in enumerate(self.albums)
                                            if entry.folder == album.folder), None)
@@ -2733,7 +2962,17 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
     def playback_error(self, error, message):
         logging.error('Playback error %s for %s: %s', error.name, self.player.source().toDisplayString(), message)
+        if error == QMediaPlayer.FormatError and self.player.playbackState() == QMediaPlayer.PlayingState and self.player.position() > 0:
+            # A damaged frame is skipped and playback carries on, so stay quiet unless it really stalls.
+            source, position = self.player.source(), self.player.position()
+            QTimer.singleShot(PLAYBACK_STALL_MS, lambda: self.report_playback_stall(source, position, message))
+            return
         self.statusBar().showMessage(f'Playback error: {message}')
+
+    def report_playback_stall(self, source, position, message):
+        if (not self.closing and self.player.source() == source and self.player.position() == position
+                and self.player.playbackState() == QMediaPlayer.PlayingState):
+            self.statusBar().showMessage(f'Playback error: {message}')
 
     def shutdown_playback(self):
         if self.playback_shutdown:
@@ -2785,6 +3024,10 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+    if running_on_android():
+        # Packaged image plugins stay beside PySide6 instead of the app's native libraries.
+        import PySide6
+        QApplication.addLibraryPath(str(Path(PySide6.__file__).parent / 'Qt' / 'plugins' / 'imageformats'))
     from app_identity import configure_app
     configure_app(app)
     from runtime_errors import install_error_log

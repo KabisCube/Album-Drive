@@ -5,6 +5,9 @@ from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPointF, Qt, QVariantA
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication, QAbstractScrollArea, QHeaderView, QScrollArea, QWidget
 
+from responsive import running_on_android
+from touch_input import add_touch
+
 
 @lru_cache(maxsize=32)
 def halftone_mask(width, height, bottom, ratio):
@@ -174,6 +177,11 @@ def paint_scroll_background(painter, widget):
 
 class ScrollShadowInstaller(QObject):
     def eventFilter(self, widget, event):
+        if (event.type() == QEvent.Show and isinstance(widget, QAbstractScrollArea)
+                and running_on_android()):
+            add_touch(widget.viewport(), scrolls=True)
+            widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         if (event.type() == QEvent.Show and isinstance(widget, QAbstractScrollArea)
                 and not isinstance(widget, QHeaderView) and not hasattr(widget, 'edge_fades')):
             ancestor = widget

@@ -53,10 +53,7 @@ with tempfile.TemporaryDirectory() as directory:
     QTest.qWait(30)
     area = dialog.tabs.currentWidget()
     horizontal, vertical = area.horizontalScrollBar(), area.verticalScrollBar()
-    assert horizontal.isVisible() and vertical.isVisible()
-    corner = QPoint(vertical.mapTo(area, vertical.rect().center()).x(),
-                    horizontal.mapTo(area, horizontal.rect().center()).y())
-    assert area.grab().toImage().pixelColor(corner).name() == app.property('themeBackground')
+    assert not horizontal.isVisible() and vertical.isVisible()
     dialog.reject()
     window.close()
     QTest.qWait(50)

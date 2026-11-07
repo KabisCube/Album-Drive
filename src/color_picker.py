@@ -4,8 +4,9 @@ import re
 
 from PySide6.QtCore import QPointF, QRectF, QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QApplication, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QFormLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
+from responsive import ScreenFit
 from themes import ColorSwatch, ThemeSlider, ThemedButton, corner_radius
 
 
@@ -70,10 +71,11 @@ class ColorPickerDialog(QDialog):
     def __init__(self, initial, parent=None, title='Choose color'):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(510, 590)
+        ScreenFit(self, 510, 590)
         self.color = QColor(initial)
         self.hue = max(0., self.color.hsvHueF())
         root = QVBoxLayout(self)
+        root.setSizeConstraint(QLayout.SetNoConstraint)
         root.setContentsMargins(12, 12, 12, 12)
         body = QWidget()
         outer = QVBoxLayout(body)

@@ -2,15 +2,19 @@
 
 import random
 import math
-from collections import deque
+from collections import OrderedDict, deque
 
-from PySide6.QtCore import QEasingCurve, QMimeData, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QMimeData, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QCursor, QDrag, QPainter, QPixmap, QTransform
-from PySide6.QtWidgets import QAbstractItemView, QListWidget, QStyledItemDelegate
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QListWidget, QStyledItemDelegate
 from themes import CLEANING_DEFAULT, NUMERIC_DEFAULTS, control_offset, control_shadow
-from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, paint_cd_case
+from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, case_frame_color, paint_cd_case
+from responsive import running_on_android
 from case_geometry import CASE_WIDTH, CASE_HEIGHT
 from scroll_shadows import ScrollEdgeFade as AlbumEdgeFade
+
+
+BAKED_CASE_LIMIT = 16
 
 
 class CaseDelegate(QStyledItemDelegate):
@@ -86,7 +90,37 @@ class AlbumGrid(QListWidget):
         rect, angle = self.case_geometry(cell, index.row())
         source = icon if isinstance(icon, QPixmap) else icon.pixmap(self.iconSize() * 2)
         key = self.sheen_key_provider(index.row()) if self.sheen_key_provider is not None else ''
-        paint_cd_case(painter, self.viewport(), rect, source, key, angle, QRectF(self.viewport().rect()))
+        if (self.baked_cases is not None and not angle and index.row() not in self.lifts
+                and self.reflow_animation.state() != QAbstractAnimation.Running):
+            self.paint_baked_case(painter, rect, source, key)
+        else:
+            paint_cd_case(painter, self.viewport(), rect, source, key, angle, QRectF(self.viewport().rect()))
+
+    def paint_baked_case(self, painter, rect, source, key):
+        """Copy a finished case bitmap; phones cannot repaint every case each frame."""
+        view = self.viewport().rect()
+        app = QApplication.instance()
+        ratio = self.devicePixelRatioF()
+        tag = (key, source.cacheKey(), round(rect.width(), 2), round(rect.height(), 2), round(rect.x(), 2), view.height(),
+               ratio, app.property('themeBackground'), case_frame_color().name())
+        margin = 2 * (CASE_DEPTH + CASE_SHADOW_DEPTH) + 4
+        baked = self.baked_cases.get(tag)
+        if baked is None:
+            # Perspective and glare are fixed at mid-screen so one bitmap fits every scroll position.
+            home = QRectF(rect)
+            home.moveTop((view.height() - rect.height()) / 2)
+            baked = QPixmap(math.ceil((rect.width() + 2 * margin) * ratio), math.ceil((rect.height() + 2 * margin) * ratio))
+            baked.setDevicePixelRatio(ratio)
+            baked.fill(Qt.transparent)
+            layer = QPainter(baked)
+            layer.translate(margin - home.x(), margin - home.y())
+            paint_cd_case(layer, self.viewport(), home, source, key, 0, QRectF(view))
+            layer.end()
+            self.baked_cases[tag] = baked
+            while len(self.baked_cases) > BAKED_CASE_LIMIT:
+                self.baked_cases.popitem(last=False)
+        self.baked_cases.move_to_end(tag)
+        painter.drawPixmap(QPointF(round((rect.x() - margin) * ratio) / ratio, round((rect.y() - margin) * ratio) / ratio), baked)
     def paintEvent(self, event):
         painter = QPainter(self.viewport())
         origin = self.viewport().geometry().topLeft()
@@ -130,6 +164,7 @@ class AlbumGrid(QListWidget):
         self.model().rowsRemoved.connect(self.model_layout_changed)
         self.model().modelReset.connect(self.model_layout_changed)
         self.lifts = {}
+        self.baked_cases = OrderedDict() if running_on_android() else None
         self.icon_provider = None
         self.sheen_key_provider = None
         self.suppressed_album = None

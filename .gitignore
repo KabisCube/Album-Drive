@@ -1,6 +1,5 @@
 .venv/
 .venv-windows/
-/build-windows.bat
 __pycache__/
 *.py[cod]
 .pytest_cache/

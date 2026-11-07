@@ -64,7 +64,7 @@ with TemporaryDirectory() as directory:
     assert not menu.isVisible()
     if sys.platform == 'win32':
         with patch('main.subprocess.Popen', side_effect=OSError('Explorer unavailable')):
-            window.open_folder_in_explorer()
+            window.open_in_file_manager(window.folder_menu_path)
         assert 'Explorer unavailable' in window.statusBar().currentMessage()
         assert window.statusBar().message_timer.interval() == 15000
     window.close()

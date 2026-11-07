@@ -123,7 +123,7 @@ with tempfile.TemporaryDirectory() as directory:
     QTest.qWait(460)
     assert window.library_pages.currentWidget() == window.album_page
     assert QApplication.activeModalWidget() is None
-    assert window.album_presentation.booklet.layout().count() == 1
+    assert window.album_presentation.booklet.layout().count() == 2  # Album title and tracks.
     assert window.album_table.rowCount() == 2
     assert window.album_table.columnCount() == 2
     assert window.album_table.horizontalHeader().isHidden()

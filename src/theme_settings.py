@@ -1,12 +1,13 @@
 """Library, audio and appearance settings with saved color themes and Apply/Cancel."""
 
 from pathlib import Path
+from music_folders import choose_music_directory, music_directory
 import json
 from uuid import uuid4
 from PySide6.QtGui import QColor, QFontDatabase, QIcon, QIconEngine, QPainter, QPen, QPixmap, QResizeEvent
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QRectF, QSize, Qt, Signal, QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QStyle, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLayout, QScrollArea, QSizePolicy, QStyle, QTabWidget, QVBoxLayout, QWidget
 
 from themes import signed_setting_int, resolve_font, THEME_DEFAULT, CLEANING_DEFAULT, COLOR_SETTINGS, NUMERIC_DEFAULTS, ChunkyCheckBox, ChunkyTabBar, ColorSwatch, ThemedButton, ThemedComboBox, ThemeSlider
 from themes import ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, UI_FONT_DEFAULT, MARKER_COLOR_DEFAULT
@@ -14,6 +15,7 @@ from settings_store import read_theme_files, write_theme_files
 from color_picker import ColorPickerDialog
 from color_rules import disabled_text_color
 from themes import MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS
+from responsive import NARROW_WIDTH, SHORT_HEIGHT, ScreenFit, running_on_android
 from themes import PRIMARY_COLOR_KEYS, CONTROL_HEADROOM, BUTTON_SHADOW, MAX_FONT_SIZE, FONT_SCALE_KEYS, button_scale, button_text_sizing, local_control_theme, migrate_button_size, migrate_font_settings
 from app_theme import simplify_color_settings, soften_theme_colors
 from scroll_shadows import paint_scroll_background
@@ -139,7 +141,7 @@ class SettingsSectionLabel(QLabel):
         painter = QPainter(self)
         painter.setFont(self.font())
         painter.setPen(QColor(app.property('textColor') or '#ffffff'))
-        painter.drawText(self.contentsRect(), Qt.AlignLeft | Qt.AlignVCenter, self.text())
+        painter.drawText(self.contentsRect(), Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap, self.text())
 
 
 class SettingsPage(QWidget):
@@ -198,6 +200,8 @@ class SettingsFormLayout(QFormLayout):
         return self.row_spacing
 
     def row_offsets(self):
+        if self.rowWrapPolicy() == QFormLayout.WrapAllRows:
+            return [0] * max(1, self.rowCount())
         offsets = [0]
         for row in range(max(0, self.rowCount() - 1)):
             items = [self.itemAt(row, role) for role in (QFormLayout.LabelRole, QFormLayout.FieldRole)]
@@ -212,36 +216,40 @@ class SettingsFormLayout(QFormLayout):
 
     def sizeHint(self):
         size = super().sizeHint()
-        size.setWidth(size.width() + SETTING_INDENT)
+        size.setWidth(size.width() + self.indent())
         size.setHeight(max(0, size.height() + self.row_offsets()[-1]))
         return size
 
     def minimumSize(self):
         size = super().minimumSize()
-        size.setWidth(size.width() + SETTING_INDENT)
+        size.setWidth(size.width() + self.indent())
         size.setHeight(max(0, size.height() + self.row_offsets()[-1]))
         return size
 
     def heightForWidth(self, width):
-        height = super().heightForWidth(max(0, width - SETTING_INDENT))
+        height = super().heightForWidth(max(0, width - self.indent()))
         return max(0, height + self.row_offsets()[-1]) if height >= 0 else height
+
+    def indent(self):
+        return 0 if self.rowWrapPolicy() == QFormLayout.WrapAllRows else SETTING_INDENT
 
     def setGeometry(self, rect):
         for index, geometry in enumerate(self.base_geometries[:self.count()]):
             self.itemAt(index).setGeometry(geometry)
         offsets = self.row_offsets()
-        super().setGeometry(rect.adjusted(SETTING_INDENT, 0, 0, -offsets[-1]))
+        super().setGeometry(rect.adjusted(self.indent(), 0, 0, -offsets[-1]))
         self.base_geometries = [self.itemAt(index).geometry() for index in range(self.count())]
         for index, geometry in enumerate(self.base_geometries):
             row, _ = self.getItemPosition(index)
             widget = self.itemAt(index).widget()
             if widget is not None and widget.objectName() in ('settingsSection', 'settingsSectionSpacer'):
-                geometry = geometry.adjusted(-SETTING_INDENT, 0, 0, 0)
+                geometry = geometry.adjusted(-self.indent(), 0, 0, 0)
             self.itemAt(index).setGeometry(geometry.translated(0, offsets[row]))
         for row in range(self.rowCount()):
             label = self.itemAt(row, QFormLayout.LabelRole)
             field = self.itemAt(row, QFormLayout.FieldRole)
-            if label is not None and field is not None and label.geometry().right() < field.geometry().left():
+            if (self.rowWrapPolicy() != QFormLayout.WrapAllRows and label is not None and field is not None
+                    and label.geometry().right() < field.geometry().left()):
                 geometry = label.geometry()
                 geometry.moveCenter(QPoint(geometry.center().x(), field.geometry().center().y()))
                 label.setGeometry(geometry)
@@ -358,6 +366,13 @@ class SettingsDismissClick(QObject):
 
 
 @local_control_theme
+def scrollbar_space(area):
+    """Width a scroll area loses to its scrollbar; Android scrolls by touch and shows none."""
+    if running_on_android():
+        return 0
+    return max(area.style().pixelMetric(QStyle.PM_ScrollBarExtent), area.verticalScrollBar().sizeHint().width())
+
+
 class ThemeSettingsDialog(QDialog):
     applied = Signal()
 
@@ -388,8 +403,9 @@ class ThemeSettingsDialog(QDialog):
         self.reset_album_size = False
         self.reset_font_scales = False
         self.setWindowTitle('Settings')
-        self.resize(1040, 680)
+        ScreenFit(self, 1040, 680)
         outer = QVBoxLayout(self)
+        outer.setSizeConstraint(QLayout.SetNoConstraint)
         self.tabs = QTabWidget()
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         self.tabs.setTabBar(ChunkyTabBar(self.tabs))
@@ -451,6 +467,7 @@ class ThemeSettingsDialog(QDialog):
         forms['General'].addRow('Set music library root', self.library_button)
         self.library_label = QLabel('Currently: ' + self.library_folder)
         self.library_label.setWordWrap(True)
+        self.library_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         forms['General'].addRow(self.library_label)
         self.audio_output_choice = ThemedComboBox()
         self.audio_output_choice.setAccessibleName('Audio output')
@@ -550,14 +567,17 @@ class ThemeSettingsDialog(QDialog):
         self.saved_theme_choice.activated.connect(self.select_saved_theme)
         actions = QGridLayout()
         reset = ThemedButton('Restore defaults')
-        cancel = ThemedButton('Cancel')
         accept = ThemedButton('OK')
         accept.setProperty('themeRole', 'highlight')
         reset.clicked.connect(self.restore_defaults)
-        cancel.clicked.connect(self.reject)
         accept.clicked.connect(self.accept)
         accept.setDefault(True)
-        self.action_buttons = (reset, cancel, accept)
+        if running_on_android():
+            self.action_buttons = (reset, accept)
+        else:
+            cancel = ThemedButton('Cancel')
+            cancel.clicked.connect(self.reject)
+            self.action_buttons = (reset, cancel, accept)
         self.actions = actions
         self.action_columns = 0
         self.layout_actions()
@@ -885,12 +905,13 @@ class ThemeSettingsDialog(QDialog):
         self.settings.setValue('settings_view_state', json.dumps(state))
 
     def closeEvent(self, event):
-        self.accept()
+        # Android reports an unhandled Back as a close, and Back cancels there.
+        self.reject() if running_on_android() else self.accept()
         event.accept()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Escape:
-            self.accept()
+        if event.key() in (Qt.Key_Escape, Qt.Key_Back):
+            self.reject() if running_on_android() and event.key() == Qt.Key_Back else self.accept()
             event.accept()
             return
         super().keyPressEvent(event)
@@ -953,6 +974,7 @@ class ThemeSettingsDialog(QDialog):
             self.preview_applied = True
             self.library_folder = str(self.settings.value('browser_root', self.library_folder))
             self.library_label.setText('Currently: ' + self.library_folder)
+            self.page_layout_timer.start(0)
             self.rounding_slider.setValue(self.settings.value('corner_roundness', NUMERIC_DEFAULTS['corner_roundness'], type=int))
             for key in ('ui_thickness', 'button_sound_volume'):
                 self.numbers[key].setValue(self.settings.value(key, NUMERIC_DEFAULTS[key], type=int))
@@ -977,9 +999,12 @@ class ThemeSettingsDialog(QDialog):
             form.parentWidget().update()
 
     def layout_actions(self):
+        narrow = self.width() < NARROW_WIDTH
+        stacked = narrow and len(self.action_buttons) == 3 and self.height() >= SHORT_HEIGHT
+        self.action_buttons[0].setText('Reset defaults' if narrow else 'Restore defaults')
         for button in self.action_buttons:
             button.setFixedHeight(button.sizeHint().height())
-        columns = 3 if sum(min(button.sizeHint().width(), button.maximumWidth()) for button in self.action_buttons) + 48 <= self.width() else 2
+        columns = 1 if stacked else 3 if sum(min(button.sizeHint().width(), button.maximumWidth()) for button in self.action_buttons) + 48 <= self.width() else 2
         height = max(button.sizeHint().height() for button in self.action_buttons)
         if columns != self.action_columns or height != getattr(self, 'action_height', None):
             self.action_columns = columns
@@ -988,9 +1013,16 @@ class ThemeSettingsDialog(QDialog):
                 self.actions.removeWidget(button)
             for row in range(self.actions.rowCount()):
                 self.actions.setRowMinimumHeight(row, 0)
-            for index, button in enumerate(self.action_buttons):
-                self.actions.addWidget(button, index // columns, index % columns)
-                self.actions.setRowMinimumHeight(index // columns, height)
+            if stacked:
+                self.actions.addWidget(self.action_buttons[0], 0, 0, 1, 2)
+                self.actions.addWidget(self.action_buttons[1], 1, 0)
+                self.actions.addWidget(self.action_buttons[2], 1, 1)
+                self.actions.setRowMinimumHeight(0, height)
+                self.actions.setRowMinimumHeight(1, height)
+            else:
+                for index, button in enumerate(self.action_buttons):
+                    self.actions.addWidget(button, index // columns, index % columns)
+                    self.actions.setRowMinimumHeight(index // columns, height)
         self.tabs.setMinimumHeight(self.tabs.tabBar().sizeHint().height() + 32)
 
     def event(self, event):
@@ -1003,8 +1035,16 @@ class ThemeSettingsDialog(QDialog):
     def prepare_pages(self):
         if not self.isVisible():
             return
+        positions = [(self.tabs.widget(index).horizontalScrollBar().value(),
+                      self.tabs.widget(index).verticalScrollBar().value()) for index in range(self.tabs.count())]
+        narrow = self.width() < NARROW_WIDTH
+        area = self.tabs.currentWidget()
+        label_width = max(0, area.contentsRect().width() - 16 - scrollbar_space(area))
         labels = []
         for form in self.forms.values():
+            form.setRowWrapPolicy(QFormLayout.WrapAllRows if narrow else QFormLayout.DontWrapRows)
+            margin = 8 if narrow else 16
+            form.setContentsMargins(margin, 16, margin, 16)
             for row in range(form.rowCount()):
                 item = form.itemAt(row, QFormLayout.LabelRole)
                 if item is not None and item.widget() is not None:
@@ -1013,11 +1053,33 @@ class ThemeSettingsDialog(QDialog):
                     labels.append(label)
         for label in labels:
             label.setWordWrap(True)
-            if label.minimumWidth() != SETTING_LABEL_WIDTH or label.maximumWidth() != SETTING_LABEL_WIDTH:
+            if narrow:
+                label.setFixedWidth(label_width)
+                label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            elif label.minimumWidth() != SETTING_LABEL_WIDTH or label.maximumWidth() != SETTING_LABEL_WIDTH:
                 label.setFixedWidth(SETTING_LABEL_WIDTH)
+                label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            label.setMinimumHeight(max(0, label.heightForWidth(label_width)) if narrow else 0)
+        for combo in self.findChildren(ThemedComboBox):
+            combo.setProperty('fitButtonTextLocally', narrow)
+            combo.setSizePolicy(QSizePolicy.Ignored if narrow else QSizePolicy.Preferred, QSizePolicy.Fixed)
+            combo.setMinimumWidth(min(160, max(0, label_width - 64)) if narrow else 0)
+        for heading in self.findChildren(SettingsSectionLabel):
+            heading.setWordWrap(narrow)
+            heading.setMinimumWidth(label_width if narrow else 0)
+            heading.setMaximumWidth(label_width if narrow else 16777215)
+            heading.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            heading.setMinimumHeight(max(0, heading.heightForWidth(label_width)) if narrow else 0)
+        self.library_label.setMinimumWidth(label_width if narrow else 0)
+        self.library_label.setMaximumWidth(label_width if narrow else 16777215)
+        path = self.library_label.fontMetrics().elidedText(self.library_folder, Qt.ElideMiddle, label_width)
+        self.library_label.setText('Currently:\n' + path if narrow else 'Currently: ' + self.library_folder)
+        self.library_label.setToolTip(self.library_folder)
+        self.library_label.setMinimumHeight(max(0, self.library_label.heightForWidth(label_width)) if narrow else 0)
         current = self.tabs.currentWidget()
         for index in range(self.tabs.count()):
             area = self.tabs.widget(index)
+            area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff if narrow or running_on_android() else Qt.ScrollBarAsNeeded)
             area.ensurePolished()
             if area is not current:
                 area.setGeometry(current.geometry())
@@ -1026,10 +1088,10 @@ class ThemeSettingsDialog(QDialog):
             page.ensurePolished()
             width = area.contentsRect().width()
             width = max(width, page.minimumSizeHint().width())
-            height = page.layout().heightForWidth(width)
+            height = max(page.layout().minimumSize().height(), page.layout().heightForWidth(width))
             if height > area.contentsRect().height():
-                width -= area.style().pixelMetric(QStyle.PM_ScrollBarExtent)
-                height = page.layout().heightForWidth(width)
+                width -= scrollbar_space(area)
+                height = max(page.layout().minimumSize().height(), page.layout().heightForWidth(width))
             page.resize(width, max(area.viewport().height(), height))
             page.layout().setGeometry(page.rect())
             for widget in page.findChildren(QWidget):
@@ -1037,7 +1099,7 @@ class ThemeSettingsDialog(QDialog):
                 if widget.layout() is not None:
                     widget.layout().setGeometry(widget.rect())
             if area is not current:
-                extent = area.style().pixelMetric(QStyle.PM_ScrollBarExtent)
+                extent = scrollbar_space(area)
                 available = area.contentsRect().size()
                 viewport_height = available.height()
                 for _ in range(2):
@@ -1047,6 +1109,8 @@ class ThemeSettingsDialog(QDialog):
                                             (area.verticalScrollBar(), page.height(), viewport_height)):
                     bar.setRange(0, max(0, total - visible))
                     bar.setPageStep(max(0, visible))
+            area.horizontalScrollBar().setValue(positions[index][0])
+            area.verticalScrollBar().setValue(positions[index][1])
         button_text_sizing().refresh()
 
     def add_numeric(self, forms, definition):
@@ -1169,10 +1233,11 @@ class ThemeSettingsDialog(QDialog):
         self.queue_preview()
 
     def choose_library(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Set music library root', self.library_folder or str(Path.home() / 'Music'))
+        folder = choose_music_directory(self, 'Set music library root', self.library_folder or music_directory())
         if folder:
             self.library_folder = folder
             self.library_label.setText(folder)
+            self.page_layout_timer.start(0)
             self.queue_preview()
 
     def queue_preview(self, *args):

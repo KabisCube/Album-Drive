@@ -5,7 +5,8 @@ import colorsys
 from PIL import Image
 from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRectF, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform
-from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QLabel, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QVBoxLayout, QWidget
+from responsive import wrap_freely
 from themes import NUMERIC_DEFAULTS, button_paint_rect, control_face, paint_control
 from font_support import font_family_css
 from shiboken6 import isValid
@@ -15,6 +16,7 @@ from color_rules import artwork_text_color, color_contrast, comfortable_color
 
 PLAYING_ROLE = Qt.UserRole + 1
 PORTRAIT_ASPECT_RATIO = 1.1
+ALBUM_TITLE_FONT_BOOST = 2
 
 
 def lerp_rect(start, end, amount):
@@ -209,7 +211,7 @@ class AlbumPresentation(QWidget):
         super().__init__()
         self.setObjectName('albumPresentation')
         self.setStyleSheet('QWidget#albumPresentation { background: transparent; }')
-        self.setMinimumSize(440, 290)
+        self.setMinimumSize(160, 180)
         self.progress = 1.0
         self.paper_background = None
         self.paper_palette = ()
@@ -233,6 +235,14 @@ class AlbumPresentation(QWidget):
         layout = QVBoxLayout(self.booklet)
         layout.setContentsMargins(16, 16, 16, 14)
         layout.setSpacing(7)
+        self.album_title = QLabel()
+        self.album_title.setObjectName('bookletAlbumTitle')
+        self.album_title.setAlignment(Qt.AlignCenter)
+        self.album_title.setTextFormat(Qt.PlainText)
+        self.album_title.setWordWrap(True)
+        wrap_freely(self.album_title)
+        self.album_title.hide()
+        layout.addWidget(self.album_title)
         self.table = QTableWidget(0, 2)
         self.table.setItemDelegateForColumn(0, TrackNumberDelegate(self.table))
         self.table.setItemDelegateForColumn(1, TrackTitleDelegate(self.table))
@@ -277,6 +287,10 @@ class AlbumPresentation(QWidget):
         self.portrait_mix = float(amount)
         self.arrange()
 
+    def set_album_title(self, title):
+        self.album_title.setText(title)
+        self.album_title.setVisible(bool(title))
+
     def set_artwork(self, artwork, theme_colors=None):
         self.paper_palette = tuple(comfortable_color(color) for color in artwork_palette(artwork))
         self.paper_background = self.paper_palette[0] if self.paper_palette else None
@@ -300,6 +314,8 @@ class AlbumPresentation(QWidget):
             style = style.replace('#dedfd2', background.name())
         size = app.property('trackListFontSize') or NUMERIC_DEFAULTS['track_list_font_size']
         style += f'QTableWidget {{ font-family: {families}; font-size: {size}px; font-weight: normal; font-style: normal; }}'
+        style += (f'QLabel#bookletAlbumTitle {{ font-family: {families}; font-size: {size + ALBUM_TITLE_FONT_BOOST}px; '
+                  f'font-weight: normal; font-style: normal; color: {foreground.name()}; background: transparent; }}')
         self.booklet.setStyleSheet(style)
         self.booklet.setProperty('paperBackgroundColor', background.name())
         self.booklet.update()

@@ -120,7 +120,7 @@ with tempfile.TemporaryDirectory() as directory:
     check_slider(dialog.numbers['hover_rotation'].slider)
     assert dialog.tabs.tabText(0) == 'General'
     assert not hasattr(dialog, 'font_choice')
-    with patch('theme_settings.QFileDialog.getExistingDirectory', return_value=str(new)):
+    with patch('music_folders.QFileDialog.getExistingDirectory', return_value=str(new)):
         dialog.library_button.click()
     assert window.current_folder == old
     assert settings.value('folder') == str(old)

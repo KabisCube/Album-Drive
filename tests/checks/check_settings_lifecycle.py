@@ -4,7 +4,8 @@ from pathlib import Path
 
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
-from PySide6.QtCore import QSettings, QTimer
+from PySide6.QtCore import QSettings, QTimer, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 from shiboken6 import isValid
 
@@ -32,7 +33,10 @@ with tempfile.TemporaryDirectory() as directory:
         dialog.apply()
         if iteration == 3:
             dialog.saved_theme_choice.showPopup()
-        if iteration % 2:
+        if iteration == 1:
+            QTest.keyClick(control.slider, Qt.Key_Back)
+            assert settings.value('button_size', type=int) == 72
+        elif iteration % 2:
             dialog.accept()
         else:
             dialog.reject()
@@ -59,4 +63,4 @@ with tempfile.TemporaryDirectory() as directory:
     finally:
         window.close()
         app.processEvents()
-print('PASS: Apply then immediate Cancel/OK, popup cleanup, timer cancellation and repeated dialog destruction')
+print('PASS: Apply then immediate Back/Cancel/OK, popup cleanup, timer cancellation and repeated dialog destruction')

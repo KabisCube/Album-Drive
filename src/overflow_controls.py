@@ -2,6 +2,8 @@ from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLayout, QSizePolicy, QWidget
 from themes import CONTROL_HEADROOM, TabScrollButton, button_scale
 
+FLEXIBLE_MINIMUM_WIDTH = 96
+
 
 class OverflowControls(QWidget):
     def __init__(self, count, parent=None):
@@ -16,6 +18,7 @@ class OverflowControls(QWidget):
         self.controls = QHBoxLayout(self.content)
         self.controls.setContentsMargins(0, 0, 0, 0)
         self.controls.setSizeConstraint(QLayout.SetNoConstraint)
+        self.flexible = None
         self.scroll_offset = 0
         self.maximum_scroll = 0
         self.scroll_left = TabScrollButton(-1, self)
@@ -54,7 +57,19 @@ class OverflowControls(QWidget):
             self.timer.start(0)
         return super().eventFilter(watched, event)
 
+    def fit_flexible(self):
+        widget = self.flexible
+        if widget is None:
+            return
+        item = self.controls.itemAt(self.controls.indexOf(widget))
+        others = self.controls.sizeHint().width() - item.sizeHint().width()
+        width = max(FLEXIBLE_MINIMUM_WIDTH, min(widget.sizeHint().width(), self.width() - others))
+        if width != widget.minimumWidth() or width != widget.maximumWidth():
+            widget.setFixedWidth(width)
+            self.controls.invalidate()
+
     def refresh(self):
+        self.fit_flexible()
         size = self.controls.sizeHint().expandedTo(self.controls.minimumSize())
         if self.minimumHeight() != size.height():
             self.setMinimumHeight(size.height())

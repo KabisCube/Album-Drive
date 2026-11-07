@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert guide.pages.currentIndex() == 0
     assert not guide.back_button.isVisible()
     (root / 'New music').mkdir()
-    with patch('first_run.QFileDialog.getExistingDirectory', return_value=str(root / 'New music')):
+    with patch('first_run.choose_music_directory', return_value=str(root / 'New music')):
         guide.library_button.click()
     assert guide.library_folder == str(root / 'New music')
     assert settings.value('browser_root') == str(root / 'empty')

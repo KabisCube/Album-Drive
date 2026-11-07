@@ -1,0 +1,12 @@
+PySide6==6.11.3
+buildozer==1.5.0
+Cython==0.29.33
+setuptools==69.5.1
+wheel
+jinja2
+packaging
+toml
+pkginfo
+tqdm
+Pillow>=11,<13
+mutagen>=1.47,<2

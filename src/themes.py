@@ -12,6 +12,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt, 
 from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QIcon, QIconEngine, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform, QWheelEvent
 from PySide6.QtWidgets import QApplication, QAbstractItemView, QAbstractScrollArea, QCheckBox, QComboBox, QFrame, QLabel, QLayout, QListView, QMenu, QPushButton, QSlider, QStyle, QStyleOptionButton, QStyleOptionSlider, QStylePainter, QStyledItemDelegate, QTabBar, QToolButton, QVBoxLayout, QWidget
 from button_sounds import play_button_sound
+from responsive import running_on_android
 from font_support import font_family_css
 from color_rules import artwork_text_color, disabled_text_color, slider_rail
 from shiboken6 import isValid
@@ -29,6 +30,7 @@ UI_FONT_DEFAULT = 'AlbumRound-Bold.ttf'
 ALBUM_SORT_DEFAULT = 'newest'
 VOLUME_DEFAULT = 100
 CONTROL_HEADROOM = 12
+ANDROID_FOLDER_FONT_BOOST = 2
 _control_preview = ContextVar('control_preview', default=None)
 LOGO_BACKGROUND_HEIGHT = 1.8
 LOGO_MAX_DEPTH = 12
@@ -157,6 +159,8 @@ def text_style():
     sizes = {key: int(app.property(''.join([key.split('_')[0]] + [word.title() for word in key.split('_')[1:]])) or default)
              for key, default in NUMERIC_DEFAULTS.items() if key.endswith('_font_size')}
     scale = button_scale()
+    if running_on_android():
+        sizes['folder_font_size'] += ANDROID_FOLDER_FONT_BOOST
     folder_spacing = app.property('folderVerticalSpacing')
     folder_spacing = 0 if folder_spacing is None else max(-12, min(40, int(folder_spacing)))
     folder_height = max(sizes['folder_font_size'] + 8, max(27, sizes['folder_font_size'] * 2 + 1) + folder_spacing)
@@ -563,6 +567,8 @@ class ButtonTextSizing(QObject):
         samples = []
         for widget in tuple(self.controls):
             if not isValid(widget) or not widget.window().isVisible():
+                continue
+            if widget.property('fitButtonTextLocally'):
                 continue
             if widget.isHidden() and not widget.sizePolicy().retainSizeWhenHidden():
                 continue
