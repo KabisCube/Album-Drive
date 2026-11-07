@@ -235,7 +235,7 @@ class FirstRunDialog(QDialog):
         self.subheading.setWordWrap(True)
         self.pages = QStackedWidget()
         body.addWidget(self.pages, 1)
-        self.library_folder = str(settings.value('browser_root', settings.value('folder', '')))
+        self.library_folder = str(settings.value('browser_root', settings.value('folder', music_directory())))
         library_page = StepPage()
         library_layout = QVBoxLayout(library_page)
         library_layout.setContentsMargins(0, 0, 0, 0)

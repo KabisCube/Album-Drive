@@ -1469,12 +1469,8 @@ class PlayerWindow(QMainWindow):
         self.addAction(self.play_action)
         (self.library_area if self.is_android else QApplication.instance()).installEventFilter(self)
         self.setStatusBar(FadingStatusBar(self))
-        last = Path(str(self.settings.value('folder', music_directory())))
-        browser_root = Path(str(self.settings.value('browser_root', last)))
-        if filesystem_path(browser_root).is_dir():
-            QTimer.singleShot(0, lambda: self.select_folder(browser_root, last))
-        elif filesystem_path(last).is_dir():
-            QTimer.singleShot(0, lambda: self.select_folder(last))
+        if not self.first_run_needed:
+            QTimer.singleShot(0, self.open_saved_library)
         geometry = self.settings.value('window_geometry')
         if geometry is not None:
             self.restoreGeometry(geometry)
@@ -1884,9 +1880,20 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         self.settings.setValue('welcome_started', True)
         self.settings.sync()
         dialog = FirstRunDialog(self.settings, self)
-        if dialog.exec() == QDialog.Accepted:
-            self.first_run_needed = False
+        accepted = dialog.exec() == QDialog.Accepted
+        self.first_run_needed = False
+        if accepted:
             self.apply_settings()
+        if self.current_folder is None:
+            self.open_saved_library()
+
+    def open_saved_library(self):
+        last = Path(str(self.settings.value('folder', music_directory())))
+        browser_root = Path(str(self.settings.value('browser_root', last)))
+        if filesystem_path(browser_root).is_dir():
+            self.select_folder(browser_root, last)
+        elif filesystem_path(last).is_dir():
+            self.select_folder(last)
 
     def edit_theme_settings(self):
         if getattr(self, 'settings_dialog', None) is not None:
@@ -1994,6 +2001,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                 self.albums = []
                 self.clear_case_cache()
                 self.count_label.setText('No folder selected')
+            return
+        if self.first_run_needed:
             return
         folder = Path(str(self.settings.value('browser_root', self.current_folder or Path.home() / 'Music')))
         current_root = self.files.filePath(self.tree.rootIndex())
@@ -2411,6 +2420,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.statusBar().showMessage(f'Unable to open folder: {error}')
 
     def folder_selected(self, current, previous):
+        if self.first_run_needed:
+            return
         path = self.files.filePath(current)
         if path:
             with QSignalBlocker(self.disc_list):

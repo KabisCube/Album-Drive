@@ -2,6 +2,7 @@ import argparse
 from configparser import ConfigParser
 import os
 from pathlib import Path
+import secrets
 import shutil
 import shlex
 import subprocess
@@ -87,6 +88,7 @@ def configure_deployment(root, stage, cache, python, sdk, ndk, source):
         'android.ant_path': '/usr/share/ant',
         'android.permissions': 'READ_EXTERNAL_STORAGE,READ_MEDIA_AUDIO,MANAGE_EXTERNAL_STORAGE,INTERNET',
         'android.entrypoint': 'org.albumdrive.AlbumDriveActivity', 'android.add_src': 'android',
+        'android.release_artifact': 'apk',
         'p4a.source_dir': str(cache / 'p4a'),
     }
     for key, value in entries.items():
@@ -94,6 +96,28 @@ def configure_deployment(root, stage, cache, python, sdk, ndk, source):
     config.set('app', 'p4a.extra_args', order_qt_libraries(config.get('app', 'p4a.extra_args')))
     with buildozer.open('w', encoding='utf-8') as output:
         config.write(output)
+
+
+def release_signing():
+    folder = Path.home() / '.config/album-drive'
+    keystore = folder / 'release.keystore'
+    password_file = folder / 'release-key-password.txt'
+    if keystore.is_file():
+        password = password_file.read_text(encoding='utf-8').strip()
+    else:
+        folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+        password = secrets.token_urlsafe(32)
+        password_file.touch(mode=0o600)
+        password_file.write_text(password, encoding='utf-8')
+    signing = dict(P4A_RELEASE_KEYSTORE=str(keystore), P4A_RELEASE_KEYALIAS='albumdrive',
+                   P4A_RELEASE_KEYSTORE_PASSWD=password, P4A_RELEASE_KEYALIAS_PASSWD=password)
+    if not keystore.is_file():
+        subprocess.run(['keytool', '-genkeypair', '-keystore', str(keystore), '-storetype', 'PKCS12',
+                        '-alias', 'albumdrive', '-keyalg', 'RSA', '-keysize', '4096', '-validity', '10000',
+                        '-dname', 'CN=Album Drive', '-storepass:env', 'P4A_RELEASE_KEYSTORE_PASSWD'],
+                       env={**os.environ, **signing}, check=True)
+        print(f'Created the release signing key: {keystore}. Back it up: updates need the same key.')
+    return signing
 
 
 def verify_apk(path):
@@ -111,6 +135,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--cache', type=Path, default=Path.home() / '.cache/album-drive-android')
     parser.add_argument('--stage-only', action='store_true')
+    parser.add_argument('--release', action='store_true')
     arguments = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if sys.platform == 'win32':
@@ -143,16 +168,19 @@ def main():
     environment['VIRTUAL_ENV'] = str(python.parent.parent)
     environment['ANDROIDSDK'] = str(sdk)
     environment['ANDROIDNDK'] = str(ndk)
+    mode = 'release' if arguments.release else 'debug'
+    if arguments.release:
+        environment.update(release_signing())
     with TemporaryDirectory(prefix='album-drive-android-') as temporary:
         source = Path(temporary)
         stage_sources(root, source)
         configure_deployment(root, stage, cache, python, sdk, ndk, source)
-        subprocess.run([str(python), '-m', 'buildozer', 'android', 'debug'], cwd=stage,
+        subprocess.run([str(python), '-m', 'buildozer', 'android', mode], cwd=stage,
                        env=environment, check=True)
-    candidates = sorted((root / 'dist').glob('albumdrive*debug*.apk'), key=lambda path: path.stat().st_mtime)
+    candidates = sorted((root / 'dist').glob(f'albumdrive*{mode}*.apk'), key=lambda path: path.stat().st_mtime)
     if not candidates:
-        raise RuntimeError('The Android build did not produce a debug APK')
-    apk = root / 'dist/AlbumDrive-android-arm64-debug.apk'
+        raise RuntimeError(f'The Android build did not produce a {mode} APK')
+    apk = root / ('dist/AlbumDrive-android-arm64.apk' if arguments.release else 'dist/AlbumDrive-android-arm64-debug.apk')
     shutil.copy2(candidates[-1], apk)
     verify_apk(apk)
     subprocess.run([str(sdk / 'build-tools/35.0.0/apksigner'), 'verify', str(apk)], check=True)

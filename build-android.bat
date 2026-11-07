@@ -5,11 +5,11 @@ cd /d "%~dp0"
 where wsl.exe >nul 2>&1
 if errorlevel 1 goto wsl_missing
 
-wsl -- python3 scripts/build_android.py
+wsl -- python3 scripts/build_android.py %*
 if errorlevel 1 goto failed
 
 echo.
-echo Android APK ready in dist\AlbumDrive-android-arm64-debug.apk
+echo Android APK ready in the dist folder.
 pause
 exit /b 0
 
