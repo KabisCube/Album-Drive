@@ -114,7 +114,7 @@ try:
                 assert native_icon != previous_icon
                 assert native_icon_size(previous_icon) is None
             previous_icon = native_icon
-            icon = root / 'Album Drive/icons/theme.ico'
+            icon = root / f'Album Drive/icons/theme-{accent[1:]}.ico'
             properties = window_properties()
             assert properties[3] == f'{icon},0' and properties[5] == APP_ID
             assert icon.is_file()
@@ -138,11 +138,12 @@ try:
                 assert Path(location.value) == icon and index.value == 0
             assert unrelated.read_bytes() == original
             paths.append(icon)
-        assert len(set(paths)) == 1 and paths[0].is_file()
+        assert len(set(paths)) == 2 and not paths[0].exists() and paths[1].is_file()
         shortcut.unlink()
         update_theme_icon(app, '#237bb4')
         app._theme_icon_timer.stop()
         shell.update(app)
+        icon = root / 'Album Drive/icons/theme-237bb4.ico'
         properties = window_properties()
         assert properties[3] == f'{icon},0' and properties[5] == APP_ID
         assert app.property('taskbarIconAccent') == '#237bb4'
@@ -169,6 +170,7 @@ try:
         settings.setValue('welcome_complete', True)
         window = PlayerWindow(settings)
         assert not window.isVisible()
+        icon = root / f"Album Drive/icons/theme-{app.property('themeIconAccent')[1:]}.ico"
         properties = window_properties()
         assert properties[3] == f'{icon},0' and properties[5] == APP_ID
         assert app.property('taskbarIconAccent') == app.property('themeIconAccent')
@@ -177,6 +179,25 @@ try:
         window.close()
         window.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        dragged = pinned / 'AlbumDrive.lnk'
+        create_shortcut(dragged, None)
+        with patch.object(sys, 'frozen', True, create=True):
+            update_theme_icon(app, '#40a060')
+            app._theme_icon_timer.stop()
+            shell.update(app)
+        icon = root / 'Album Drive/icons/theme-40a060.ico'
+        pointer = ct.c_void_p()
+        clsid = GUID.parse('00021401-0000-0000-C000-000000000046')
+        iid = GUID.parse('000214F9-0000-0000-C000-000000000046')
+        check(shell.ole.CoCreateInstance(ct.byref(clsid), None, 1, ct.byref(iid), ct.byref(pointer)))
+        with interface(pointer) as link, interface(query(link, '0000010B-0000-0000-C000-000000000046')) as persist:
+            check(call(persist, 5, str(dragged), 0, types=(wt.LPCWSTR, wt.DWORD)))
+            location = ct.create_unicode_buffer(32768)
+            index = ct.c_int()
+            check(call(link, 16, location, len(location), ct.byref(index),
+                       types=(wt.LPWSTR, ct.c_int, ct.POINTER(ct.c_int))))
+            assert Path(location.value) == icon, location.value
+        assert unrelated.read_bytes() == original
 finally:
     ole.CoUninitialize()
 

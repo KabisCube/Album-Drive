@@ -8,10 +8,11 @@ from math import ceil
 from weakref import WeakSet
 import re
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QEvent, QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QIcon, QIconEngine, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform, QWheelEvent
 from PySide6.QtWidgets import QApplication, QAbstractItemView, QAbstractScrollArea, QCheckBox, QComboBox, QFrame, QLabel, QLayout, QListView, QMenu, QPushButton, QSlider, QStyle, QStyleOptionButton, QStyleOptionSlider, QStylePainter, QStyledItemDelegate, QTabBar, QToolButton, QVBoxLayout, QWidget
 from button_sounds import play_button_sound
+from snap_scroll import SnapPager, SpringScroll
 from responsive import running_on_android
 from font_support import font_family_css
 from color_rules import artwork_text_color, disabled_text_color, settings_title_color, slider_rail
@@ -112,7 +113,7 @@ FONT_BASE_SIZES = {key: value for key, value in NUMERIC_DEFAULTS.items() if key.
 FONT_SCALE_KEYS = {key: key.removesuffix('_size') + '_scale' for key in FONT_BASE_SIZES if key != 'main_font_size'}
 SCROLLBAR_STYLE = '''
 QScrollBar:vertical { width: 60px; margin: 12px 6px; }
-QScrollBar:horizontal { height: 60px; margin: 12px; }
+QScrollBar:horizontal { height: 72px; margin: 12px; }
 '''
 
 
@@ -233,6 +234,27 @@ def local_control_theme(cls):
                  'tab_face_rect', 'button_text_regions', 'sync_popup_font', 'layout_actions', 'prepare_pages'):
         if name in cls.__dict__:
             setattr(cls, name, wrap(cls.__dict__[name]))
+    if isinstance(cls, type) and issubclass(cls, QWidget):
+        own = cls.__dict__.get('hideEvent')
+
+        def hideEvent(self, event):
+            from scale_ghost import ghost_on_hide
+            ghost_on_hide(self)
+            if own is not None:
+                own(self, event)
+            else:
+                super(cls, self).hideEvent(event)
+        cls.hideEvent = hideEvent
+        own_show = cls.__dict__.get('showEvent')
+
+        def showEvent(self, event):
+            if own_show is not None:
+                own_show(self, event)
+            else:
+                super(cls, self).showEvent(event)
+            from scale_ghost import grow_on_show
+            grow_on_show(self)
+        cls.showEvent = showEvent
     return cls
 
 
@@ -308,6 +330,27 @@ def control_shadow_body(width, height, radius, dx, dy, sx, sy):
 
 
 BUTTON_SHADOW = 9
+DROPDOWN_SPRING_FREQUENCY = 18.0
+DROPDOWN_SPRING_DAMPING = .65
+POPUP_TOGGLE_MS = 400
+
+
+def control_silhouette(widget, rect, pressed=False):
+    depth = ui_depth()
+    raised = control_face(rect, widget=widget, depth=depth)
+    face = control_face(rect, pressed, widget, depth)
+    radius = corner_radius(12, face.width(), face.height())
+    outline = QPainterPath()
+    outline.addRoundedRect(face, radius, radius)
+    if not pressed:
+        offset = control_offset(widget, rect, depth)
+        outline = outline.united(control_body(raised.width(), raised.height(), radius, offset.x(), offset.y())
+                                 .translated(raised.topLeft()))
+        shadow = control_shadow(depth)
+        if not shadow.isNull():
+            outline = outline.united(control_shadow_body(face.width(), face.height(), radius, offset.x(), offset.y(),
+                                                         shadow.x(), shadow.y()).translated(face.topLeft()))
+    return outline
 
 
 def control_shadow(depth=None):
@@ -954,19 +997,51 @@ class ChunkyCheckBox(QCheckBox):
 
 @local_control_theme
 class TabScrollButton(ThemedButton):
-    def __init__(self, direction, parent):
+    def __init__(self, direction, parent, lift=CONTROL_HEADROOM / 2):
         super().__init__(parent)
         self.direction = direction
+        self.lift = lift
+        self.own_appear_animation = True
+        from scale_ghost import SLIDE_DAMPING, pop_spring
+        self.grow = pop_spring(self)
+        self.slide = pop_spring(self, SLIDE_DAMPING)
+        for spring in (self.grow, self.slide):
+            spring.jump(1)
+            spring.moved.connect(self.update)
         self.setAccessibleName('Scroll tabs left' if direction < 0 else 'Scroll tabs right')
         self.setToolTip(self.accessibleName())
         self.setAutoRepeat(True)
+
+    @property
+    def animating(self):
+        return self.grow.moving or self.slide.moving
+
+    def set_shown(self, shown):
+        if shown and self.isHidden():
+            self.show()
+            self.raise_()
+            for spring in (self.grow, self.slide):
+                spring.jump(0)
+                spring.glide(1)
+        elif not shown and not self.isHidden():
+            for spring in (self.grow, self.slide):
+                spring.jump(1)
+            self.hide()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         app = QApplication.instance()
-        painter.fillRect(self.rect(), QColor(app.property('themeBackground') or BUILDING_GRAY))
-        outer = button_paint_rect(self).translated(0, -CONTROL_HEADROOM / 2)
+        travel = (1 - min(1.0, self.slide.value)) * self.width() * self.direction
+        painter.fillRect(QRectF(self.rect()).translated(travel, 0), QColor(app.property('themeBackground') or BUILDING_GRAY))
+        scale = max(0.0, self.grow.value)
+        if scale <= 0:
+            return
+        middle = QRectF(self.rect()).center()
+        painter.translate(middle)
+        painter.scale(scale, scale)
+        painter.translate(-middle)
+        outer = button_paint_rect(self).translated(0, -self.lift)
         face = paint_control(painter, self, outer, app.property('themeAccent') or GRASS_GREEN, self.isDown(), shadow=True)
         size = min(face.width(), face.height()) * .45
         center = face.center()
@@ -986,7 +1061,9 @@ class ChunkyTabBar(QTabBar):
         self.setDrawBase(False)
         self.setUsesScrollButtons(False)
         self.setElideMode(Qt.ElideNone)
-        self.scroll_offset = 0
+        self.pager = SnapPager(self)
+        self.pager.moved.connect(self.update)
+        self.tab_growth = {}
         self.scroll_left = TabScrollButton(-1, self)
         self.scroll_right = TabScrollButton(1, self)
         self.scroll_left.clicked.connect(lambda: self.scroll_tabs(-1))
@@ -1024,24 +1101,92 @@ class ChunkyTabBar(QTabBar):
     def scroll_button_width(self):
         return round(32 * button_scale()) + 2 * CONTROL_HEADROOM
 
+    def visible_tabs(self):
+        return [index for index in range(self.count()) if self.isTabVisible(index)]
+
+    def tab_extents(self):
+        extents, x = [], 0
+        for index in self.visible_tabs():
+            width = self.tabSizeHint(index).width()
+            extents.append((x, x + width))
+            x += width
+        return extents
+
     def content_width(self):
-        return sum(self.tabSizeHint(index).width() for index in range(self.count()) if self.isTabVisible(index))
+        extents = self.tab_extents()
+        return extents[-1][1] if extents else 0
+
+    @property
+    def scroll_offset(self):
+        return self.pager.target
 
     def maximum_scroll(self):
-        total = self.content_width()
-        return max(0, total - max(1, self.width() - self.scroll_button_width())) if total > self.width() else 0
+        return self.pager.maximum
+
+    def layout_pages(self, animate=False):
+        before = self.tabs_on_screen()
+        self.pager.update(self.tab_extents(), self.width(), self.scroll_button_width(), animate)
+        self.release_tabs(before, grow=not animate and not self.pager.spring.moving)
+
+    def tabs_on_screen(self):
+        if not self.isVisible() or not hasattr(self, 'pager'):
+            return {}
+        return dict(getattr(self, 'painted_tabs', {}))
+
+    def remember_painted_tabs(self):
+        window = self.tab_viewport()
+        painted = {}
+        for index in self.visible_tabs():
+            rect = self.tabRect(index)
+            visible = rect.intersected(window)
+            if visible.width() > 0 and visible.height() > 0:
+                painted[index] = (visible, rect)
+        self.painted_tabs = painted
+
+    def tab_snapshot(self, index, rect):
+        ratio = self.devicePixelRatioF()
+        pixmap = QPixmap(round(rect.width() * ratio), round(rect.height() * ratio))
+        pixmap.setDevicePixelRatio(ratio)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.translate(-rect.topLeft())
+        self.paint_tab(painter, index)
+        painter.end()
+        return pixmap
+
+    def release_tabs(self, before, grow=False):
+        if not before:
+            return
+        from scale_ghost import ScaleGhost, pop_spring
+        shown = self.shown_tabs()
+        for index, (visible, rect) in before.items():
+            if index not in shown:
+                ScaleGhost(self, self.tab_snapshot(index, rect), visible, visible.translated(-rect.topLeft()))
+        if grow:
+            for index in shown:
+                if index not in before:
+                    spring = pop_spring(self)
+                    spring.moved.connect(self.update)
+                    spring.jump(0)
+                    spring.glide(1)
+                    self.tab_growth[index] = spring
+
+    def shown_tabs(self):
+        visible = self.visible_tabs()
+        return [visible[position] for position in range(self.pager.start, min(self.pager.end, len(visible)))]
 
     def tab_viewport(self):
-        maximum = self.maximum_scroll()
-        left = self.scroll_button_width() if self.scroll_offset > 0 else 0
-        right = self.scroll_button_width() if self.scroll_offset < maximum else 0
-        return self.rect().adjusted(left, 0, -right, 0)
+        if not (self.pager.left_arrow or self.pager.right_arrow):
+            return self.rect()
+        return self.rect().adjusted(self.pager.left_arrow, 0, 0, 0).intersected(
+            self.rect().adjusted(0, 0, self.pager.left_arrow + self.pager.page_width - self.width(), 0))
 
     def tabRect(self, index):
-        if not 0 <= index < self.count() or not self.isTabVisible(index):
+        visible = self.visible_tabs()
+        if not 0 <= index < self.count() or index not in visible:
             return self.rect().adjusted(0, 0, -self.width(), -self.height())
-        x = self.tab_viewport().left() - self.scroll_offset
-        x += sum(self.tabSizeHint(i).width() for i in range(index) if self.isTabVisible(i))
+        x = self.pager.left_arrow - round(self.pager.offset) + self.tab_extents()[visible.index(index)][0]
         return self.rect().adjusted(x, 0, x + self.tabSizeHint(index).width() - self.width(), 0)
 
     def tabAt(self, position):
@@ -1056,33 +1201,33 @@ class ChunkyTabBar(QTabBar):
         if not hasattr(self, 'scroll_left'):
             return
         self.hide_native_scroll_buttons()
-        maximum = self.maximum_scroll()
-        self.scroll_offset = max(0, min(self.scroll_offset, maximum))
+        self.layout_pages()
         width = self.scroll_button_width()
         self.scroll_left.setGeometry(0, 0, width, self.height())
         self.scroll_right.setGeometry(self.width() - width, 0, width, self.height())
-        self.scroll_left.setVisible(self.scroll_offset > 0)
-        self.scroll_right.setVisible(self.scroll_offset < maximum)
+        self.scroll_left.set_shown(bool(self.pager.left_arrow))
+        self.scroll_right.set_shown(bool(self.pager.right_arrow))
         self.scroll_left.raise_()
         self.scroll_right.raise_()
+        from scale_ghost import ScaleGhost
+        for ghost in self.findChildren(ScaleGhost):
+            ghost.raise_()
         self.update()
 
     def scroll_tabs(self, direction):
-        step = max(1, round(self.tab_viewport().width() * .75))
-        self.scroll_offset = max(0, min(self.maximum_scroll(), self.scroll_offset + direction * step))
+        self.layout_pages()
+        before = self.tabs_on_screen()
+        self.pager.scroll(direction)
+        self.release_tabs(before)
         self.update_scroll_buttons()
 
     def ensure_current_visible(self, index=None):
         index = self.currentIndex() if index is None else index
-        if 0 <= index < self.count():
-            for _ in range(2):
-                rect = self.tabRect(index)
-                viewport = self.tab_viewport()
-                if rect.left() < viewport.left():
-                    self.scroll_offset += rect.left() - viewport.left()
-                elif rect.right() > viewport.right():
-                    self.scroll_offset += rect.right() - viewport.right()
-                self.scroll_offset = max(0, min(self.maximum_scroll(), self.scroll_offset))
+        self.layout_pages()
+        if index in self.visible_tabs():
+            before = self.tabs_on_screen()
+            self.pager.reveal(self.visible_tabs().index(index))
+            self.release_tabs(before)
         self.update_scroll_buttons()
 
     def resizeEvent(self, event):
@@ -1150,22 +1295,38 @@ class ChunkyTabBar(QTabBar):
         for index in range(self.count()):
             if not self.isTabVisible(index):
                 continue
-            selected = index == self.currentIndex()
-            accent = QColor(app.property('themeHighlight' if selected else 'themeAccent') or GRASS_GREEN)
-            outer = self.tab_face_rect(index)
-            painter.setPen(Qt.NoPen)
-            face = paint_control(painter, self, outer, accent, shadow=True)
-            painter.setPen(QColor(app.property('buttonTextColor') or '#4c3f2f'))
-            painter.setFont(self.font())
+            growth = self.tab_growth.get(index)
+            if growth is not None and not growth.moving:
+                del self.tab_growth[index]
+                growth = None
             painter.save()
-            clip = QPainterPath()
-            radius = corner_radius(12, face.width(), face.height())
-            clip.addRoundedRect(face, radius, radius)
-            painter.setClipPath(clip, Qt.IntersectClip)
-            draw_centered_text(painter, button_text_rect(face), button_text_font(self), self.tabText(index),
-                               button_text_color(accent, self.isEnabled(), highlighted=True) if selected else
-                               app.property('buttonTextColor') or '#4c3f2f', fit=True)
+            if growth is not None:
+                middle = QRectF(self.tabRect(index)).center()
+                painter.translate(middle)
+                painter.scale(max(0.0, growth.value), max(0.0, growth.value))
+                painter.translate(-middle)
+            self.paint_tab(painter, index)
             painter.restore()
+        self.remember_painted_tabs()
+
+    def paint_tab(self, painter, index):
+        app = QApplication.instance()
+        selected = index == self.currentIndex()
+        accent = QColor(app.property('themeHighlight' if selected else 'themeAccent') or GRASS_GREEN)
+        outer = self.tab_face_rect(index)
+        painter.setPen(Qt.NoPen)
+        face = paint_control(painter, self, outer, accent, shadow=True)
+        painter.setPen(QColor(app.property('buttonTextColor') or '#4c3f2f'))
+        painter.setFont(self.font())
+        painter.save()
+        clip = QPainterPath()
+        radius = corner_radius(12, face.width(), face.height())
+        clip.addRoundedRect(face, radius, radius)
+        painter.setClipPath(clip, Qt.IntersectClip)
+        draw_centered_text(painter, button_text_rect(face), button_text_font(self), self.tabText(index),
+                           button_text_color(accent, self.isEnabled(), highlighted=True) if selected else
+                           app.property('buttonTextColor') or '#4c3f2f', fit=True)
+        painter.restore()
 
 
 class ThemedMenu(QMenu):
@@ -1258,6 +1419,13 @@ class ThemedComboBox(QComboBox):
         self.popup_position_timer = QTimer(self)
         self.popup_position_timer.setSingleShot(True)
         self.popup_position_timer.timeout.connect(self.position_popup)
+        self.drop = SpringScroll(self, frequency=DROPDOWN_SPRING_FREQUENCY, damping=DROPDOWN_SPRING_DAMPING,
+                                 settle_distance=.002, settle_speed=.03)
+        self.popup_edge = 0
+        self.drop.moved.connect(self.place_popup)
+        self.popup_final = None
+        self.popup_opens_up = False
+        self.popup_closed_by_click = QElapsedTimer()
         self.menu_view = QListView(self)
         self.menu_view.setObjectName('albumDriveDropdownView')
         self.menu_view.hide()
@@ -1313,6 +1481,9 @@ class ThemedComboBox(QComboBox):
         if self.popup is not None and self.popup.isVisible():
             self.hidePopup()
             return
+        if self.popup_closed_by_click.isValid() and self.popup_closed_by_click.elapsed() < POPUP_TOGGLE_MS:
+            self.popup_closed_by_click.invalidate()
+            return
         play_button_sound()
         app = QApplication.instance()
         view = self.view()
@@ -1343,8 +1514,10 @@ class ThemedComboBox(QComboBox):
         view.setCurrentIndex(self.model().index(self.currentIndex(), self.modelColumn(), self.rootModelIndex()))
         view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         view.show()
+        self.drop.jump(1)
         self.popup.show()
         self.position_popup()
+        self.drop.glide(0)
         view.setFocus(Qt.PopupFocusReason)
         self.popup.setUpdatesEnabled(True)
         self.popup_position_timer.start(0)
@@ -1370,22 +1543,56 @@ class ThemedComboBox(QComboBox):
         x = max(available.left(), min(origin.x(), available.right() - width + 1))
         self.popup.setMinimumSize(0, 0)
         self.popup.setMaximumSize(16777215, 16777215)
-        self.popup.setGeometry(x, y, width, min(height, available.bottom() - y + 1))
+        self.popup_opens_up = y < origin.y()
+        final = QRect(x, y, width, min(height, available.bottom() - y + 1))
+        self.popup.setGeometry(final)
+        own_face = control_face(button_paint_rect(self), widget=self)
+        popup_face = control_face(button_paint_rect(self.popup), widget=self.popup)
+        if self.popup_opens_up:
+            self.popup_edge = self.mapToGlobal(QPointF(0, own_face.top()).toPoint()).y()
+            final.moveTop(self.popup_edge - round(popup_face.bottom()))
+        else:
+            self.popup_edge = self.mapToGlobal(QPointF(0, own_face.bottom()).toPoint()).y()
+            final.moveTop(self.popup_edge - round(popup_face.top()))
+        self.popup_final = final
+        self.popup.setGeometry(self.popup_final)
         padding = 6
         offset = control_offset(self.popup, QRectF(self.popup.rect()), ui_depth())
         self.popup.layout().setContentsMargins(round(padding + CONTROL_HEADROOM - offset.x()),
                                               round(padding + CONTROL_HEADROOM - offset.y()) + BUTTON_SHADOW,
                                               round(padding + CONTROL_HEADROOM + offset.x()),
                                               round(padding + offset.y()) + BUTTON_SHADOW)
-        path = QPainterPath()
-        radius = corner_radius(12, width, height)
-        path.addRoundedRect(QRectF(self.popup.rect()), radius, radius)
-        self.popup.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        self.place_popup()
         self.view().scrollToTop()
         self.view().scrollTo(self.model().index(self.currentIndex(), self.modelColumn(), self.rootModelIndex()),
                              QAbstractItemView.EnsureVisible)
 
+    def place_popup(self):
+        if self.popup is None or self.popup_final is None or not self.popup.isVisible():
+            return
+        final = self.popup_final
+        travel = round(self.drop.value * final.height())
+        direction = 1 if self.popup_opens_up else -1
+        self.popup.move(final.x(), final.y() + direction * travel)
+        path = QPainterPath()
+        radius = corner_radius(12, final.width(), final.height())
+        path.addRoundedRect(QRectF(0, 0, final.width(), final.height()), radius, radius)
+        shape = QRegion(path.toFillPolygon().toPolygon())
+        if self.popup_opens_up:
+            edge = self.popup_edge - self.popup.y()
+            shape = shape.intersected(QRegion(0, 0, final.width(), max(0, edge)))
+        else:
+            edge = self.popup_edge - self.popup.y()
+            shape = shape.intersected(QRegion(0, max(0, edge), final.width(), final.height()))
+        button = control_silhouette(self, button_paint_rect(self))
+        corner = self.mapToGlobal(QPoint()) - self.popup.pos()
+        shape = shape.subtracted(QRegion(button.translated(corner.x(), corner.y()).toFillPolygon().toPolygon()))
+        self.popup.setMask(shape if not shape.isEmpty() else QRegion(0, final.height() - 1, 1, 1))
+
     def eventFilter(self, watched, event):
+        if watched is self.popup and event.type() == QEvent.MouseButtonPress:
+            if self.rect().contains(self.mapFromGlobal(event.globalPosition().toPoint())):
+                self.popup_closed_by_click.start()
         if watched is self.menu_view or watched is self.menu_view.viewport():
             if event.type() == QEvent.KeyPress:
                 self.menu_view.setProperty('keyboardNavigation', True)

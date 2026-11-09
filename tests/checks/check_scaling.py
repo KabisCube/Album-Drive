@@ -66,6 +66,11 @@ with tempfile.TemporaryDirectory() as directory:
             assert slider.parentWidget().rect().contains(slider.geometry())
             area = QRect(slider.mapTo(window, QPoint()), slider.size())
             assert window.rect().contains(area)
+            from scale_ghost import ScaleGhost
+            for _ in range(150):
+                if not window.findChildren(ScaleGhost):
+                    break
+                QTest.qWait(10)
             QTest.mouseMove(window, QPoint(1, 1))
             before_hover = window.grab(area).toImage()
             QTest.mouseMove(slider, slider.rect().center())

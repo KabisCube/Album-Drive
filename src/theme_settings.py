@@ -135,6 +135,7 @@ NUMERIC_SETTINGS += tuple(('Text', label, key, NUMERIC_DEFAULTS[key],
 SECTION_GAP = 20
 SETTING_INDENT = 16
 SETTING_LABEL_WIDTH = 320
+LABEL_COLUMN_GAP = 24
 
 
 class SettingsSectionLabel(QLabel):
@@ -573,7 +574,6 @@ class ThemeSettingsDialog(QDialog):
         self.update_vertical_spacing()
         self.saved_theme_choice.currentIndexChanged.connect(self.select_saved_theme)
         self.saved_theme_choice.activated.connect(self.select_saved_theme)
-        actions = QGridLayout()
         reset = ThemedButton('Restore defaults')
         accept = ThemedButton('OK')
         accept.setProperty('themeRole', 'highlight')
@@ -586,10 +586,14 @@ class ThemeSettingsDialog(QDialog):
             cancel = ThemedButton('Cancel')
             cancel.clicked.connect(self.reject)
             self.action_buttons = (reset, cancel, accept)
-        self.actions = actions
-        self.action_columns = 0
+        from overflow_controls import OverflowControls
+        self.action_row = OverflowControls(QLabel())
+        self.action_row.fill = True
+        for button in self.action_buttons:
+            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.action_row.controls.addWidget(button, 1)
         self.layout_actions()
-        outer.addLayout(actions)
+        outer.addWidget(self.action_row)
         for control in self.findChildren(QWidget):
             if isinstance(control, (ThemedButton, ThemedComboBox)):
                 control.setMaximumWidth(300)
@@ -1023,29 +1027,10 @@ class ThemeSettingsDialog(QDialog):
 
     def layout_actions(self):
         narrow = self.width() < NARROW_WIDTH
-        stacked = narrow and len(self.action_buttons) == 3 and self.height() >= SHORT_HEIGHT
         self.action_buttons[0].setText('Reset defaults' if narrow else 'Restore defaults')
         for button in self.action_buttons:
             button.setFixedHeight(button.sizeHint().height())
-        columns = 1 if stacked else 3 if sum(min(button.sizeHint().width(), button.maximumWidth()) for button in self.action_buttons) + 48 <= self.width() else 2
-        height = max(button.sizeHint().height() for button in self.action_buttons)
-        if columns != self.action_columns or height != getattr(self, 'action_height', None):
-            self.action_columns = columns
-            self.action_height = height
-            for button in self.action_buttons:
-                self.actions.removeWidget(button)
-            for row in range(self.actions.rowCount()):
-                self.actions.setRowMinimumHeight(row, 0)
-            if stacked:
-                self.actions.addWidget(self.action_buttons[0], 0, 0, 1, 2)
-                self.actions.addWidget(self.action_buttons[1], 1, 0)
-                self.actions.addWidget(self.action_buttons[2], 1, 1)
-                self.actions.setRowMinimumHeight(0, height)
-                self.actions.setRowMinimumHeight(1, height)
-            else:
-                for index, button in enumerate(self.action_buttons):
-                    self.actions.addWidget(button, index // columns, index % columns)
-                    self.actions.setRowMinimumHeight(index // columns, height)
+        self.action_row.timer.start(0)
         self.tabs.setMinimumHeight(self.tabs.tabBar().sizeHint().height() + 32)
 
     def event(self, event):
@@ -1055,14 +1040,46 @@ class ThemeSettingsDialog(QDialog):
             self.page_layout_timer.start(0)
         return super().event(event)
 
+    def label_column_width(self):
+        widest = 0
+        for form in self.forms.values():
+            for row in range(form.rowCount()):
+                item = form.itemAt(row, QFormLayout.LabelRole)
+                label = item.widget() if item is not None else None
+                if label is None:
+                    continue
+                label.ensurePolished()
+                frame = label.width() - label.contentsRect().width() + 2 * label.margin() + max(0, label.indent())
+                widest = max(widest, label.fontMetrics().horizontalAdvance(label.text()) + frame)
+        return min(SETTING_LABEL_WIDTH, widest + LABEL_COLUMN_GAP)
+
+    def wide_layout_width(self, column):
+        widest = 0
+        for form in self.forms.values():
+            gap = max(0, form.horizontalSpacing())
+            for row in range(form.rowCount()):
+                label = form.itemAt(row, QFormLayout.LabelRole)
+                field = form.itemAt(row, QFormLayout.FieldRole)
+                if label is None or field is None:
+                    continue
+                widget = field.widget()
+                needed = widget.minimumSizeHint().width() if widget is not None else field.minimumSize().width()
+                widest = max(widest, column + gap + needed)
+        return widest + 2 * 16
+
     def prepare_pages(self):
         if not self.isVisible():
             return
         positions = [(self.tabs.widget(index).horizontalScrollBar().value(),
                       self.tabs.widget(index).verticalScrollBar().value()) for index in range(self.tabs.count())]
-        narrow = self.width() < NARROW_WIDTH
         area = self.tabs.currentWidget()
         label_width = max(0, area.contentsRect().width() - 16 - scrollbar_space(area))
+        column = self.label_column_width()
+        # Stack titles above controls whenever side-by-side rows would need horizontal scrolling.
+        room = area.contentsRect().width() - scrollbar_space(area)
+        measured = getattr(self, 'wide_need', None)
+        need = measured[1] if measured is not None and measured[0] == column else self.wide_layout_width(column)
+        narrow = self.width() < NARROW_WIDTH or need > room
         labels = []
         for form in self.forms.values():
             form.setRowWrapPolicy(QFormLayout.WrapAllRows if narrow else QFormLayout.DontWrapRows)
@@ -1079,8 +1096,8 @@ class ThemeSettingsDialog(QDialog):
             if narrow:
                 label.setFixedWidth(label_width)
                 label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-            elif label.minimumWidth() != SETTING_LABEL_WIDTH or label.maximumWidth() != SETTING_LABEL_WIDTH:
-                label.setFixedWidth(SETTING_LABEL_WIDTH)
+            elif label.minimumWidth() != column or label.maximumWidth() != column:
+                label.setFixedWidth(column)
                 label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
             label.setMinimumHeight(max(0, label.heightForWidth(label_width)) if narrow else 0)
         for combo in self.findChildren(ThemedComboBox):
@@ -1102,7 +1119,7 @@ class ThemeSettingsDialog(QDialog):
         current = self.tabs.currentWidget()
         for index in range(self.tabs.count()):
             area = self.tabs.widget(index)
-            area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff if narrow or running_on_android() else Qt.ScrollBarAsNeeded)
+            area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             area.ensurePolished()
             if area is not current:
                 area.setGeometry(current.geometry())
@@ -1134,6 +1151,12 @@ class ThemeSettingsDialog(QDialog):
                     bar.setPageStep(max(0, visible))
             area.horizontalScrollBar().setValue(positions[index][0])
             area.verticalScrollBar().setValue(positions[index][1])
+        if not narrow:
+            actual = max(self.tabs.widget(index).widget().minimumSizeHint().width() for index in range(self.tabs.count()))
+            self.wide_need = (column, actual)
+            if actual > room:
+                self.prepare_pages()
+                return
         button_text_sizing().refresh()
 
     def add_numeric(self, forms, definition):

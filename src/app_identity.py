@@ -46,7 +46,8 @@ def update_theme_icon(app, accent):
 
 
 def configure_app(app):
-    if sys.platform == 'win32':
+    if sys.platform == 'win32' and not getattr(sys, 'frozen', False):
+        # A built exe keeps Windows' own identity so a pin made by dragging the exe groups with it.
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('AlbumDrive.MusicPlayer')
     app.setApplicationName(APP_NAME)

@@ -6,6 +6,7 @@ from PySide6.QtGui import QContextMenuEvent, QMouseEvent
 from PySide6.QtWidgets import QAbstractItemView, QAbstractSlider, QApplication, QScroller, QScrollerProperties
 
 TOUCH_SLOP = 12
+SCROLL_START_METRES = .001
 LONG_PRESS_MS = 450
 MINIMUM_TOUCH_TARGET = 48
 
@@ -21,6 +22,8 @@ def tune_scroller(scroller):
     off = QScrollerProperties.OvershootPolicy.OvershootAlwaysOff
     properties.setScrollMetric(QScrollerProperties.ScrollMetric.HorizontalOvershootPolicy, off)
     properties.setScrollMetric(QScrollerProperties.ScrollMetric.VerticalOvershootPolicy, off)
+    # Touches are already sorted into taps and swipes, so Qt's own start distance only swallows short swipes.
+    properties.setScrollMetric(QScrollerProperties.ScrollMetric.DragStartDistance, SCROLL_START_METRES)
     scroller.setScrollerProperties(properties)
 
 
@@ -42,6 +45,7 @@ class TouchGestures(QObject):
         self.start = QPointF()
         self.start_global = QPointF()
         self.last_global = QPointF()
+        self.last_position = QPointF()
         self.pinch_distance = 0.0
         self.velocity = 0.0
         self.clock = QElapsedTimer()
@@ -82,6 +86,7 @@ class TouchGestures(QObject):
         point = event.points()[0]
         self.start, self.start_global = point.position(), point.globalPosition()
         self.last_global = self.start_global
+        self.last_position = self.start
         self.velocity = 0.0
         self.clock.start()
         flinging = self.scroller is not None and self.scroller.state() == QScroller.Scrolling
@@ -111,6 +116,7 @@ class TouchGestures(QObject):
             self.mouse_on_target(QEvent.MouseMove, point.globalPosition())
         elif self.state == 'moving':
             self.scroll_input(QScroller.InputMove, point.position(), event)
+            self.last_position = point.position()
             if self.on_drag is not None:
                 elapsed = max(1, self.clock.restart())
                 delta = point.globalPosition().y() - self.last_global.y()
@@ -139,7 +145,8 @@ class TouchGestures(QObject):
             if self.on_pinch_end is not None:
                 self.on_pinch_end()
             return
-        self.scroll_input(QScroller.InputRelease, position, event)
+        # Android often reports the lift a pixel back from the last move; that last jitter would set the fling direction.
+        self.scroll_input(QScroller.InputRelease, self.last_position if state == 'moving' else position, event)
         if state == 'pending':
             self.tap()
         elif state == 'slider':

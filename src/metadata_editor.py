@@ -334,12 +334,16 @@ class MetadataEditor(QDialog):
             self.artwork_preview.setText('No embedded artwork')
 
     def choose_artwork(self):
-        path, _ = QFileDialog.getOpenFileName(self, 'Choose cover image', '', 'Cover images (*.jpg *.jpeg *.png)')
+        from music_folders import choose_image_file
+        path = choose_image_file(self, 'Choose cover image', self.album.folder)
         if path:
             try:
                 data = filesystem_path(path).read_bytes()
-            except OSError as error:
+            except (OSError, ValueError) as error:
                 self.status.setText(str(error))
+                return
+            if QPixmap().loadFromData(data) is False:
+                self.status.setText('This file is not a readable image.')
                 return
             self.artwork = path
             self.show_artwork(data)

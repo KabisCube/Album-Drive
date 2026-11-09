@@ -383,12 +383,27 @@ class AlbumGrid(QListWidget):
             return
         self.scroll_animation.stop()
         self.set_hover(-1)
+        anchor = self.top_visible_anchor()
         self._pending_icon_start = self.display_icon_size()
         self.setIconSize(size)
         self.update_grid_size()
         self.doItemsLayout()
-        if self.currentItem() is not None:
-            self.scrollToItem(self.currentItem())
+        if anchor is not None:
+            self.restore_anchor(*anchor)
+
+    def top_visible_anchor(self):
+        for row in range(self.count()):
+            rect = self.visualItemRect(self.item(row))
+            if rect.bottom() >= 0:
+                return row, -rect.top() / max(1, rect.height())
+        return None
+
+    def restore_anchor(self, row, passed):
+        if not 0 <= row < self.count():
+            return
+        rect = self.visualItemRect(self.item(row))
+        bar = self.verticalScrollBar()
+        bar.setValue(bar.value() + rect.top() + round(passed * rect.height()))
 
     def update_grid_size(self):
         # Only size and spacing control the grid; hover never reflows its rows.

@@ -109,14 +109,12 @@ class WindowsIdentity:
             self.ole.PropVariantClear(ct.byref(value))
 
     def update_window(self, window, icon_path):
-        pointer = ct.c_void_p()
-        check(self.shell.SHGetPropertyStoreForWindow(int(window.winId()), ct.byref(STORE_IID), ct.byref(pointer)))
-        command = [sys.executable]
         if not getattr(sys, 'frozen', False):
-            command.append(str(Path(__file__).with_name('main.py')))
-        with interface(pointer) as store:
-            self.set_properties(store, ((2, subprocess.list2cmdline(command)), (4, 'Album Drive'),
-                                        (3, f'{icon_path},0'), (5, APP_ID)))
+            pointer = ct.c_void_p()
+            check(self.shell.SHGetPropertyStoreForWindow(int(window.winId()), ct.byref(STORE_IID), ct.byref(pointer)))
+            command = subprocess.list2cmdline([sys.executable, str(Path(__file__).with_name('main.py'))])
+            with interface(pointer) as store:
+                self.set_properties(store, ((2, command), (4, 'Album Drive'), (3, f'{icon_path},0'), (5, APP_ID)))
         icon = self.user.LoadImageW(None, str(icon_path), 1, 256, 256, 0x10)
         if not icon:
             raise ct.WinError(ct.get_last_error())
@@ -139,12 +137,21 @@ class WindowsIdentity:
         with interface(pointer) as link, interface(query(link, '0000010B-0000-0000-C000-000000000046')) as persist:
             check(call(persist, 5, str(path), 0, types=(wt.LPCWSTR, wt.DWORD)))
             with interface(query(link, '886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99')) as store:
-                if self.get_app_id(store) != APP_ID:
+                app_id = self.get_app_id(store)
+                if app_id != APP_ID and (app_id or not self.targets_this_exe(link)):
                     return False
             check(call(link, 17, str(icon_path), 0, types=(wt.LPCWSTR, ct.c_int)))
             check(call(persist, 6, str(path), True, types=(wt.LPCWSTR, wt.BOOL)))
             self.shell.SHChangeNotify(0x2000, 0x2005, str(path), None)
             return True
+
+    def targets_this_exe(self, link):
+        if not getattr(sys, 'frozen', False):
+            return False
+        target = ct.create_unicode_buffer(32768)
+        if call(link, 3, target, len(target), None, 0, types=(wt.LPWSTR, ct.c_int, ct.c_void_p, wt.DWORD)) != 0:
+            return False
+        return os.path.normcase(os.path.abspath(target.value)) == os.path.normcase(os.path.abspath(sys.executable))
 
     def update(self, app):
         accent = app.property('themeIconAccent')
@@ -152,7 +159,8 @@ class WindowsIdentity:
             return
         directory = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'Album Drive' / 'icons'
         directory.mkdir(parents=True, exist_ok=True)
-        path = directory / 'theme.ico'
+        # Windows caches icons by path, so every colour gets its own file.
+        path = directory / f'theme-{accent.lstrip("#").lower()}.ico'
         changed = app.property('taskbarIconAccent') != accent or not path.is_file()
         if changed:
             data = QByteArray()
@@ -185,6 +193,12 @@ class WindowsIdentity:
                 self.update_shortcut(shortcut, path)
             except OSError:
                 logging.exception('Cannot refresh pinned icon: %s', shortcut)
+        for old in directory.glob('theme*.ico'):
+            if old != path:
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
 
 
 def update_windows_identity(app):

@@ -33,8 +33,14 @@ with TemporaryDirectory() as directory:
             dialog.tabs.setCurrentIndex(index)
             QTest.qWait(40)
             assert dialog.size().width() == width
-            for button in dialog.action_buttons:
-                assert dialog.rect().contains(button.geometry()), (width, button.text(), button.geometry())
+            while dialog.action_row.pager.spring.moving:
+                QTest.qWait(16)
+            row = dialog.action_row
+            assert row.shown_items()
+            for button in row.shown_items():
+                rect = button.geometry().translated(button.parentWidget().mapTo(dialog, button.parentWidget().rect().topLeft()))
+                assert dialog.rect().contains(rect), (width, button.text(), rect)
+            assert (len(row.shown_items()) == len(dialog.action_buttons)) == (not row.scroll_right.isVisible() and not row.scroll_left.isVisible())
             area = dialog.tabs.currentWidget()
             page = area.widget()
             if width < 640:

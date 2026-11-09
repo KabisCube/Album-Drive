@@ -83,7 +83,11 @@ with TemporaryDirectory() as directory:
         assert window.workspace.panes[1].isHidden()
         assert window.workspace.panes[0].width() == window.workspace.width()
         assert not window.back_button.isVisible()
-        assert window.transport.isVisible() and window.volume.isHidden()
+        assert window.transport.isVisible()
+        if window.volume.isVisible():
+            assert window.volume.geometry().left() > window.next.geometry().right()
+            assert window.volume.geometry().right() < window.transport.width()
+            assert abs(window.volume.geometry().center().y() - window.play.geometry().center().y()) <= 2
         assert window.seek.y() < window.play.y()
         assert window.previous.x() < window.play.x() < window.next.x()
         assert window.browser_splitter.handleWidth() == 8
@@ -102,7 +106,10 @@ with TemporaryDirectory() as directory:
         settle(window)
         assert window.workspace.page == 'library'
         assert window.workspace.panes[0].isHidden()
-        assert window.back_button.isVisible() and window.transport.isHidden()
+        assert window.back_button.isVisible() and window.transport.isVisible()
+        back, previous = window.back_button.geometry(), window.previous.geometry()
+        assert back.right() < previous.left() and back.left() >= 0
+        assert abs(back.center().y() - previous.center().y()) <= 1
         window.grid.finish_reflow()
         window.grab().save('build/previews/compact-albums.png')
         window.show_album(album, play_sound=False)

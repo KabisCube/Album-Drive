@@ -1448,13 +1448,14 @@ class PlayerWindow(QMainWindow):
         self.transport = ResponsiveTransport(self.play, self.previous, self.next, self.seek, self.volume)
         if self.is_android:
             self.transport.compact_row_gap = ANDROID_TRANSPORT_ROW_GAP
+        else:
+            self.transport.compact_volume = True
         self.workspace.mode_animation.valueChanged.connect(self.transport.set_mix)
         outer.addWidget(self.transport)
         self.back_button = QPushButton('Back')
         self.back_button.setAccessibleName('Back to file browser')
         self.back_button.clicked.connect(self.navigate_back)
-        self.back_button.hide()
-        outer.addWidget(self.back_button)
+        self.transport.set_back(self.back_button)
         self.back_action = QAction(self)
         self.back_action.setShortcut(QKeySequence('Back'))
         self.back_action.triggered.connect(self.navigate_back)
@@ -2034,7 +2035,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             size = round(QApplication.instance().property('buttonIconSize') or 20)
             button.setIconSize(QSize(round(size * 1.5), size) if name == 'save-theme' else QSize(size, size))
             button.setAccessibleName(label)
-            button.setToolTip(label)
+            button.setToolTip('' if button in (self.play, self.previous, self.next) else label)
 
     def save_current_theme(self):
         self.discard_prepared_settings()
@@ -2163,8 +2164,9 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
     def update_compact_navigation(self):
         library = self.compact_mode and self.workspace.page == 'library'
-        self.transport.setVisible(self.is_android or not library)
-        self.back_button.setVisible(library and not self.is_android)
+        from scale_ghost import hide_with_shrink, show_with_grow
+        (show_with_grow if library and not self.is_android else hide_with_shrink)(self.back_button)
+        self.transport.arrange()
         self.back_action.setEnabled(library)
         self.escape_action.setEnabled(library or (not self.compact_mode and self.viewed_album is not None))
         self.back_button.setAccessibleName('Back to albums' if self.viewed_album is not None else 'Back to file browser')
@@ -2822,6 +2824,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         enabled = self.viewed_album is None
         for control in (self.album_scale_control, self.sort_albums, self.save_theme_button, self.refresh_button):
             control.setEnabled(enabled)
+        self.album_header.set_pinned(not enabled)
         if self.is_android:
             self.settings_button.setEnabled(enabled)
             self.album_header.raise_() if enabled else self.album_header.lower()

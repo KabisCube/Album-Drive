@@ -26,6 +26,16 @@ for title in ('General', 'Style', 'Audio', 'File browser', 'Album list', 'Track 
 tabs.resize(460, 220)
 tabs.show()
 app.processEvents()
+
+def settle():
+    while bar.pager.spring.moving or bar.scroll_left.animating or bar.scroll_right.animating:
+        QTest.qWait(16)
+    for index in range(bar.count()):
+        rect, viewport = bar.tabRect(index), bar.tab_viewport()
+        assert viewport.contains(rect) or not viewport.intersects(rect), (index, rect, viewport)
+    assert any(bar.tab_viewport().contains(bar.tabRect(index)) for index in range(bar.count()))
+
+
 def check_gutters():
     image = bar.grab().toImage()
     for button in (bar.scroll_left, bar.scroll_right):
@@ -71,6 +81,7 @@ check_gutters()
 selected = tabs.currentIndex()
 previous = bar.scroll_offset
 QTest.mouseClick(bar.scroll_right, Qt.LeftButton)
+settle()
 assert bar.scroll_offset > previous
 assert tabs.currentIndex() == selected
 assert bar.scroll_left.isVisible()
@@ -82,6 +93,7 @@ for _ in range(30):
     if not bar.scroll_right.isVisible():
         break
     QTest.mouseClick(bar.scroll_right, Qt.LeftButton)
+    settle()
     check_gutters()
 assert not bar.scroll_right.isVisible()
 assert bar.scroll_left.isVisible()
@@ -92,6 +104,7 @@ assert tabs.currentIndex() == target
 bar.setFocus()
 for _ in range(bar.count() - 1):
     QTest.keyClick(bar, Qt.Key_Left)
+    settle()
     assert bar.tab_viewport().contains(bar.tabRect(bar.currentIndex()))
 assert tabs.currentIndex() == 0
 assert not bar.scroll_left.isVisible()
@@ -100,10 +113,12 @@ for _ in range(30):
     if not bar.scroll_right.isVisible():
         break
     QTest.mouseClick(bar.scroll_right, Qt.LeftButton)
+    settle()
 for _ in range(30):
     if not bar.scroll_left.isVisible():
         break
     QTest.mouseClick(bar.scroll_left, Qt.LeftButton)
+    settle()
     check_gutters()
 assert bar.scroll_offset == 0
 assert not bar.scroll_left.isVisible()
@@ -114,8 +129,31 @@ assert not bar.scroll_left.isVisible() and not bar.scroll_right.isVisible()
 tabs.resize(460, 220)
 app.processEvents()
 tabs.setCurrentIndex(bar.count() - 1)
+settle()
 assert bar.tab_viewport().contains(bar.tabRect(bar.currentIndex()))
 assert not bar.scroll_right.isVisible()
+from scale_ghost import ScaleGhost
+tabs.resize(2000, 220)
+app.processEvents()
+settle()
+QTest.qWait(700)
+tabs.resize(460, 220)
+app.processEvents()
+ghosts = bar.findChildren(ScaleGhost)
+assert ghosts
+for ghost in ghosts:
+    image = ghost.pixmap.toImage()
+    assert any(image.pixelColor(x, image.height() // 2).name() != '#393939' for x in range(image.width())), ghost.geometry()
+settle()
+QTest.qWait(700)
+assert not bar.findChildren(ScaleGhost)
+tabs.resize(2000, 220)
+app.processEvents()
+assert bar.tab_growth and all(spring.value < 1 for spring in bar.tab_growth.values())
+QTest.qWait(900)
+bar.update()
+app.processEvents()
+assert not bar.tab_growth
 tabs.grab().save('build/tab-scroll-preview.png')
 tabs.close()
 print('PASS: directional arrows, scroll without selection, mouse/keyboard access, edge visibility and resize')

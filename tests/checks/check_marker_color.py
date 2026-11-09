@@ -35,7 +35,10 @@ with TemporaryDirectory() as directory:
     assert dialog.tabs.currentWidget().isAncestorOf(dialog.marker_color)
     assert dialog.marker_color.isEnabled() and dialog.artwork_theme.isChecked()
     dialog.marker_color.set_color('#254c8a')
-    QTest.qWait(60)
+    for _ in range(200):
+        if app.property('handwritingColor') == '#254c8a':
+            break
+        QTest.qWait(10)
     assert app.property('handwritingColor') == '#254c8a'
     assert cd_case_pixmap(b'', 'Marker title', case_key='marker').toImage() != original
     artwork = BytesIO()

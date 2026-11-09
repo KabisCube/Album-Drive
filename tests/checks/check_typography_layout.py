@@ -27,8 +27,8 @@ with tempfile.TemporaryDirectory() as directory:
     dialog.resize(1040, 680)
     dialog.show()
     QTest.qWait(50)
-    positions = set()
     for master in (8, 16, 18, 19, 25, 16):
+        positions = set()
         dialog.numbers['main_font_size'].setValue(master)
         dialog.apply()
         QTest.qWait(30)
@@ -38,11 +38,15 @@ with tempfile.TemporaryDirectory() as directory:
                 label = form.itemAt(row, QFormLayout.LabelRole)
                 field = form.itemAt(row, QFormLayout.FieldRole)
                 if label is not None and field is not None:
-                    assert label.widget().width() == SETTING_LABEL_WIDTH
+                    column = dialog.label_column_width()
+                    assert label.widget().width() == column <= SETTING_LABEL_WIDTH
+                    text_width = label.widget().fontMetrics().horizontalAdvance(label.widget().text())
+                    assert column == SETTING_LABEL_WIDTH or label.widget().heightForWidth(column) <= label.widget().fontMetrics().height() * 1.6, \
+                        (label.widget().text(), column, text_width)
                     assert label.widget().wordWrap()
                     positions.add(field.geometry().left())
         assert app.property('headingFontSize') == round(FONT_BASE_SIZES['heading_font_size'] * master / 16)
-    assert len(positions) == 1, positions
+        assert len(positions) == 1, (master, positions)
     for key in FONT_SCALE_KEYS:
         if key in dialog.numbers and key not in ('dropdown_font_size', 'menu_font_size', 'secondary_font_size'):
             assert dialog.numbers[key].value() == 100
