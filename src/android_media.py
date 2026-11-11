@@ -24,6 +24,7 @@ class AndroidMedia(QObject):
         self.notifier = None
         self.received = b''
         self.last_state = None
+        self.last_bars = None
         self.cover_path = None
 
     def update(self, **state):
@@ -34,6 +35,20 @@ class AndroidMedia(QObject):
                 self.connect()
             self.connection.send((json.dumps(state) + '\n').encode('utf-8'))
             self.last_state = state
+        except BlockingIOError:
+            pass
+        except OSError:
+            self.disconnect()
+
+    def set_system_bars(self, color):
+        """Paint the status and navigation bars in the app's background color."""
+        if not running_on_android() or color == self.last_bars:
+            return
+        try:
+            if self.connection is None:
+                self.connect()
+            self.connection.send((json.dumps({'systemBars': color}) + '\n').encode('utf-8'))
+            self.last_bars = color
         except BlockingIOError:
             pass
         except OSError:
@@ -57,6 +72,7 @@ class AndroidMedia(QObject):
             self.connection.close()
         self.connection = None
         self.last_state = None
+        self.last_bars = None
         self.received = b''
 
     def read(self, *_):

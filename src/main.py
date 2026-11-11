@@ -2172,6 +2172,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             if compact:
                 height = self.browser_splitter.height()
                 self.browser_splitter.setSizes([round(height * .4), round(height * .6)])
+        # Phones in landscape need the logo's height for the file browser.
+        self.brand.setVisible(not (self.is_android and not compact))
         self.workspace.set_compact(compact, animate)
         self.transport.set_mix(self.workspace.mode_mix)
         self.update_compact_navigation()

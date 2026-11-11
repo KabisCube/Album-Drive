@@ -41,7 +41,8 @@ for width, height in ((1200, 800), (900, 1100), (900, 900), (860, 1300), (1400, 
             assert presentation.rect().contains(paper)
             assert not presentation.booklet.isHidden()
             if portrait:
-                assert paper.top() > front.bottom()
+                case_face, paper_face = presentation.visible_faces()
+                assert paper_face.top() > case_face.bottom()
                 assert abs(paper.center().x() - front.center().x()) <= 1
             else:
                 assert paper.left() > front.center().x()
@@ -77,7 +78,8 @@ with TemporaryDirectory() as directory:
             front = player.album_presentation.front.geometry()
             paper = player.album_presentation.booklet.geometry()
             if width < boundary:
-                assert paper.top() > front.bottom(), (width, boundary)
+                case_face, paper_face = player.album_presentation.visible_faces()
+                assert paper_face.top() > case_face.bottom(), (width, boundary)
             else:
                 assert paper.left() > front.center().x(), (width, boundary)
         view = player.album_presentation
@@ -104,7 +106,8 @@ with TemporaryDirectory() as directory:
         app.processEvents()
         transition.setCurrentTime(transition.duration())
         assert view.portrait_mix == 1
-        assert view.booklet.y() > view.front.geometry().bottom()
+        case_face, paper_face = view.visible_faces()
+        assert paper_face.top() > case_face.bottom()
     finally:
         player.close()
         for scanner in list(player.scanners):

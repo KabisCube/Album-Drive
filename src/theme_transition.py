@@ -107,6 +107,9 @@ class ThemeTransition(QObject):
         palette.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(app.property('disabledTextColor')))
         palette.setColor(QPalette.Disabled, QPalette.WindowText, disabled_text_color(text))
         self.window.setPalette(palette)
+        media = getattr(self.window, 'android_media', None)
+        if media is not None:
+            media.set_system_bars(background.name())
         for widget, _, _, _ in self.overrides:
             if not isValid(widget):
                 continue

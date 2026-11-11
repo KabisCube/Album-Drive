@@ -115,7 +115,8 @@ with TemporaryDirectory() as directory:
         window.show_album(album, play_sound=False)
         settle(window)
         assert window.album_table.rowCount() == 13
-        assert window.album_presentation.booklet.y() > window.album_presentation.front.geometry().bottom()
+        case_face, paper_face = window.album_presentation.visible_faces()
+        assert paper_face.top() > case_face.bottom()
         window.grab().save('build/previews/compact-tracks.png')
         window.back_button.click()
         assert window.viewed_album is None and window.workspace.page == 'library'

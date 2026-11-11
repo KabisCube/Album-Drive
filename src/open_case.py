@@ -6,16 +6,18 @@ from PIL import Image
 from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRectF, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform
 from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QLabel, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QVBoxLayout, QWidget
-from responsive import wrap_freely
-from themes import NUMERIC_DEFAULTS, button_paint_rect, control_face, paint_control
+from responsive import running_on_android, wrap_freely
+from themes import NUMERIC_DEFAULTS, button_paint_rect, control_face, corner_radius, paint_control
 from font_support import font_family_css
 from shiboken6 import isValid
-from case_shell import paint_cd_case, fitted_case_rect
+from case_shell import CASE_DEPTH, paint_cd_case, fitted_case_rect
 from case_geometry import CASE_WIDTH, CASE_HEIGHT
 from color_rules import artwork_text_color, color_contrast, comfortable_color
 
 PLAYING_ROLE = Qt.UserRole + 1
 PORTRAIT_ASPECT_RATIO = 1.1
+# Phones at least this wide in landscape stretch the track list to the full height of the case.
+TALL_TRACK_LIST_ASPECT_RATIO = 2.0
 ALBUM_TITLE_FONT_BOOST = 2
 
 
@@ -210,6 +212,9 @@ class CaseFront(QWidget):
     def image_rect(self):
         return fitted_case_rect(self.rect())
 
+    def visible_face(self):
+        return visible_case_face(QRectF(self.rect()))
+
     def paintEvent(self, event):
         if self.pixmap.isNull():
             return
@@ -223,12 +228,28 @@ class CaseFront(QWidget):
         paint_cd_case(painter, self, target, self.pixmap, self.sheen_key, visible=lighting, shadow=True)
 
 
+def visible_case_face(rect):
+    """Where the case face is drawn: its depth lifts it CASE_DEPTH above the fitted rect, so the thickness ends at its bottom."""
+    return fitted_case_rect(rect).translated(0, -CASE_DEPTH)
+
+
+TRACK_LIST_BORDER = 8
+TRACK_LIST_GAP = 12
+
+
 class TrackListBackground(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         background = QColor(self.property('paperBackgroundColor') or '#f2efdf')
-        paint_control(painter, self, button_paint_rect(self), background)
+        # The border and thickness share the file browser's panel shade, so the paper stays visible on a matching background.
+        border = QColor(QApplication.instance().property('themeBackground') or '#393939').darker(110)
+        face = paint_control(painter, self, button_paint_rect(self), border)
+        radius = max(0.0, corner_radius(12, face.width(), face.height()) - TRACK_LIST_BORDER)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(background)
+        painter.drawRoundedRect(face.adjusted(TRACK_LIST_BORDER, TRACK_LIST_BORDER, -TRACK_LIST_BORDER, -TRACK_LIST_BORDER),
+                                radius, radius)
 
 
 class AlbumPresentation(QWidget):
@@ -289,6 +310,9 @@ class AlbumPresentation(QWidget):
         self.animation.finished.connect(self.finish)
         self.portrait_mix = None
         self.portrait_target = None
+        self.paper_face_insets = (0.0, 0.0)
+        self.paper_face_top = 0.0
+        self.paper_face_bottom = 0.0
         self.layout_animation = QVariantAnimation(self)
         self.layout_animation.setDuration(350)
         self.layout_animation.setEasingCurve(QEasingCurve.InOutCubic)
@@ -393,36 +417,57 @@ class AlbumPresentation(QWidget):
         if portrait:
             case_width = min(width - 12, available_height * .52 * CASE_WIDTH / CASE_HEIGHT, 640)
             case_height = case_width * CASE_HEIGHT / CASE_WIDTH
-            paper_width = case_width
-            paper_height = max(1, available_height - case_height - 8)
             left = (self.width() - case_width) / 2
             top = 8
+            # Line the track list's front face up with the case face above it, one gap below the case's thickness.
+            case_face = visible_case_face(QRectF(left, top - 4 * self.progress, case_width, case_height))
+            paper_left = case_face.left() - self.paper_face_insets[0]
+            paper_width = case_face.width() + sum(self.paper_face_insets)
+            finish = case_face.bottom() + CASE_DEPTH + TRACK_LIST_GAP - self.paper_face_top
+            paper_height = max(1, top + available_height - 4 - finish)
             front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
             front_rect.moveCenter(QRectF(left, top, case_width, case_height).center())
-            start = top + case_height - paper_height - 24
-            finish = top + case_height + 4
+            start = finish - paper_height - 28
             paper_y = start + (finish - start) * self.progress
-            paper_rect = QRectF(left, paper_y, paper_width, paper_height)
+            paper_rect = QRectF(paper_left, paper_y, paper_width, paper_height)
         else:
             case_width = min(width * .55, available_height * CASE_WIDTH / CASE_HEIGHT, 640)
             case_height = case_width * CASE_HEIGHT / CASE_WIDTH
             paper_width = min(width - case_width + 8, case_width * .9)
-            paper_height = case_height * .84
-            top = 8 + (available_height - paper_height) / 2
             left = (self.width() - case_width - paper_width + 8) / 2
-            front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
-            front_rect.moveCenter(QRectF(left, top, case_width, paper_height).center())
-            start = left + case_width - paper_width - 24
-            finish = left + case_width - 8
+            window = self.window().frameGeometry()
+            if running_on_android() and window.width() >= window.height() * TALL_TRACK_LIST_ASPECT_RATIO:
+                case_top = 8 + (available_height - case_height) / 2
+                case_face = visible_case_face(QRectF(left, case_top - 4 * self.progress, case_width, case_height))
+                top = case_face.top() - self.paper_face_top
+                paper_height = case_face.height() + self.paper_face_top + self.paper_face_bottom
+                front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
+                front_rect.moveCenter(QRectF(left, case_top, case_width, case_height).center())
+            else:
+                paper_height = case_height * .84
+                top = 8 + (available_height - paper_height) / 2
+                front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
+                front_rect.moveCenter(QRectF(left, top, case_width, paper_height).center())
+                case_face = visible_case_face(QRectF(left, top, case_width, case_height))
+            finish = case_face.right() + TRACK_LIST_GAP - self.paper_face_insets[0]
+            start = finish - paper_width - 16
             paper_x = start + (finish - start) * self.progress
             paper_rect = QRectF(paper_x, top, paper_width, paper_height)
         front_rect.translate(0, 6 * (1 - self.progress) - 4 * self.progress)
         extent = paper_rect.height() if portrait else paper_rect.width()
-        edge = front_rect.bottom() - paper_rect.y() if portrait else front_rect.right() - paper_rect.x()
-        cut = max(0, min(extent, edge - 8))
+        # Hide the paper only where it is still tucked under the visible case, not under the case's margins.
+        case_face = visible_case_face(front_rect)
+        edge = (case_face.bottom() + CASE_DEPTH - paper_rect.y() if portrait else case_face.right() - paper_rect.x())
+        cut = max(0, min(extent, edge))
         visible = (QRectF(0, cut, paper_width, paper_height - cut) if portrait else
                    QRectF(cut, 0, paper_width - cut, paper_height))
         return front_rect, paper_rect, visible
+
+    def visible_faces(self):
+        """The case face and the track list face, in this widget's coordinates."""
+        case = self.front.visible_face().translated(self.front.pos())
+        paper = control_face(button_paint_rect(self.booklet), widget=self.booklet).translated(self.booklet.pos())
+        return case, paper
 
     def arrange(self):
         window = self.window().frameGeometry()
@@ -445,10 +490,14 @@ class AlbumPresentation(QWidget):
         self.booklet.setGeometry(paper_rect.toRect())
         self.booklet.setVisible(self.progress > 0 and not visible.isEmpty())
         face = control_face(button_paint_rect(self.booklet), widget=self.booklet)
+        self.paper_face_insets = (face.left(), self.booklet.width() - face.right())
+        self.paper_face_top = face.top()
+        self.paper_face_bottom = self.booklet.height() - face.bottom()
+        inset = 16 + TRACK_LIST_BORDER
         self.booklet.layout().setContentsMargins(
-            round(face.left() + 16), round(face.top() + 16),
-            round(self.booklet.width() - face.right() + 16),
-            round(self.booklet.height() - face.bottom() + 14))
+            round(face.left() + inset), round(face.top() + inset),
+            round(self.booklet.width() - face.right() + inset),
+            round(self.booklet.height() - face.bottom() + inset - 2))
         if not visible.isEmpty() and (visible.left() > 0 or visible.top() > 0):
             self.booklet.setMask(QRegion(visible.toAlignedRect()))
         else:

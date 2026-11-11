@@ -5,12 +5,15 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.view.Window;
+import android.view.WindowInsetsController;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -94,6 +97,10 @@ final class MediaBridge {
         } catch (JSONException malformed) {
             return;
         }
+        if (state.has("systemBars")) {
+            paintSystemBars(state.optString("systemBars"));
+            return;
+        }
         boolean stopped = "stopped".equals(state.optString("state"));
         latest = stopped ? null : state;
         PlaybackService service = PlaybackService.instance;
@@ -109,6 +116,40 @@ final class MediaBridge {
                 latest = state;
             }
         }
+    }
+
+    /** Edge-to-edge Android shows the window background through transparent system bars, so match the theme. */
+    private static void paintSystemBars(String name) {
+        int color;
+        try {
+            color = Color.parseColor(name);
+        } catch (IllegalArgumentException malformed) {
+            return;
+        }
+        boolean light = (0.299 * Color.red(color) + 0.587 * Color.green(color) + 0.114 * Color.blue(color)) > 150;
+        main.post(() -> {
+            if (activity == null) {
+                return;
+            }
+            Window window = activity.getWindow();
+            window.getDecorView().setBackgroundColor(color);
+            if (Build.VERSION.SDK_INT < 35) {
+                window.setStatusBarColor(color);
+                window.setNavigationBarColor(color);
+            }
+            if (Build.VERSION.SDK_INT >= 29) {
+                window.setNavigationBarContrastEnforced(false);
+                window.setStatusBarContrastEnforced(false);
+            }
+            if (Build.VERSION.SDK_INT >= 30) {
+                WindowInsetsController bars = window.getInsetsController();
+                if (bars != null) {
+                    int appearance = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                    bars.setSystemBarsAppearance(light ? appearance : 0, appearance);
+                }
+            }
+        });
     }
 
     private static void askForNotifications() {
