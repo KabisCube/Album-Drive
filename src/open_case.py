@@ -242,8 +242,9 @@ class TrackListBackground(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         background = QColor(self.property('paperBackgroundColor') or '#f2efdf')
-        # The border and thickness share the file browser's panel shade, so the paper stays visible on a matching background.
-        border = QColor(QApplication.instance().property('themeBackground') or '#393939').darker(110)
+        # The border and thickness use the panel shade the file browser would have in the opened album's theme.
+        background_of_theme = self.property('paperThemeBackground') or QApplication.instance().property('themeBackground')
+        border = QColor(background_of_theme or '#393939').darker(110)
         face = paint_control(painter, self, button_paint_rect(self), border)
         radius = max(0.0, corner_radius(12, face.width(), face.height()) - TRACK_LIST_BORDER)
         painter.setPen(Qt.NoPen)
@@ -266,6 +267,7 @@ class AlbumPresentation(QWidget):
         self.artwork_text_color = None
         self.paper_button_color = None
         self.paper_background_accent_color = None
+        self.paper_theme_background = None
         self.uses_global_text = True
         self.booklet = TrackListBackground(self)
         self.booklet.setObjectName('booklet')
@@ -351,6 +353,7 @@ class AlbumPresentation(QWidget):
         self.artwork_text_color = color if color.isValid() else None
         self.paper_button_color = theme_colors.get('themeAccent') if theme_colors else None
         self.paper_background_accent_color = theme_colors.get('themeBackgroundAccent') if theme_colors else None
+        self.paper_theme_background = theme_colors.get('themeBackground') if theme_colors else None
         self.uses_global_text = self.artwork_text_color is None and self.paper_background is None
         self.update_theme()
 
@@ -370,6 +373,7 @@ class AlbumPresentation(QWidget):
                   f'font-weight: normal; font-style: normal; color: {foreground.name()}; background: transparent; }}')
         self.booklet.setStyleSheet(style)
         self.booklet.setProperty('paperBackgroundColor', background.name())
+        self.booklet.setProperty('paperThemeBackground', self.paper_theme_background)
         self.booklet.update()
         if hasattr(self, 'table'):
             self.table.setProperty('paperBackgroundColor', background.name())

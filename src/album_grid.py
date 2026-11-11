@@ -6,7 +6,7 @@ from collections import OrderedDict, deque
 
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QMimeData, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QCursor, QDrag, QPainter, QPixmap, QTransform
-from PySide6.QtWidgets import QAbstractItemView, QApplication, QListWidget, QStyledItemDelegate
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QListWidget, QScroller, QStyledItemDelegate
 from themes import CLEANING_DEFAULT, NUMERIC_DEFAULTS, control_offset, control_shadow
 from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, case_frame_color, paint_cd_case
 from responsive import running_on_android
@@ -16,6 +16,7 @@ from scroll_shadows import ScrollEdgeFade as AlbumEdgeFade
 
 BAKED_CASE_LIMIT = 48
 GEOMETRY_CACHE_LIMIT = 1024
+ROW_SNAP_SETTLE_MS = 180
 FRAME_BAKE_LIMIT = 1
 
 
@@ -269,6 +270,14 @@ class AlbumGrid(QListWidget):
         self.scroll_animation.valueChanged.connect(lambda value: self.verticalScrollBar().setValue(round(value)))
         self.verticalScrollBar().sliderPressed.connect(self.scroll_animation.stop)
         self.verticalScrollBar().actionTriggered.connect(self.scroll_animation.stop)
+        # Whole rows: the top row always keeps the gap the first row has above it, except at the very bottom.
+        self.row_snap_timer = QTimer(self)
+        self.row_snap_timer.setSingleShot(True)
+        self.row_snap_timer.setInterval(ROW_SNAP_SETTLE_MS)
+        self.row_snap_timer.timeout.connect(self.snap_to_row)
+        self.verticalScrollBar().valueChanged.connect(lambda _: self.row_snap_timer.start())
+        self.verticalScrollBar().sliderReleased.connect(self.row_snap_timer.start)
+        self.scroll_animation.finished.connect(self.row_snap_timer.start)
         self.wheel_remainder = 0
         self.pixel_remainder = 0
         self.hover_rotation = NUMERIC_DEFAULTS['hover_rotation']
@@ -603,6 +612,42 @@ class AlbumGrid(QListWidget):
     def row_pitch(self):
         return max(1, self._row_pitch)
 
+    def row_snaps(self):
+        maximum = self.verticalScrollBar().maximum()
+        return list(range(0, maximum, self.row_pitch())) + [maximum]
+
+    def nearest_row_snap(self, value):
+        return min(self.row_snaps(), key=lambda snap: abs(snap - value))
+
+    def track_row_snaps(self):
+        """Let touch flings decelerate onto whole rows; called once the scroller exists."""
+        scroller = QScroller.scroller(self.viewport())
+        scroller.stateChanged.connect(self.row_scroller_state_changed)
+
+    def row_scroller_state_changed(self, state):
+        if state == QScroller.Pressed:
+            QScroller.scroller(self.viewport()).setSnapPositionsY(self.row_snaps())
+        elif state == QScroller.Inactive:
+            self.row_snap_timer.start()
+
+    def snap_to_row(self):
+        bar = self.verticalScrollBar()
+        busy = (bar.isSliderDown() or self.scroll_animation.state() == QVariantAnimation.Running
+                or self.reflow_animation.state() == QAbstractAnimation.Running
+                or (QScroller.hasScroller(self.viewport())
+                    and QScroller.scroller(self.viewport()).state() != QScroller.Inactive))
+        if not self.isVisible():
+            return
+        if busy:
+            self.row_snap_timer.start()  # Settle once the finger, drag or animation is done.
+            return
+        target = self.nearest_row_snap(bar.value())
+        if target != bar.value():
+            self.scroll_target = target
+            self.scroll_animation.setStartValue(float(bar.value()))
+            self.scroll_animation.setEndValue(float(target))
+            self.scroll_animation.start()
+
     def wheelEvent(self, event):
         if event.pixelDelta().y():
             self.pixel_remainder += event.pixelDelta().y()
@@ -618,7 +663,8 @@ class AlbumGrid(QListWidget):
         if steps:
             bar = self.verticalScrollBar()
             base = self.scroll_target if self.scroll_animation.state() == QVariantAnimation.Running else bar.value()
-            self.scroll_target = max(bar.minimum(), min(bar.maximum(), base - steps * self.row_pitch()))
+            base = self.nearest_row_snap(base)
+            self.scroll_target = self.nearest_row_snap(max(bar.minimum(), min(bar.maximum(), base - steps * self.row_pitch())))
             self.scroll_animation.stop()
             self.scroll_animation.setStartValue(float(bar.value()))
             self.scroll_animation.setEndValue(float(self.scroll_target))

@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory() as directory:
     window.tree.verticalScrollBar().setValue(740)
     window.grid.setCurrentRow(67)
     window.grid.finish_reflow()
-    window.grid.verticalScrollBar().setValue(1700)
+    window.grid.verticalScrollBar().setValue(window.grid.nearest_row_snap(1700))  # The album list rests on whole rows.
     selected = window.albums[window.grid.currentItem().data(Qt.UserRole)].folder
     album_scroll = window.grid.verticalScrollBar().value()
     browser_scroll = window.tree.verticalScrollBar().value()

@@ -1361,6 +1361,7 @@ class PlayerWindow(QMainWindow):
             for view in (self.tree, self.grid):
                 QScroller.scroller(view.viewport()).stateChanged.connect(lambda state: self.cancel_browsing_restore())
             QScroller.scroller(self.grid.viewport()).stateChanged.connect(self.grid_scroll_state_changed)
+            self.grid.track_row_snaps()
         else:
             for widget in (self.tree, self.grid, self.tree.viewport(), self.grid.viewport(),
                            self.tree.verticalScrollBar(), self.tree.horizontalScrollBar(), self.grid.verticalScrollBar()):
