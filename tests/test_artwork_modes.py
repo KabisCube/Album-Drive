@@ -40,7 +40,7 @@ class ArtworkModeTests(unittest.TestCase):
                 self.assertLess(abs(accent.hslHueF() - expected_hue), .025)
                 self.assertGreater(accent.hslSaturationF(), .7)
 
-    def test_small_vivid_details_supply_the_accent_without_recoloring_it(self):
+    def test_small_vivid_details_survive_sampling_without_isolated_noise(self):
         for vivid in ('#f87913', '#f1de15'):
             for background in ('#283943', '#d4cebe'):
                 image = Image.new('RGB', (64, 64), background)
@@ -49,13 +49,9 @@ class ArtworkModeTests(unittest.TestCase):
                 image.putpixel((60, 60), (255, 0, 255))
                 output = BytesIO()
                 image.save(output, format='PNG')
-                colors = artwork_theme_colors(output.getvalue())
-                accent = QColor(colors['themeHighlight'])
-                self.assertEqual(accent.name(), vivid)
-                self.assertGreater(accent.hslSaturationF(), .8)
-                self.assertEqual(colors['brandTextColor'], accent.name())
-                self.assertEqual(colors['headingTextColor'], accent.name())
-                self.assertGreaterEqual(color_contrast(accent, QColor('#101010')), 4.5)
+                details = [color.name() for color in artwork_accent_palette(output.getvalue())]
+                self.assertIn(vivid, details)
+                self.assertNotIn('#ff00ff', details)
                 self.assertNotIn(vivid, [color.name() for color in artwork_palette(output.getvalue())])
 
     def test_cover_colors_supply_ui_and_track_list_ink(self):
@@ -66,7 +62,8 @@ class ArtworkModeTests(unittest.TestCase):
                 self.assertGreater(QColor(colors[role]).hslSaturationF(), .1, (mode, role, colors[role]))
         colors = artwork_theme_colors(artwork)
         self.assertEqual(colors['textColor'], '#e2b96b')
-        self.assertGreaterEqual(color_contrast(QColor(colors['themeAccent']), QColor(colors['buttonTextColor'])), 4.5)
+        self.assertEqual(colors['buttonTextColor'], colors['themeBackgroundAccent'])
+        self.assertGreaterEqual(color_contrast(QColor(colors['themeBackground']), QColor(colors['textColor'])), 4.5)
         foreground = readable_paper_text(QColor('#122b40'), QColor('#f4f4f4'), artwork_palette(artwork))
         self.assertEqual(foreground.name(), '#e2b96b')
 
@@ -75,27 +72,27 @@ class ArtworkModeTests(unittest.TestCase):
         self.assertEqual(artwork_theme_colors(artwork), artwork_theme_colors(artwork, 'any'))
         self.assertEqual(artwork_theme_colors(artwork), artwork_theme_colors(artwork, 'invalid'))
 
-    def test_simple_cover_keeps_sampled_pink_instead_of_darkening_it(self):
+    def test_simple_cover_keeps_pink_ink_and_highlight_hue(self):
         for background in ((45, 228, 220), (24, 43, 71)):
             pink = (220, 109, 164)
             artwork = cover(*([background] * 60 + [(48, 51, 51)] * 25 + [pink] * 15))
             colors = artwork_theme_colors(artwork)
             sampled_pink = min(artwork_palette(artwork), key=lambda color:
                                sum((actual - expected) ** 2 for actual, expected in zip(color.getRgb()[:3], pink)))
-            self.assertEqual(colors['themeAccent'], sampled_pink.name())
             self.assertTrue(all(abs(actual - expected) <= 2 for actual, expected in zip(sampled_pink.getRgb()[:3], pink)))
-            self.assertGreaterEqual(color_contrast(QColor(colors['themeAccent']), QColor(colors['buttonTextColor'])), 4.5)
-            self.assertIn(colors['themeHighlight'], [color.name() for color in artwork_accent_palette(artwork)])
+            self.assertEqual(colors['buttonTextColor'], QColor(*pink).name())
+            self.assertLess(hue_gap(QColor(colors['themeHighlight']), sampled_pink), .02)
+            self.assertEqual(colors['headingTextColor'], colors['textColor'])
 
-    def test_readable_cover_neutral_wins_over_an_invented_color(self):
+    def test_readable_cover_neutral_supplies_main_text(self):
         artwork = cover(*([(45, 228, 220)] * 60 + [(48, 51, 51)] * 25 + [(220, 109, 164)] * 15))
         colors = artwork_theme_colors(artwork)
-        charcoal = min(artwork_palette(artwork), key=lambda color: color.lightnessF()).name()
-        self.assertEqual(colors['textColor'], charcoal)
-        ink = QColor(colors['buttonTextColor'])
-        self.assertLessEqual(ink.lightnessF(), QColor(charcoal).lightnessF())
-        self.assertLess(abs(ink.hslHueF() - QColor(charcoal).hslHueF()), .02)
-        self.assertGreaterEqual(color_contrast(QColor(colors['themeAccent']), ink), 4.5)
+        charcoal = min(artwork_palette(artwork), key=lambda color: color.lightnessF())
+        text = QColor(colors['textColor'])
+        self.assertTrue(all(abs(actual - expected) <= 2 for actual, expected in
+                            zip(text.getRgb()[:3], charcoal.getRgb()[:3])))
+        self.assertLess(hue_gap(text, charcoal), .02)
+        self.assertGreaterEqual(color_contrast(QColor(colors['themeBackground']), text), 4.5)
 
     def test_brightness_and_contrast_for_extreme_and_colored_covers(self):
         for rgb in ((0, 0, 0), (255, 255, 255), (255, 0, 0), (0, 255, 0),

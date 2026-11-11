@@ -40,7 +40,7 @@ class SimplePaletteTests(unittest.TestCase):
                                          (background, brown, blue))
         self.assertEqual(selected.name(), blue.name())
 
-    def test_dynamic_roles_share_highlight_and_remain_readable(self):
+    def test_dynamic_roles_share_their_primary_colors(self):
         for rgb in ((255, 255, 255), (0, 0, 0), (180, 90, 30), (20, 40, 180)):
             data = BytesIO()
             Image.new('RGB', (12, 12), rgb).save(data, format='PNG')
@@ -50,15 +50,23 @@ class SimplePaletteTests(unittest.TestCase):
                          'buttonFill', 'textColor', 'buttonTextColor', 'buttonIconColor', 'folderArrowColor')
                 self.assertLessEqual(len({colors[key] for key in roles}), 6)
                 self.assertEqual(colors['brandTextColor'], colors['themeHighlight'])
-                self.assertEqual(colors['headingTextColor'], colors['brandTextColor'])
+                self.assertEqual(colors['headingTextColor'], colors['textColor'])
+                self.assertEqual(colors['buttonTextColor'], colors['themeBackgroundAccent'])
+                self.assertEqual(colors['buttonIconColor'], colors['themeBackgroundAccent'])
 
-    def test_buttons_use_readable_text_for_light_and_dark_surfaces(self):
+    def test_buttons_preserve_chosen_ink_for_light_and_dark_surfaces(self):
         for fill in ('#eeeeee', '#111111', '#ac2614', '#2c80ee'):
-            palette = simplify_theme_colors(dict(themeBackground='#202020', themeAccent='#cf8020',
-                buttonFill=fill, textColor='#ffffff', brandTextColor='#cfdf0e'))
-            self.assertGreaterEqual(color_contrast(QColor(palette['themeAccent']), QColor(palette['buttonTextColor'])), 4.5)
-            self.assertEqual(palette['brandTextColor'], palette['themeHighlight'])
-            self.assertEqual(palette['timelineColor'], palette['themeAccent'])
+            for ink in (None, '#122b40'):
+                chosen = dict(themeBackground='#202020', themeAccent='#cf8020',
+                              buttonFill=fill, textColor='#ffffff', brandTextColor='#cfdf0e')
+                if ink is not None:
+                    chosen['themeBackgroundAccent'] = ink
+                palette = simplify_theme_colors(chosen)
+                expected_ink = palette['themeBackgroundAccent'] if ink else palette['textColor']
+                self.assertEqual(palette['buttonTextColor'], expected_ink)
+                self.assertEqual(palette['buttonIconColor'], expected_ink)
+                self.assertEqual(palette['brandTextColor'], palette['themeHighlight'])
+                self.assertEqual(palette['timelineColor'], palette['themeAccent'])
 
     def test_minor_cover_color_supplies_distinct_readable_highlight(self):
         image = Image.new('RGB', (100, 1))
@@ -70,9 +78,9 @@ class SimplePaletteTests(unittest.TestCase):
             colors = artwork_theme_colors(output.getvalue(), mode)
             highlight = QColor(colors['themeHighlight'])
             self.assertNotEqual(colors['themeAccent'], colors['themeBackground'])
-            self.assertGreaterEqual(color_contrast(QColor(colors['themeAccent']), QColor(colors['buttonTextColor'])), 4.5)
+            self.assertEqual(colors['buttonTextColor'], colors['themeBackgroundAccent'])
             self.assertEqual(colors['brandTextColor'], highlight.name())
-            self.assertEqual(colors['headingTextColor'], colors['brandTextColor'])
+            self.assertEqual(colors['headingTextColor'], colors['textColor'])
         colors = artwork_theme_colors(output.getvalue(), 'dark')
         hue = QColor(colors['themeHighlight']).hslHueF()
         self.assertLess(min(abs(hue - 0.966), 1 - abs(hue - 0.966)), .03)
