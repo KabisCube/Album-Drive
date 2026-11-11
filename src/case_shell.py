@@ -3,9 +3,10 @@ from hashlib import blake2b
 from functools import lru_cache
 from io import BytesIO
 import colorsys
+from threading import Lock
 from PIL import Image
 from PySide6.QtCore import QPointF, QRectF, QSizeF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QTransform
+from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QTransform
 from case_finish import paint_case_finish
 from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
 from themes import control_body, control_offset, control_property, control_shadow, control_shadow_body
@@ -160,9 +161,23 @@ def artwork_tray_color(artwork):
         return None
 
 
+_shell_lock = Lock()
+
+
+def shell_image(tray_color=''):
+    # Shared by the case loader threads; QImage is safe to paint from any thread.
+    with _shell_lock:
+        return cached_shell_image(tray_color)
+
+
 @lru_cache(maxsize=32)
 def shell_pixmap(tray_color=''):
-    pixmap = QPixmap(CASE_PIXMAP_SIZE)
+    return QPixmap.fromImage(shell_image(tray_color))
+
+
+@lru_cache(maxsize=32)
+def cached_shell_image(tray_color=''):
+    pixmap = QImage(CASE_PIXMAP_SIZE, QImage.Format_ARGB32_Premultiplied)
     pixmap.setDevicePixelRatio(CASE_PIXMAP_SIZE.width() / CASE_WIDTH)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
@@ -197,5 +212,5 @@ def shell_pixmap(tray_color=''):
 
 def paint_shell(painter, key, artwork=b'', tray_color=None):
     tray = artwork_tray_color(artwork) if tray_color is None else tray_color
-    shell = shell_pixmap(QColor(tray).name() if tray else '')
-    painter.drawPixmap(QRectF(0, 0, CASE_WIDTH, CASE_HEIGHT), shell, QRectF(shell.rect()))
+    shell = shell_image(QColor(tray).name() if tray else '')
+    painter.drawImage(QRectF(0, 0, CASE_WIDTH, CASE_HEIGHT), shell, QRectF(shell.rect()))

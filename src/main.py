@@ -23,7 +23,7 @@ if sys.platform == 'win32':
     os.environ.setdefault('QT_FFMPEG_EXCLUDE_ENCODERS', 'h264_mf,hevc_mf,av1_mf')
 QLoggingCategory.setFilterRules('*.debug=false\n*.info=false')
 logging.basicConfig(level=logging.WARNING)
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontDatabase, QIcon, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QTextLayout, QTextOption, QTransform
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontDatabase, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QTextLayout, QTextOption, QTransform
 from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFileSystemModel, QGraphicsOpacityEffect, QHBoxLayout,
@@ -46,6 +46,8 @@ from theme_settings import ThemeSettingsDialog, capture_color_theme, custom_colo
 from theme_transition import ThemeTransition, strip_theme_colors
 from live_scrollbars import install_live_scrollbars
 from scroll_shadows import paint_scroll_background
+from case_loader import CaseLoader, prepare_case
+from case_loader import fitted as fitted_size
 from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, case_frame_color, paint_cd_case, paint_shell, artwork_tray_color, fitted_case_rect
 from themes import control_offset
 from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
@@ -155,11 +157,12 @@ def time_text(seconds):
     return f'{hours}:{minutes:02}:{seconds:02}' if hours else f'{minutes}:{seconds:02}'
 
 
-def handwritten_title_path(title, font, area):
+def handwritten_title_path(title, font, area, maximum=None):
     """Fit actual glyph outlines, including overshoots and tilt, inside the sleeve."""
     font = QFont(font)
     rotation = QTransform().rotate(-4)
-    maximum = int(QApplication.instance().property('handwritingFontSize') or NUMERIC_DEFAULTS['handwriting_font_size'])
+    if maximum is None:
+        maximum = int(QApplication.instance().property('handwritingFontSize') or NUMERIC_DEFAULTS['handwriting_font_size'])
     for size in range(maximum, 5, -1):
         font.setPixelSize(size)
         layout = QTextLayout(title, font)
@@ -201,35 +204,53 @@ def handwritten_title_path(title, font, area):
     return path
 
 
-def cd_case_pixmap(artwork, title, handwriting_font=None, case_key=None, tray_color=None):
-    """Render a jewel case around the sleeve, with crisp edges on HiDPI screens."""
-    pixmap = QPixmap(CASE_PIXMAP_SIZE)
-    pixmap.setDevicePixelRatio(CASE_PIXMAP_SIZE.width() / CASE_WIDTH)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
+def case_ink_style(handwriting_font=None):
+    """Read the app-wide handwriting look on the GUI thread, for rendering elsewhere."""
+    app = QApplication.instance()
+    font = QFont(handwriting_font) if handwriting_font is not None else QFont(app.property('handwritingFamily') or 'cursive')
+    return (font.toString(), app.property('handwritingColor') or '#1b2834',
+            int(app.property('handwritingFontSize') or NUMERIC_DEFAULTS['handwriting_font_size']))
+
+
+def cd_case_image(artwork, title, ink_style, case_key=None, tray_color=None, cover=None):
+    """Render a jewel case around the sleeve; cover, when given, is the artwork already cropped square."""
+    image = QImage(CASE_PIXMAP_SIZE, QImage.Format_ARGB32_Premultiplied)
+    image.setDevicePixelRatio(CASE_PIXMAP_SIZE.width() / CASE_WIDTH)
+    image.fill(Qt.transparent)
+    painter = QPainter(image)
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setRenderHint(QPainter.SmoothPixmapTransform)
     painter.setPen(Qt.NoPen)
     paint_shell(painter, case_key, artwork, tray_color)
     sleeve = sleeve_rect(QRectF(0, 0, CASE_WIDTH, CASE_HEIGHT))
-    cover = QPixmap()
-    has_cover = bool(artwork) and cover.loadFromData(artwork)
-    handwritten_title = not has_cover
-    if has_cover:
+    if cover is None:
+        cover = QImage()
+        if artwork:
+            cover.loadFromData(artwork)
+    if not cover.isNull():
         side = min(cover.width(), cover.height())
         source = QRectF((cover.width() - side) / 2, (cover.height() - side) / 2, side, side)
-        painter.drawPixmap(sleeve, cover, source)
-    if handwritten_title:
+        painter.drawImage(sleeve, cover, source)
+    else:
+        font_description, ink_color, maximum = ink_style
+        font = QFont()
+        font.fromString(font_description)
         painter.save()
         painter.setClipRect(sleeve)
-        font = QFont(handwriting_font) if handwriting_font is not None else QFont(
-            QApplication.instance().property('handwritingFamily') or 'cursive')
-        ink = handwritten_title_path(title, font, sleeve.adjusted(7, 7, -7, -7))
+        ink = handwritten_title_path(title, font, sleeve.adjusted(7, 7, -7, -7), maximum)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(QApplication.instance().property('handwritingColor') or '#1b2834'))
+        painter.setBrush(QColor(ink_color))
         painter.drawPath(ink)
         painter.restore()
     painter.end()
+    return image
+
+
+def cd_case_pixmap(artwork, title, handwriting_font=None, case_key=None, tray_color=None):
+    """Render a jewel case around the sleeve, with crisp edges on HiDPI screens."""
+    image = cd_case_image(artwork, title, case_ink_style(handwriting_font), case_key, tray_color)
+    pixmap = QPixmap.fromImage(image)
+    pixmap.setDevicePixelRatio(image.devicePixelRatio())
     return pixmap
 
 
@@ -1033,6 +1054,7 @@ THEME_COLOR_CACHE_SIZE = 64
 THEME_PREPARE_DELAY_MS = 400
 ANDROID_THEME_STEP_MS = 100
 SETTINGS_PREPARE_DELAY_MS = 2500
+SETTINGS_BUILD_SLICE_SECONDS = .006
 VOLATILE_SETTINGS = {'browsing_state', 'window_geometry', 'sidebar_width', 'volume', 'settings_view_state'}
 ANDROID_TRANSPORT_ROW_GAP = -8
 PLAYBACK_STALL_MS = 1500
@@ -1101,6 +1123,10 @@ class PlayerWindow(QMainWindow):
         self.settings_prepare_timer.setSingleShot(True)
         self.settings_prepare_timer.setInterval(SETTINGS_PREPARE_DELAY_MS)
         self.settings_prepare_timer.timeout.connect(self.prepare_settings)
+        self.settings_build = None
+        self.settings_build_timer = QTimer(self)
+        self.settings_build_timer.setSingleShot(True)
+        self.settings_build_timer.timeout.connect(self.continue_settings_build)
         self.theme_prepare_timer = QTimer(self)
         self.theme_prepare_timer.setSingleShot(True)
         self.theme_prepare_timer.setInterval(THEME_PREPARE_DELAY_MS)
@@ -1118,6 +1144,9 @@ class PlayerWindow(QMainWindow):
         self.player.setAudioOutput(self.audio)
         self.playback_shutdown = False
         QApplication.instance().aboutToQuit.connect(self.shutdown_playback)
+        if self.is_android:
+            # Android kills backgrounded apps without a close event, so save on the way out.
+            QApplication.instance().applicationStateChanged.connect(self.save_on_background)
         self.media_devices = QMediaDevices(self)
         self.media_devices.audioOutputsChanged.connect(self.refresh_audio_output, Qt.QueuedConnection)
         self.player.positionChanged.connect(self.position_changed)
@@ -1344,6 +1373,15 @@ class PlayerWindow(QMainWindow):
         self.case_source_cache = OrderedDict()
         self.case_cache_bytes = {'icons': 0, 'sources': 0}
         self.case_prefetch_signature = None
+        self.case_generation = 0
+        self.case_prefetch_index_rows = {}
+        self.case_loading_icons = {}
+        self.case_loader = CaseLoader(prepare_case, self)
+        self.case_loader.loaded.connect(self.case_loaded)
+        self.case_repaint_timer = QTimer(self)
+        self.case_repaint_timer.setSingleShot(True)
+        self.case_repaint_timer.setInterval(16)
+        self.case_repaint_timer.timeout.connect(self.grid.viewport().update)
         self.album_scale_timer = QTimer(self)
         self.album_scale_timer.setSingleShot(True)
         self.album_scale_timer.setInterval(33)
@@ -1929,19 +1967,50 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         if (self.closing or self.prepared_settings is not None or getattr(self, 'settings_dialog', None) is not None
                 or self.first_run_needed or QApplication.activeModalWidget() is not None):
             return
-        if QScroller.scroller(self.grid.viewport()).state() != QScroller.Inactive:
-            self.settings_prepare_timer.start()
+        if self.settings_build is None:
+            if self.user_is_interacting():
+                self.settings_prepare_timer.start()
+                return
+            self.settings_build = ThemeSettingsDialog(self.settings, self, staged=True)
+            self.settings_build_values = self.settings_values()
+        self.continue_settings_build()
+
+    def user_is_interacting(self):
+        return (QApplication.mouseButtons() != Qt.NoButton
+                or QScroller.scroller(self.grid.viewport()).state() != QScroller.Inactive)
+
+    def continue_settings_build(self):
+        """Build a few steps per event-loop turn; pause while a finger is down or a list is moving."""
+        dialog = self.settings_build
+        if dialog is None or self.closing:
             return
-        dialog = ThemeSettingsDialog(self.settings, self)
-        dialog.color_preview_timer.stop()
-        dialog.ensurePolished()
-        self.prepared_settings = dialog
-        self.prepared_settings_values = self.settings_values()
+        if self.user_is_interacting():
+            self.settings_build_timer.start(120)
+            return
+        began = time.perf_counter()
+        while time.perf_counter() - began < SETTINGS_BUILD_SLICE_SECONDS:
+            try:
+                done = dialog.advance_build()
+            except Exception:
+                self.discard_prepared_settings()  # Settings will be built on demand instead.
+                raise
+            if done:
+                self.settings_build = None
+                dialog.color_preview_timer.stop()
+                dialog.ensurePolished()
+                self.prepared_settings = dialog
+                self.prepared_settings_values = self.settings_build_values
+                return
+        self.settings_build_timer.start(0)
 
     def discard_prepared_settings(self):
         if self.prepared_settings is not None:
             self.prepared_settings.deleteLater()
             self.prepared_settings = None
+        if self.settings_build is not None:
+            self.settings_build_timer.stop()
+            self.settings_build.deleteLater()
+            self.settings_build = None
 
     def take_prepared_settings(self):
         dialog = self.prepared_settings
@@ -2507,6 +2576,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         if sources:
             self.case_source_cache.clear()
             self.case_cache_bytes['sources'] = 0
+            self.case_generation += 1
+            self.case_loader.keep_only(self.case_generation, ())
         self.case_prefetch_signature = None
 
     def cache_case_pixmap(self, cache, kind, index, pixmap):
@@ -2515,6 +2586,11 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         while len(cache) > 1 and self.case_cache_bytes[kind] > 48 * 1024 * 1024:
             _, removed = cache.popitem(last=False)
             self.case_cache_bytes[kind] -= removed.width() * removed.height() * removed.depth() // 8
+
+    def case_icon_target(self):
+        ratio = self.grid.devicePixelRatioF()
+        size = self.grid.iconSize()
+        return QSize(round(size.width() * ratio), round(size.height() * ratio))
 
     def album_icon(self, row):
         item = self.grid.item(row)
@@ -2525,19 +2601,65 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         if icon is None:
             source = self.case_source_cache.get(index)
             if source is None:
-                album = self.albums[index]
-                source = cd_case_pixmap(album.thumbnail or album.artwork, album.title,
-                    handwriting_font=self.artist_handwriting(album.folder.parent), case_key=str(album.folder),
-                    tray_color=artwork_tray_color(
-                        album.thumbnail if self.is_android and album.thumbnail else album.artwork) or '')
-                self.cache_case_pixmap(self.case_source_cache, 'sources', index, source)
+                self.request_case(index)
+                return self.loading_case_icon()
             self.case_source_cache.move_to_end(index)
             ratio = self.grid.devicePixelRatioF()
-            size = self.grid.iconSize()
-            icon = source.scaled(round(size.width() * ratio), round(size.height() * ratio), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            icon = QPixmap.fromImage(source.scaled(self.case_icon_target(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
             icon.setDevicePixelRatio(ratio)
             self.cache_case_pixmap(self.case_icon_cache, 'icons', index, icon)
         self.case_icon_cache.move_to_end(index)
+        return icon
+
+    def request_case(self, index):
+        if not 0 <= index < len(self.albums):
+            return
+        album = self.albums[index]
+        artwork = album.thumbnail or album.artwork
+        tray_source = album.thumbnail if self.is_android and album.thumbnail else album.artwork
+        target = self.case_icon_target()
+        self.case_loader.request(self.case_generation, index, (artwork, tray_source, (target.width(), target.height())))
+
+    def case_loaded(self, result):
+        generation, index, prepared = result
+        self.case_loader.finished(generation, index)
+        if generation != self.case_generation or self.closing or not 0 <= index < len(self.albums):
+            return
+        album = self.albums[index]
+        if prepared.source is None:
+            source = cd_case_image(album.thumbnail or album.artwork, album.title,
+                                   case_ink_style(self.artist_handwriting(album.folder.parent)),
+                                   str(album.folder), prepared.tray or '')
+        else:
+            width, height = prepared.source_size
+            source = QImage(prepared.source, width, height, width * 4, QImage.Format_RGBA8888).copy()
+            source.setDevicePixelRatio(CASE_PIXMAP_SIZE.width() / CASE_WIDTH)
+            target = self.case_icon_target()
+            if prepared.icon_size == fitted_size(prepared.source_size, (target.width(), target.height())):
+                width, height = prepared.icon_size
+                icon = QPixmap.fromImage(QImage(prepared.icon, width, height, width * 4, QImage.Format_RGBA8888))
+                icon.setDevicePixelRatio(self.grid.devicePixelRatioF())
+                self.cache_case_pixmap(self.case_icon_cache, 'icons', index, icon)
+        self.cache_case_pixmap(self.case_source_cache, 'sources', index, source)
+        if not self.case_repaint_timer.isActive():
+            self.case_repaint_timer.start()
+        row = self.case_prefetch_index_rows.get(index)
+        if row is not None:
+            self.case_prefetch_rows.append(row)
+            if not self.case_prefetch_timer.isActive():
+                self.case_prefetch_timer.start(8)
+
+    def loading_case_icon(self):
+        target = self.case_icon_target()
+        key = (target.width(), target.height())
+        icon = self.case_loading_icons.get(key)
+        if icon is None:
+            image = cd_case_image(b'', '', case_ink_style())
+            icon = QPixmap.fromImage(image.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            icon.setDevicePixelRatio(self.grid.devicePixelRatioF())
+            self.case_loading_icons = {key: icon}
+            self.grid.loading_icon = icon
+            self.grid.loading_icon_key = icon.cacheKey()
         return icon
 
     def schedule_icon_prefetch(self, *args):
@@ -2552,6 +2674,18 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             return
         self.case_prefetch_signature = signature
         self.case_prefetch_rows = deque(range(first_row * columns, min(self.grid.count(), (first_row + rows) * columns)))
+        self.case_prefetch_index_rows = {}
+        for row in self.case_prefetch_rows:
+            item = self.grid.item(row)
+            if item is not None:
+                self.case_prefetch_index_rows[item.data(Qt.UserRole)] = row
+        wanted = self.case_prefetch_index_rows
+        self.case_loader.keep_only(self.case_generation, wanted)
+        for index in wanted:
+            if index not in self.case_source_cache:
+                self.request_case(index)
+        # Room for every prefetched case plus a screen of history, so prebaking never evicts what is visible.
+        self.grid.baked_limit = max(48, len(self.case_prefetch_rows) * 2)
         if not self.case_prefetch_timer.isActive():
             self.case_prefetch_timer.start(8)
 
@@ -2565,8 +2699,16 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         while self.case_prefetch_rows:
             row = self.case_prefetch_rows.popleft()
             item = self.grid.item(row)
-            if item is not None and item.data(Qt.UserRole) not in self.case_icon_cache:
+            if item is None:
+                continue
+            index = item.data(Qt.UserRole)
+            if index not in self.case_source_cache:
+                self.request_case(index)
+                continue  # Its prebake waits for the loader, which restarts this timer.
+            loaded = index not in self.case_icon_cache
+            if loaded:
                 self.album_icon(row)
+            if self.grid.prebake(row) or loaded:
                 break
         if self.case_prefetch_rows:
             self.case_prefetch_timer.start(8)
@@ -3031,6 +3173,16 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.settings.setValue('session/album', str(album.folder.resolve()))
             self.settings.setValue('session/position', self.resume_position if self.resume_position is not None else self.player.position())
 
+    def save_on_background(self, state):
+        if state == Qt.ApplicationActive or self.closing or self.first_run_needed:
+            return
+        if self.browsing_restore_attempts >= 100:
+            self.save_browsing_state()
+        self.save_session()
+        save_session_palette(self.settings)
+        self.settings.setValue('volume', self.volume.value())
+        self.settings.sync()
+
     def save_browsing_state(self):
         expanded = []
         pending = [self.tree.rootIndex()]
@@ -3262,6 +3414,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.statusBar().showMessage(f'Playback error: {message}')
 
     def shutdown_playback(self):
+        self.case_loader.shutdown()
         if self.playback_shutdown:
             return
         self.playback_shutdown = True

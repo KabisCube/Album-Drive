@@ -12,7 +12,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from case_finish import paint_case_finish, scratch_overlay
 from library import Album
-from main import PlayerWindow, cd_case_pixmap
+from main import PlayerWindow, cd_case_image
 
 
 app = QApplication([])
@@ -38,14 +38,20 @@ with tempfile.TemporaryDirectory() as directory:
     layout_ms = (time.perf_counter() - start) * 1000
     window.case_prefetch_timer.stop()
     window.clear_case_cache()
-    with patch('main.cd_case_pixmap', wraps=cd_case_pixmap) as render:
+    with patch('main.cd_case_image', wraps=cd_case_image) as render:
+        renders = lambda: sum(1 for call in render.call_args_list if call.args[1] == 'Album 0')
         window.album_icon(0)
-        assert render.call_count == 1
+        deadline = time.monotonic() + 5
+        while 0 not in window.case_source_cache and time.monotonic() < deadline:
+            QTest.qWait(20)
+        assert 0 in window.case_source_cache
+        assert renders() == 1
         for percent in (60, 85, 125, 150, 50):
             window.album_size.setValue(percent)
             window.grid.finish_reflow()
             window.album_icon(0)
-            assert render.call_count == 1
+            assert 0 in window.case_icon_cache
+            assert renders() == 1
             bar = window.grid.verticalScrollBar()
             bar.setValue(bar.maximum())
             last = window.grid.visualItemRect(window.grid.item(window.grid.count() - 1))

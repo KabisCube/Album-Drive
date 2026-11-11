@@ -379,8 +379,27 @@ def scrollbar_space(area):
 class ThemeSettingsDialog(QDialog):
     applied = Signal()
 
-    def __init__(self, settings, parent=None):
+    def __init__(self, settings, parent=None, staged=False):
         super().__init__(parent)
+        steps = self.build(settings, parent)
+        # Staged dialogs are finished by the caller a few steps at a time, so phones never freeze for the whole build.
+        self.pending_build = steps if staged else None
+        if not staged:
+            for _ in steps:
+                pass
+
+    def advance_build(self):
+        """Run one construction step of a staged dialog. Returns True once it is complete."""
+        if self.pending_build is None:
+            return True
+        try:
+            next(self.pending_build)
+            return False
+        except StopIteration:
+            self.pending_build = None
+            return True
+
+    def build(self, settings, parent):
         self.settings = settings
         self.setObjectName('themeSettings')
         migrate_button_size(settings)
@@ -427,6 +446,7 @@ class ThemeSettingsDialog(QDialog):
             scroll.setFrameShape(QScrollArea.NoFrame)
             scroll.setWidget(page)
             self.tabs.addTab(scroll, name)
+            yield
         self.theme_name = str(settings.value('theme', THEME_DEFAULT))
         self.artwork_theme = ChunkyCheckBox('Use dynamic theme')
         self.artwork_theme.setChecked(settings.value('artwork_theme_enabled', ARTWORK_THEME_DEFAULT, type=bool))
@@ -436,6 +456,7 @@ class ThemeSettingsDialog(QDialog):
         self.continuous_playback.setChecked(settings.value('continuous_playback', True, type=bool))
         self.continuous_playback.setToolTip('At the end of an album, jump to the next one in the folder.')
         forms['General'].addRow(self.continuous_playback)
+        yield
         self.artwork_theme_mode = ThemedComboBox()
         self.artwork_theme_mode.setAccessibleName('Theme brightness')
         for label, value in (('any', 'any'), ('dark', 'dark'), ('light', 'light')):
@@ -444,6 +465,7 @@ class ThemeSettingsDialog(QDialog):
             str(settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))))
         self.dynamic_brightness = 'any'
         self.fixed_brightness = None
+        yield
         forms['Colors'].addRow('Theme brightness', self.artwork_theme_mode)
         self.guide_button = ThemedButton('Start')
         self.guide_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
@@ -459,6 +481,7 @@ class ThemeSettingsDialog(QDialog):
         self.active_color_choice = str(settings.value('selected_color_theme', ''))
         self.saved_theme_choice.setToolTip('Use a saved theme when dynamic colors are off or artwork is unavailable.')
         forms['Appearance'].addRow('Saved color themes', self.saved_theme_choice)
+        yield
         self.library_folder = str(settings.value('browser_root', settings.value('folder', '')))
         self.original_library = self.library_folder
         self.library_button = ThemedButton('Choose')
@@ -471,6 +494,7 @@ class ThemeSettingsDialog(QDialog):
         self.library_label.setWordWrap(True)
         self.library_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         forms['General'].addRow(self.library_label)
+        yield
         self.audio_output_choice = ThemedComboBox()
         self.audio_output_choice.setAccessibleName('Audio output')
         self.refresh_audio_devices(str(settings.value('audio_output_device', '')))
@@ -478,6 +502,7 @@ class ThemeSettingsDialog(QDialog):
         self.audio_devices = QMediaDevices(self)
         self.audio_devices.audioOutputsChanged.connect(lambda: self.refresh_audio_devices())
         forms['General'].addRow('Audio output', self.audio_output_choice)
+        yield
         self.ui_font_choice = ThemedComboBox()
         self.ui_font_choice.setAccessibleName('Interface font')
         self.ui_font_choice.addItem('Album Round (default)', UI_FONT_DEFAULT)
@@ -488,12 +513,15 @@ class ThemeSettingsDialog(QDialog):
             if font['family'] not in bundled_families:
                 self.ui_font_choice.addItem(font['family'], font['id'])
                 bundled_families.add(font['family'])
-        for family in QFontDatabase.families():
+        for number, family in enumerate(QFontDatabase.families()):
             if family not in bundled_families:
                 self.ui_font_choice.addItem(family, 'system:' + family)
+            if number % 20 == 19:
+                yield
         self.select_ui_font(str(settings.value('ui_font', UI_FONT_DEFAULT)))
         self.ui_font_choice.setToolTip('Choose the interface font.')
         forms['Text'].addRow('Interface font', self.ui_font_choice)
+        yield
         self.colors = {}
         self.numbers = {}
         rounding_row = QHBoxLayout()
@@ -528,12 +556,14 @@ class ThemeSettingsDialog(QDialog):
                 forms['Colors'].addRow(label, button)
             else:
                 button.hide()
+            yield
         self.marker_color = ColorSwatch(str(settings.value('marker_text_color', MARKER_COLOR_DEFAULT)), 'Text color', self)
         self.marker_color.setObjectName('marker_text_color')
         self.marker_color.clicked.connect(self.choose_marker_color)
         forms['Colors'].addRow('Text color', self.marker_color)
         for definition in NUMERIC_SETTINGS:
             self.add_numeric(forms, definition)
+            yield
         self.colors.update({alias: self.colors[canonical] for alias, canonical in MERGED_COLOR_SETTINGS.items()})
         self.sync_color_roles()
         self.numbers.update({alias: self.numbers[canonical] for alias, canonical in MERGED_NUMERIC_SETTINGS.items()})
@@ -554,8 +584,9 @@ class ThemeSettingsDialog(QDialog):
         self.numbers['handwriting_font_size'].setToolTip('Resize titles on covers without artwork.')
         self.numbers['hover_rotation'].setToolTip('Set how far albums tilt on hover.')
         self.prepare_setting_resets()
-        self.organize_settings(forms)
+        yield from self.organize_settings(forms)
         self.update_reset_buttons()
+        yield
         self.forms = forms
         self.artwork_theme.toggled.connect(self.update_brightness_options)
         self.artwork_theme.toggled.connect(self.update_dependencies)
@@ -571,7 +602,9 @@ class ThemeSettingsDialog(QDialog):
         self.color_preview_timer.timeout.connect(self.update_dynamic_swatches)
         self.color_preview_timer.start()
         self.update_dependencies()
+        yield
         self.update_vertical_spacing()
+        yield
         self.saved_theme_choice.currentIndexChanged.connect(self.select_saved_theme)
         self.saved_theme_choice.activated.connect(self.select_saved_theme)
         reset = ThemedButton('Restore defaults')
@@ -593,6 +626,7 @@ class ThemeSettingsDialog(QDialog):
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.action_row.controls.addWidget(button, 1)
         self.layout_actions()
+        yield
         outer.addWidget(self.action_row)
         for control in self.findChildren(QWidget):
             if isinstance(control, (ThemedButton, ThemedComboBox)):
@@ -636,7 +670,7 @@ class ThemeSettingsDialog(QDialog):
             slider.sliderReleased.connect(self.end_slider_drag)
 
     def organize_settings(self, forms):
-        """Group related rows with quiet headings and space between sections."""
+        """Group related rows with quiet headings and space between sections. Yields between rows."""
         groups = {
             'General': ('Music library', 'Playback'),
             'Style': ('Theme', 'Interface', 'Buttons', 'Settings window'),
@@ -728,6 +762,7 @@ class ThemeSettingsDialog(QDialog):
                         label.setEnabled(field.isEnabled())
                         field.installEventFilter(self)
                 rows[destination[0]][destination[1]].append((label, field))
+                yield
         # Replace the construction pages with the interface-area pages.
         old_pages = [self.tabs.widget(index) for index in range(self.tabs.count())]
         self.tabs.clear()
@@ -743,9 +778,8 @@ class ThemeSettingsDialog(QDialog):
             scroll.setFrameShape(QScrollArea.NoFrame)
             scroll.setWidget(page)
             self.tabs.addTab(scroll, category)
+            yield
         self.tabs.setUsesScrollButtons(False)
-        for old_page in old_pages:
-            old_page.deleteLater()
         for category, sections in groups.items():
             form = forms[category]
             for index, section in enumerate(sections):
@@ -792,6 +826,10 @@ class ThemeSettingsDialog(QDialog):
                         form.addRow(label, field)
                     else:
                         form.addRow(field)
+                    yield
+        # Only now are all controls off the construction pages; deleting them earlier would take controls along.
+        for old_page in old_pages:
+            old_page.deleteLater()
 
     def prepare_setting_resets(self):
         self.reset_specs = {}

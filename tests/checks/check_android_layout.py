@@ -15,6 +15,14 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QAbstractButton, QAbstractScrollArea, QApplication, QLabel
 
+
+def finish_settings_build(window):
+    """Phones build Settings a few steps per event-loop turn; wait for it to finish."""
+    deadline = time.monotonic() + 10
+    while window.settings_build is not None and time.monotonic() < deadline:
+        QTest.qWait(5)
+    return window.prepared_settings
+
 app = QApplication([])
 QApplication.platformName = staticmethod(lambda: 'android')
 
@@ -80,13 +88,13 @@ with TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         assert grid_top >= header_bottom, 'albums stay below the header'
 
         window.prepare_settings()
-        prepared = window.prepared_settings
+        prepared = finish_settings_build(window)
         assert prepared is not None and not prepared.isVisible() and not prepared.color_preview_timer.isActive()
         settings.setValue('album_sort', 'oldest')
         assert window.take_prepared_settings() is None, 'a changed setting must not reuse a stale Settings window'
         settings.setValue('album_sort', 'newest')
         window.prepare_settings()
-        prepared = window.prepared_settings
+        prepared = finish_settings_build(window)
         settings.setValue('session/position', 1234)
         settings.setValue('volume', 50)
         window.edit_theme_settings()
