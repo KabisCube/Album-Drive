@@ -87,9 +87,9 @@ with tempfile.TemporaryDirectory() as directory:
     QTest.qWait(20)
     assert not window.settings_button.text() and not window.settings_button.icon().isNull()
     assert window.settings_button.accessibleName() == 'Settings'
-    assert window.settings_button.x() > window.refresh_button.x()
+    assert window.settings_button.x() > window.save_theme_button.x()
     assert window.settings_button.menu() is None
-    assert window.volume.x() - window.play.geometry().right() >= 12
+    assert window.volume.x() - window.next.geometry().right() >= 12
     assert window.previous.x() - window.volume.geometry().right() >= 12
     window.settings_button.click()
     assert window.settings_dialog.isVisible()

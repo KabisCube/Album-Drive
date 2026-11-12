@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory() as directory:
     window.grid.refresh_hover()
     assert not window.grid.tilts and not window.grid.tilt_animations
     assert not window.tidy_button.isVisible()
-    assert window.play.x() < window.volume.x() < window.previous.x() < window.seek.x() < window.next.x()
+    assert window.play.x() < window.previous.x() < window.seek.x() < window.next.x() < window.volume.x()
     assert Path(window.files.filePath(window.tree.rootIndex())) == (root / 'music').resolve()
     assert window.files.data(window.files.index(str(root / 'music' / 'Album 01')), Qt.DecorationRole) is None
     window.tree.setCurrentIndex(window.files.index(str(root / 'music' / 'Album 02')))
@@ -131,10 +131,11 @@ with tempfile.TemporaryDirectory() as directory:
     assert window.album_artwork.width() >= 250
     assert window.album_artwork.isVisible() and window.album_table.isVisible()
     assert window.tree.isVisible() and window.play.isVisible()
-    assert window.album_presentation.booklet.height() < window.album_artwork.height()
     assert window.album_presentation.booklet.x() > window.album_artwork.x()
     assert not window.album_table.alternatingRowColors()
     wait_until(lambda: window.album_presentation.progress == 1.0)
+    case_face, paper_face = window.album_presentation.visible_faces()
+    assert abs(case_face.top() - paper_face.top()) <= 2 and abs(case_face.bottom() - paper_face.bottom()) <= 2, (case_face, paper_face)
     assert not hasattr(window, 'play_album_button')
     assert not window.album_artwork.pixmap.isNull()
     assert window.grid.isVisible() and window.library_opacity.opacity() == .2

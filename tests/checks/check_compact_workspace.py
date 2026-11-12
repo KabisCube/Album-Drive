@@ -9,6 +9,7 @@ from PIL import Image
 from PySide6.QtCore import QAbstractAnimation, QPoint, QSettings, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
+from adaptive_workspace import TRANSPORT_TRIM_BOTTOM, TRANSPORT_TRIM_TOP
 from main import PlayerWindow
 from test_library import make_wave
 
@@ -156,7 +157,7 @@ with TemporaryDirectory() as directory:
         settle(window)
         assert window.width() == 320 and window.compact_mode
         for widget in (window.play, window.previous, window.next, window.seek):
-            assert window.transport.rect().contains(widget.geometry())
+            assert window.transport.rect().adjusted(0, -TRANSPORT_TRIM_TOP, 0, TRANSPORT_TRIM_BOTTOM).contains(widget.geometry())
         window.browser_splitter.moveSplitter(window.browser_splitter.height(), 1)
         app.processEvents()
         window.resize(1200, 800)

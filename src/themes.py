@@ -333,6 +333,7 @@ BUTTON_SHADOW = 9
 DROPDOWN_SPRING_FREQUENCY = 18.0
 DROPDOWN_SPRING_DAMPING = .65
 POPUP_TOGGLE_MS = 400
+DROPDOWN_MINIMUM_TEXT_SCALE = .8
 
 
 def control_silhouette(widget, rect, pressed=False):
@@ -1623,6 +1624,18 @@ class ThemedComboBox(QComboBox):
             return True
         return super().eventFilter(watched, event)
 
+    def readable_text(self, font, width):
+        text = self.currentText()
+        bounds = button_text_bounds(font.toString(), text, font.pixelSize())
+        if bounds.width() * DROPDOWN_MINIMUM_TEXT_SCALE <= width:
+            return text
+        return QFontMetrics(font).elidedText(text, Qt.ElideRight, max(1, int(width / DROPDOWN_MINIMUM_TEXT_SCALE)))
+
+    def current_text_width(self):
+        font = QFont(self.font())
+        font.setPixelSize(max(1, int(QApplication.instance().property('buttonFontSize') or NUMERIC_DEFAULTS['button_font_size'])))
+        return round(QFontMetrics(font).horizontalAdvance(self.currentText()) + 60 * button_scale()) + 2 * CONTROL_HEADROOM
+
     def wheelEvent(self, event):
         scroll_past_control(self, event)
 
@@ -1650,7 +1663,9 @@ class ThemedComboBox(QComboBox):
         color = QColor(app.property('buttonTextColor') or '#4c3f2f')
         if not self.isEnabled():
             color = disabled_text_color(color)
-        draw_centered_text(painter, button_text_rect(face, dropdown=True), button_text_font(self), self.currentText(), color, fit=True)
+        text_rect = button_text_rect(face, dropdown=True)
+        font = button_text_font(self)
+        draw_centered_text(painter, text_rect, font, self.readable_text(font, text_rect.width()), color, fit=True)
         arrow = QPainterPath()
         x, y = face.right() - 16, face.center().y()
         arrow.moveTo(x-4, y-2)

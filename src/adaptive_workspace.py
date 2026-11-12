@@ -1,9 +1,12 @@
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QEvent, QRectF, QSignalBlocker, QSize, Qt, QVariantAnimation
-from PySide6.QtWidgets import QLayout, QSizePolicy, QWidget
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QLayout, QSizePolicy, QWidget
 from open_case import lerp_rect
 from themes import CONTROL_HEADROOM, button_scale
 
 DESKTOP_TRANSPORT_GAP = 12
+# Empty shadow room above and below the button faces that the transport row does not need to keep.
+TRANSPORT_TRIM_TOP = 9
+TRANSPORT_TRIM_BOTTOM = 10
 
 
 class WorkspaceHandle(QWidget):
@@ -116,21 +119,28 @@ class AdaptiveWorkspace(QWidget):
 
 
 BACK_GAP = 24
+MINIMUM_GAP_SHARE = .2
 
 
 class ResponsiveTransport(QWidget):
-    def __init__(self, play, previous, next_button, seek, volume):
+    def __init__(self, play, previous, next_button, seek, volume, album=None):
         super().__init__()
         self.play, self.previous, self.next = play, previous, next_button
-        self.seek, self.volume = seek, volume
+        self.seek, self.volume, self.album = seek, volume, album
         self.mix = 0.0
         self.compact_row_gap = -6
         self.arranging = False
         self.back = None
         self.compact_volume = False
+        self.album_opacity = None
+        self.last_volume_rect = None
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        for widget in (play, previous, next_button, seek, volume):
-            widget.setParent(self)
+        for widget in (play, previous, next_button, seek, volume, album):
+            if widget is not None:
+                widget.setParent(self)
+        if album is not None:
+            self.album_opacity = QGraphicsOpacityEffect(album)
+            album.setGraphicsEffect(self.album_opacity)
         seek.lower()  # Its transparent edge may sit under the buttons.
         self.arrange()
 
@@ -164,41 +174,84 @@ class ResponsiveTransport(QWidget):
             return
         self.arranging = True
         try:
-            widgets = (self.play, self.volume, self.previous, self.seek, self.next)
+            widgets = (self.play, self.previous, self.seek, self.next, self.volume)
             heights = [min(widget.maximumHeight(), max(widget.minimumHeight(), widget.sizeHint().height()))
                        for widget in widgets]
             desktop_height = max(heights)
             back = self.back if self.back is not None and not self.back.isHidden() else None
-            back_size = back.sizeHint() if back is not None else QSize()
-            row_height = max(heights[0], heights[2], heights[4], back_size.height())
-            mobile_height = heights[3] + self.compact_row_gap + row_height
-            self.setFixedHeight(round(desktop_height + (mobile_height - desktop_height) * self.mix))
+            back_size = (QSize(back.sizeHint().width(), min(back.maximumHeight(), max(back.minimumHeight(), back.sizeHint().height())))
+                         if back is not None else QSize())
+            row_height = max(heights[0], heights[1], heights[3], back_size.height())
+            mobile_height = heights[2] + self.compact_row_gap + row_height
+            trim = TRANSPORT_TRIM_TOP * (1 - self.mix)
+            self.setFixedHeight(round(desktop_height + (mobile_height - desktop_height) * self.mix - trim - TRANSPORT_TRIM_BOTTOM))
             widths = [widget.sizeHint().width() for widget in widgets]
-            widths[1] = self.volume.width()
-            widths[3] = max(1, self.width() - sum(widths[index] for index in (0, 1, 2, 4)) - 4 * DESKTOP_TRANSPORT_GAP)
+            widths[4] = self.volume.width()
+            widths[2] = max(1, self.width() - sum(widths[index] for index in (0, 1, 3, 4)) - 4 * DESKTOP_TRANSPORT_GAP)
             desktop = []
             x = 0
             for width, height in zip(widths, heights):
                 desktop.append(QRectF(x, (desktop_height - height) / 2, width, height))
                 x += width + DESKTOP_TRANSPORT_GAP
-            sizes = [round(width * button_scale()) + 2 * CONTROL_HEADROOM for width in (44, 64, 44)]
-            x = (self.width() - sum(sizes) - 16) / 2
+            gap = 8
+            size = lambda width: round(width * button_scale()) + 2 * CONTROL_HEADROOM
+            play_width, skip_width = size(64), size(44)
+            album_height = 0
+            if self.album is not None:
+                album_height = min(self.album.maximumHeight(), max(self.album.minimumHeight(), self.album.sizeHint().height()))
+            start = back_size.width() + BACK_GAP if back is not None else 0
+            # Play sits on the window's center line; the rest of the row hangs off either side of it.
+            play_x = (self.width() - play_width) / 2
+            # Tighten the gaps (measured between visible faces) before dropping the volume or moving the row off-center.
+            smallest = (gap + 2 * CONTROL_HEADROOM) * MINIMUM_GAP_SHARE - 2 * CONTROL_HEADROOM
+            left_buttons = 2 if self.album is not None else 1
+            left_room = (play_x - start - left_buttons * skip_width) / left_buttons
+            right_room = (self.width() - play_x - play_width - skip_width - widths[4]) / 2
+            if self.compact_volume and min(gap, left_room, right_room) >= smallest:
+                gap = min(gap, left_room, right_room)
+            else:
+                gap = max(smallest, min(gap, left_room))
+            previous_x = play_x - gap - skip_width
+            next_x = play_x + play_width + gap
+            album_x = previous_x - gap - skip_width
+            leftmost = album_x if self.album is not None else previous_x
+            # The gap after Back tightens to the same minimum; only then does the row move off-center.
+            tight_start = back_size.width() + smallest if back is not None else 0
+            shift = max(0.0, tight_start - leftmost) if leftmost < start else 0.0
+            album_fits = self.album is not None and next_x + skip_width + shift <= self.width()
+            if not album_fits:
+                gap = max(smallest, min(8, play_x - start - skip_width))
+                previous_x, next_x = play_x - gap - skip_width, play_x + play_width + gap
+                shift = max(0.0, tight_start - previous_x) if previous_x < start else 0.0
+            play_x, previous_x, next_x, album_x = play_x + shift, previous_x + shift, next_x + shift, album_x + shift
             if back is not None:
-                x = max(x, back_size.width() + BACK_GAP)
-                back.setGeometry(QRectF(0, heights[3] + self.compact_row_gap + (row_height - back_size.height()) / 2,
+                back.setGeometry(QRectF(0, heights[2] + self.compact_row_gap + (row_height - back_size.height()) / 2 - trim,
                                         back_size.width(), back_size.height()).toRect())
-            mobile = {self.seek: QRectF(0, 0, self.width(), heights[3]),
-                      self.volume: QRectF((self.width() - widths[1]) / 2, 0, widths[1], heights[1])}
-            for widget, width, index in zip((self.previous, self.play, self.next), sizes, (2, 0, 4)):
-                mobile[widget] = QRectF(x, heights[3] + self.compact_row_gap + (row_height - heights[index]) / 2, width, heights[index])
-                x += width + 8
-            volume_fits = self.compact_volume and x - 8 + BACK_GAP + widths[1] <= self.width()
-            if volume_fits:
-                mobile[self.volume] = QRectF(self.width() - widths[1],
-                                             heights[3] + self.compact_row_gap + (row_height - heights[1]) / 2,
-                                             widths[1], heights[1])
+            mobile = {self.seek: QRectF(0, 0, self.width(), heights[2]),
+                      self.volume: QRectF((self.width() - widths[4]) / 2, 0, widths[4], heights[4])}
+            row = [(self.previous, previous_x, skip_width, heights[1]), (self.play, play_x, play_width, heights[0]),
+                   (self.next, next_x, skip_width, heights[3])]
+            if album_fits:
+                row.append((self.album, album_x, skip_width, album_height))
+            for widget, x, width, height in row:
+                mobile[widget] = QRectF(x, heights[2] + self.compact_row_gap + (row_height - height) / 2, width, height)
+            volume_x = next_x + skip_width + gap
+            volume_fits = self.compact_volume and volume_x + widths[4] <= self.width()
+            if self.compact_volume:
+                row_rect = QRectF(volume_x, heights[2] + self.compact_row_gap + (row_height - heights[4]) / 2,
+                                  widths[4], heights[4])
+                if volume_fits:
+                    self.last_volume_rect = row_rect
+                # Once it no longer fits, it shrinks away exactly where it was last shown.
+                mobile[self.volume] = row_rect if volume_fits or self.last_volume_rect is None else self.last_volume_rect
             for widget, rect in zip(widgets, desktop):
-                widget.setGeometry(lerp_rect(rect, mobile[widget], self.mix).toRect())
+                widget.setGeometry(lerp_rect(rect, mobile[widget], self.mix).translated(0, -trim).toRect())
+            if self.album is not None:
+                self.album.setGeometry(lerp_rect(desktop[1], mobile.get(self.album, desktop[1]), self.mix).translated(0, -trim).toRect())
+                self.album.setVisible(album_fits and self.mix > 0)
+                self.album_opacity.setOpacity(self.mix)
+                if self.mix > 0:
+                    self.album.raise_()
             self.volume.setVisible(volume_fits or self.mix < 1)
             self.volume.set_paint_opacity(1 if volume_fits else 1 - self.mix)
         finally:

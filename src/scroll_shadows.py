@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication, QAbstractScrollArea, QHeaderView, QS
 
 from responsive import running_on_android
 from touch_input import add_touch
+from scroll_snap import install_top_snap
 
 
 @lru_cache(maxsize=32)
@@ -104,7 +105,7 @@ class ScrollEdgeFade(QWidget):
             if area.objectName() in ('albumDriveDropdownView', 'opticalDiscs', 'fileBrowser'):
                 background = QColor(background).darker(110)
         color = QColor(background).darker(125)
-        color.setAlpha(105)
+        color.setAlpha(170 if area.objectName() == 'fileBrowser' else 105)
         ratio = self.devicePixelRatioF()
         signature = (self.width(), self.height(), color.rgba(), self.bottom, ratio)
         if signature != getattr(self, '_signature', None):
@@ -192,6 +193,7 @@ class ScrollShadowInstaller(QObject):
                 ancestor = ancestor.parentWidget()
             if not hasattr(widget, 'scroll_edge_shadows'):
                 widget.scroll_edge_shadows = ScrollEdgeShadows(widget)
+            install_top_snap(widget)
         return False
 
 

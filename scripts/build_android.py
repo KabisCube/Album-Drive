@@ -163,7 +163,6 @@ def main():
     revision = subprocess.check_output(['git', '-C', str(cache / 'p4a'), 'rev-parse', 'HEAD'], text=True).strip()
     if revision != P4A_REVISION:
         raise SystemExit(f'Use python-for-android revision {P4A_REVISION} to match the Python 3.11 Android wheels.')
-    subprocess.run([str(python), str(root / 'scripts/make_button_sounds.py')], cwd=root, check=True)
     (root / 'dist').mkdir(exist_ok=True)
     environment = os.environ.copy()
     environment['PATH'] = os.pathsep.join((str(python.parent), environment['PATH']))

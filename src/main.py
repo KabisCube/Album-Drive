@@ -23,12 +23,12 @@ if sys.platform == 'win32':
     os.environ.setdefault('QT_FFMPEG_EXCLUDE_ENCODERS', 'h264_mf,hevc_mf,av1_mf')
 QLoggingCategory.setFilterRules('*.debug=false\n*.info=false')
 logging.basicConfig(level=logging.WARNING)
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontDatabase, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QTextLayout, QTextOption, QTransform
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontDatabase, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTextLayout, QTextOption, QTransform
 from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFileSystemModel, QGraphicsOpacityEffect, QHBoxLayout,
-    QHeaderView, QLabel, QListView, QListWidget, QListWidgetItem, QLayout,
-    QMainWindow, QScroller, QSlider, QSizePolicy, QSplitter, QStackedLayout, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionSlider, QStyleOptionViewItem, QTableWidget,
+    QHeaderView, QLabel, QLineEdit, QListView, QListWidget, QListWidgetItem, QLayout,
+    QMainWindow, QScrollBar, QScroller, QSlider, QSizePolicy, QSplitter, QStackedLayout, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionSlider, QStyleOptionViewItem, QTableWidget,
     QTableWidgetItem, QToolButton, QTreeView, QVBoxLayout, QWidget,
 )
 
@@ -69,6 +69,7 @@ from session_palette import load_session_palette, save_session_palette
 from app_identity import update_theme_icon
 from windows_taskbar import WindowsTaskbar
 from optical_discs import DiscEjector, DiscMonitor, DiscReader, audio_album, cached_audio_valid
+from folder_search import WIGGLE_WIDTH, FolderSearch, FolderSearchBar, wiggle_path
 
 
 CLASSIC_STYLE = """
@@ -107,6 +108,9 @@ QSplitter::handle { background: transparent; border: none; image: none; }
 QStatusBar { color: #94a0ae; }
 QToolTip { background: #303945; color: #ffffff; border: 1px solid #566272; }
 """
+
+TRANSPORT_PLAY_HEIGHT = 44
+TRANSPORT_SKIP_HEIGHT = 32
 
 STYLE = chunky_style(CLASSIC_STYLE)
 THEMES = {'chunky': ('Chunky landscape', STYLE), 'classic': ('Classic dark', CLASSIC_STYLE)}
@@ -276,11 +280,20 @@ def transport_icon(name, color, disabled_color=None):
         hole.addEllipse(QRectF(11.5, 11.5, 9, 9))
         painter.setPen(Qt.NoPen)
         painter.drawPath(gear.subtracted(hole))
-    elif name == 'refresh':
+    elif name == 'album':
         painter.setBrush(Qt.NoBrush)
-        painter.drawArc(QRectF(5, 5, 22, 22), 35 * 16, 285 * 16)
-        painter.drawLine(26, 5, 26, 13)
-        painter.drawLine(26, 13, 18, 13)
+        painter.setPen(QPen(QColor(color), 3.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.drawRoundedRect(QRectF(5, 7, 22, 18), 3, 3)
+        painter.drawLine(QPointF(11, 7), QPointF(11, 25))
+    elif name == 'search':
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(color), 5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.drawEllipse(QRectF(5.5, 5.5, 15, 15))
+        painter.drawLine(QPointF(19.5, 19.5), QPointF(26, 26))
+    elif name == 'clear':
+        painter.setPen(QPen(QColor(color), 3.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.drawLine(QPointF(8, 8), QPointF(24, 24))
+        painter.drawLine(QPointF(24, 8), QPointF(8, 24))
     elif name == 'pause':
         painter.setPen(Qt.NoPen)
         for x in (7, 20):
@@ -315,12 +328,20 @@ class NowPlayingCover(QWidget):
     """Scale the case to available space without imposing the artwork's size."""
 
     clicked = Signal()
+    dragged = Signal(float)
+    dragFinished = Signal(float)
 
     def __init__(self):
         super().__init__()
         self._pixmap = QPixmap()
         self.sheen_key = ''
         self.cover_pressed = False
+        self.drag_enabled = False
+        self.dragging = False
+        self.press_y = 0.0
+        self.last_y = 0.0
+        self.drag_velocity = 0.0
+        self.drag_clock = QElapsedTimer()
         self.auto_height = True
         self.baked = running_on_android()
         self.baked_case = QPixmap()
@@ -359,17 +380,48 @@ class NowPlayingCover(QWidget):
         rect = self.image_rect()
         return rect.center().x() - control_offset(self, rect, CASE_DEPTH).x()
 
+    def case_span(self):
+        rect = self.image_rect()
+        shift = control_offset(self, rect, CASE_DEPTH).x()
+        return rect.left() - shift, rect.right() - shift
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and not self._pixmap.isNull() and self.image_rect().contains(event.position()):
             self.cover_pressed = True
+            self.dragging = False
+            self.press_y = self.last_y = event.globalPosition().y()
+            self.drag_velocity = 0.0
+            self.drag_clock.start()
             event.accept()
         else:
             super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        if not (self.cover_pressed and self.drag_enabled):
+            super().mouseMoveEvent(event)
+            return
+        y = event.globalPosition().y()
+        if not self.dragging and abs(y - self.press_y) >= 6:
+            self.dragging = True
+            self.last_y = self.press_y
+            self.setCursor(Qt.SizeVerCursor)
+        if self.dragging:
+            delta = y - self.last_y
+            elapsed = max(1, self.drag_clock.restart())
+            self.drag_velocity = delta * 1000 / elapsed
+            self.last_y = y
+            if delta:
+                self.dragged.emit(delta)
+        event.accept()
+
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.cover_pressed:
             self.cover_pressed = False
-            if not self._pixmap.isNull() and self.image_rect().contains(event.position()):
+            if self.dragging:
+                self.dragging = False
+                self.setCursor(Qt.PointingHandCursor)
+                self.dragFinished.emit(self.drag_velocity)
+            elif not self._pixmap.isNull() and self.image_rect().contains(event.position()):
                 self.clicked.emit()
             event.accept()
         else:
@@ -551,8 +603,9 @@ class ArtworkHeading(QLabel):
 class MarqueeTitle(QLabel):
     """Single-line track title, with a slow loop only when it overflows."""
 
-    def __init__(self):
+    def __init__(self, cover=None):
         super().__init__()
+        self.cover = cover
         self.offset = 0.0
         self.pause_remaining = 1.2
         self.clock = QElapsedTimer()
@@ -568,14 +621,32 @@ class MarqueeTitle(QLabel):
         super().setText(text)
         self.restart()
 
+    def span(self):
+        if self.cover is None or self.cover.pixmap().isNull() or self.cover.width() <= 0:
+            return 0.0, float(self.width())
+        left, right = self.cover.case_span()
+        origin = self.mapFromGlobal(self.cover.mapToGlobal(QPoint())).x()
+        left, right = max(0.0, left + origin), min(float(self.width()), right + origin)
+        return (left, right) if right - left > 8 else (0.0, float(self.width()))
+
+    def overflows(self):
+        left, right = self.span()
+        return self.fontMetrics().horizontalAdvance(self.text()) > right - left
+
     def restart(self):
         self.offset = 0.0
         self.pause_remaining = 1.2
         self.clock.start()
-        if self.isVisible() and self.fontMetrics().horizontalAdvance(self.text()) > self.width():
-            self.timer.start()
+        self.span_changed()
+
+    def span_changed(self):
+        if self.isVisible() and self.overflows():
+            if not self.timer.isActive():
+                self.clock.start()
+                self.timer.start()
         else:
             self.timer.stop()
+            self.offset = 0.0
         self.update()
 
     def advance(self):
@@ -605,11 +676,13 @@ class MarqueeTitle(QLabel):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setPen(QColor(QApplication.instance().property('secondaryTextColor') or '#d0dce2'))
+        left, right = self.span()
+        painter.setClipRect(QRectF(left, 0, right - left, self.height()))
         y = (self.height() - self.fontMetrics().height()) / 2 + self.fontMetrics().ascent()
-        painter.drawText(QPointF(-self.offset, y), self.text())
+        painter.drawText(QPointF(left - self.offset, y), self.text())
         width = self.fontMetrics().horizontalAdvance(self.text())
-        if width > self.width():
-            painter.drawText(QPointF(width + 40 - self.offset, y), self.text())
+        if width > right - left:
+            painter.drawText(QPointF(left + width + 40 - self.offset, y), self.text())
 
 
 class AlbumOverlay(QWidget):
@@ -657,7 +730,24 @@ class FolderNameDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         plain = QStyleOptionViewItem(option)
         plain.state &= ~(QStyle.State_Selected | QStyle.State_HasFocus | QStyle.State_MouseOver)
+        search = getattr(self.parent(), 'search', None)
+        matched = search is not None and search.is_match(index)
+        if matched:
+            plain.rect = plain.rect.adjusted(0, 0, -WIGGLE_WIDTH, 0)
         super().paint(painter, plain, index)
+        if matched:
+            text = QStyleOptionViewItem(plain)
+            self.initStyleOption(text, index)
+            rect = self.parent().style().subElementRect(QStyle.SE_ItemViewItemText, text, self.parent())
+            shown = text.fontMetrics.elidedText(text.text, Qt.ElideRight, rect.width() - 4)
+            end = rect.left() + 2 + min(rect.width() - 4, text.fontMetrics.horizontalAdvance(shown))
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(QColor(QApplication.instance().property('themeAccent') or GRASS_GREEN),
+                                2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(wiggle_path(end + 4, rect.center().y() + 1, WIGGLE_WIDTH - 6, search.phase()))
+            painter.restore()
         if self.parent().selectionModel().isSelected(index):
             text = QStyleOptionViewItem(plain)
             self.initStyleOption(text, index)
@@ -673,6 +763,12 @@ class FolderNameDelegate(QStyledItemDelegate):
                 painter.restore()
 
 
+BROWSER_PADDING = 16
+BROWSER_SEARCH_GAP = 8
+# How far the scrollbar's empty right edge may reach under the folder rows.
+BROWSER_SCROLLBAR_TUCK = 11
+
+
 class FolderBrowser(QTreeView):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -685,6 +781,86 @@ class FolderBrowser(QTreeView):
         self.scroll_animation.valueChanged.connect(lambda value: self.verticalScrollBar().setValue(round(value)))
         self.verticalScrollBar().sliderPressed.connect(self.scroll_animation.stop)
         self.verticalScrollBar().actionTriggered.connect(self.scroll_animation.stop)
+        self.padding_style = None
+        self.search_bar = FolderSearchBar(self, transport_icon)
+        self.search = FolderSearch(self)
+        self.search_bar.queryChanged.connect(self.search.set_query)
+        self.search_bar.progressChanged.connect(lambda _: self.update_padding())
+        self.side_bar = None
+        if not running_on_android():
+            self.side_bar = QScrollBar(Qt.Vertical, self)
+            self.side_bar.setAccessibleName('Scroll folders')
+            self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            inner = self.verticalScrollBar()
+            inner.rangeChanged.connect(self.sync_side_bar)
+            inner.valueChanged.connect(self.side_bar.setValue)
+            self.side_bar.valueChanged.connect(inner.setValue)
+            self.side_bar.sliderPressed.connect(self.scroll_animation.stop)
+            self.side_bar.actionTriggered.connect(self.scroll_animation.stop)
+            self.side_bar.hide()
+        self.update_padding()
+
+    def scroll_bar(self):
+        return self.side_bar or self.verticalScrollBar()
+
+    def sync_side_bar(self, minimum=None, maximum=None):
+        if self.side_bar is None:
+            return
+        inner = self.verticalScrollBar()
+        with QSignalBlocker(self.side_bar):
+            self.side_bar.setRange(inner.minimum(), inner.maximum())
+            self.side_bar.setPageStep(inner.pageStep())
+            self.side_bar.setSingleStep(inner.singleStep())
+            self.side_bar.setValue(inner.value())
+        visible = inner.maximum() > inner.minimum()
+        if visible != self.side_bar.isVisible():
+            self.side_bar.setVisible(visible)
+            self.update_padding()
+        self.place_overlays()
+
+    def side_bar_width(self):
+        return self.side_bar.sizeHint().width() - CONTROL_HEADROOM - BROWSER_SCROLLBAR_TUCK if self.side_bar is not None and self.side_bar.isVisible() else 0
+
+    def search_reserve(self):
+        return self.search_bar.face_height() + BROWSER_SEARCH_GAP
+
+    def update_padding(self):
+        left = BROWSER_PADDING + self.side_bar_width()
+        top = BROWSER_PADDING + round(self.search_reserve() * self.search_bar.progress)
+        style = f'QTreeView#fileBrowser {{ padding: {top}px {BROWSER_PADDING}px 14px {left}px; }}'
+        if style != self.padding_style:
+            self.padding_style = style
+            self.setStyleSheet(style)
+        self.place_overlays()
+
+    def place_overlays(self):
+        if not hasattr(self, 'search_bar'):
+            return
+        height = self.search_bar.preferred_height()
+        top = BROWSER_PADDING - BUTTON_SHADOW - CONTROL_HEADROOM
+        self.search_bar.setGeometry(BROWSER_PADDING - CONTROL_HEADROOM, top,
+                                    max(1, self.width() - 2 * BROWSER_PADDING + 2 * CONTROL_HEADROOM), height)
+        self.search_bar.raise_()
+        if self.side_bar is not None and self.side_bar.isVisible():
+            viewport = self.viewport().geometry()
+            left = BROWSER_PADDING - CONTROL_HEADROOM
+            self.side_bar.setGeometry(left, viewport.top(), self.side_bar.sizeHint().width(), viewport.height())
+            self.side_bar.setMask(QRegion(0, 0, max(1, viewport.left() - left), viewport.height()))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.place_overlays()
+
+    def updateGeometries(self):
+        super().updateGeometries()
+        if hasattr(self, 'search_bar'):
+            self.place_overlays()
+
+    def row_top(self, value):
+        index = self.indexAt(QPoint(1, 1))
+        row = max(1, self.rowHeight(index) if index.isValid() else self.sizeHintForRow(0))
+        bar = self.verticalScrollBar()
+        return max(bar.minimum(), min(bar.maximum(), round(value / row) * row))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.RightButton:
@@ -707,7 +883,7 @@ class FolderBrowser(QTreeView):
         if distance:
             bar = self.verticalScrollBar()
             base = self.scroll_target if self.scroll_animation.state() == QVariantAnimation.Running else bar.value()
-            self.scroll_target = max(bar.minimum(), min(bar.maximum(), base - distance))
+            self.scroll_target = self.row_top(self.row_top(base) - distance)
             self.scroll_animation.stop()
             self.scroll_animation.setStartValue(float(bar.value()))
             self.scroll_animation.setEndValue(float(self.scroll_target))
@@ -721,6 +897,10 @@ class FolderBrowser(QTreeView):
     def setRootIndex(self, index):
         self.scroll_animation.stop()
         self.wheel_remainder = 0
+        changed = index != self.rootIndex()
+        if changed and hasattr(self, 'search'):
+            self.search_bar.set_expanded(False, animate=False)
+            self.search.invalidate()
         super().setRootIndex(index)
 
     def drawRow(self, painter, option, index):
@@ -732,6 +912,8 @@ class FolderBrowser(QTreeView):
     def setModel(self, model):
         super().setModel(model)
         model.directoryLoaded.connect(lambda _: self.viewport().update())
+        model.directoryLoaded.connect(self.search.directory_loaded)
+        model.rowsInserted.connect(lambda parent, first, last: self.search.filter_rows(parent) if self.search.active else None)
 
     def drawBranches(self, painter, rect, index):
         model = self.model()
@@ -776,15 +958,25 @@ class TimelineSlider(QSlider):
         super().__init__(Qt.Horizontal)
         self.setObjectName('timeline')
         self.setAccessibleName('Playback position')
-        self.setMinimumHeight(60)
-        self.setStyleSheet('''
-QSlider#timeline::groove:horizontal { height: 32px; }
-QSlider#timeline::handle:horizontal { width: 60px; height: 48px; margin: -14px 0 -2px 0; border: none; background: transparent; }
-''')
+        self.groove_height = 0
+        self.set_groove_height(TRANSPORT_SKIP_HEIGHT)
         self.click_seeking = False
         self.fade_colors = None
         self.knob = accent_knob(QApplication.instance().property('themeAccent') or GRASS_GREEN,
                                 QApplication.instance().property('buttonFill') or '#f7f5f1')
+
+    def set_groove_height(self, height):
+        height = max(12, int(height))
+        if height == self.groove_height:
+            return
+        self.groove_height = height
+        self.setMinimumHeight(height + 28)
+        self.setStyleSheet(f'''
+QSlider#timeline::groove:horizontal {{ height: {height}px; }}
+QSlider#timeline::handle:horizontal {{ width: {height + 28}px; height: {height + 16}px; margin: -14px 0 -2px 0; border: none; background: transparent; }}
+''')
+        self.updateGeometry()
+        self.update()
 
     def seek_to_point(self, point):
         option = QStyleOptionSlider()
@@ -848,9 +1040,9 @@ QSlider#timeline::handle:horizontal { width: 60px; height: 48px; margin: -14px 0
         handle = self.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, self)
         knob_width = max(1, min(handle.width() - 2 * CONTROL_HEADROOM, handle.height() - CONTROL_HEADROOM))
         inset = (handle.width() - knob_width) / 2
-        groove = QRectF(inset, (self.height() - 32) / 2, max(1, self.width() - 2 * inset), 32)
+        groove = QRectF(inset, (self.height() - self.groove_height) / 2, max(1, self.width() - 2 * inset), self.groove_height)
         clip = QPainterPath()
-        radius = corner_radius(16, groove.width(), groove.height())
+        radius = corner_radius(self.groove_height / 2, groove.width(), groove.height())
         clip.addRoundedRect(groove, radius, radius)
         painter.save()
         painter.setClipPath(clip)
@@ -1165,7 +1357,7 @@ class PlayerWindow(QMainWindow):
         self.setCentralWidget(root)
         outer = QVBoxLayout(root)
         outer.setSizeConstraint(QLayout.SetNoConstraint)
-        outer.setContentsMargins(16, 16, 16, 0 if self.is_android else 10)
+        outer.setContentsMargins(16, 16, 16, 0 if self.is_android else 4)
         splitter = AdaptiveWorkspace()
         self.workspace = splitter
         splitter.sidebar_width = self.settings.value('sidebar_width', splitter.sidebar_width, type=int)
@@ -1191,7 +1383,6 @@ class PlayerWindow(QMainWindow):
         self.files.setRootPath(QDir.rootPath())
         self.tree = FolderBrowser()
         self.tree.setObjectName('fileBrowser')
-        self.tree.setStyleSheet('QTreeView#fileBrowser { padding: 16px 16px 14px; }')
         self.tree.setIndentation(28)
         self.tree.setItemDelegate(FolderNameDelegate(self.tree))
         self.tree.setModel(self.files)
@@ -1204,7 +1395,8 @@ class PlayerWindow(QMainWindow):
         self.folder_menu_path = None
         self.files.directoryLoaded.connect(self.schedule_browsing_restore)
         self.tree.pressed.connect(self.cancel_browsing_restore)
-        self.tree.verticalScrollBar().sliderPressed.connect(self.cancel_browsing_restore)
+        self.tree.scroll_bar().sliderPressed.connect(self.cancel_browsing_restore)
+        self.tree.search_bar.expandedChanged.connect(lambda expanded: self.cancel_browsing_restore())
         for bar in (self.tree.verticalScrollBar(), self.tree.horizontalScrollBar()):
             bar.parentWidget().setObjectName('fileBrowserScrollBarContainer')
             bar.parentWidget().setAttribute(Qt.WA_StyledBackground, True)
@@ -1229,15 +1421,18 @@ class PlayerWindow(QMainWindow):
         now_playing.cover = self.cover
         self.cover.setObjectName('cover')
         self.cover.clicked.connect(self.open_now_playing_album)
+        self.cover.dragged.connect(self.drag_now_playing)
+        self.cover.dragFinished.connect(self.settle_now_playing)
         self.now_playing_heading = ArtworkHeading(self.cover)
         self.now_playing_heading.setObjectName('nowPlayingHeading')
         playing_layout.addWidget(self.now_playing_heading)
         playing_layout.addWidget(self.cover)
-        self.track_title = MarqueeTitle()
+        self.track_title = MarqueeTitle(self.cover)
         self.track_title.setObjectName('nowPlayingTitle')
         playing_layout.addWidget(self.track_title)
         browser_column.addWidget(now_playing)
         now_playing.geometryChanged.connect(self.restore_sidebar_split, Qt.QueuedConnection)
+        now_playing.geometryChanged.connect(self.track_title.span_changed)
         self.split_animation = QVariantAnimation(self)
         self.split_animation.setDuration(180)
         self.split_animation.setEasingCurve(QEasingCurve.OutCubic)
@@ -1316,10 +1511,6 @@ class PlayerWindow(QMainWindow):
         self.theme_toast_timer = QTimer(self)
         self.theme_toast_timer.setSingleShot(True)
         self.theme_toast_timer.timeout.connect(self.theme_toast.hide)
-        refresh = QPushButton('Refresh')
-        self.refresh_button = refresh
-        refresh.clicked.connect(lambda: self.scan(self.current_folder) if self.current_folder else self.choose_folder())
-        header.addWidget(refresh)
         self.settings_button = QPushButton()
         self.settings_button.clicked.connect(self.edit_theme_settings)
         header.addWidget(self.settings_button)
@@ -1329,7 +1520,6 @@ class PlayerWindow(QMainWindow):
         if self.is_android:
             # Phones need the header space more than these two controls.
             self.album_scale_control.hide()
-            refresh.hide()
             self.sort_albums.setProperty('fitButtonTextLocally', True)
             self.album_header.flexible = self.sort_albums
             self.pinch_scale = NUMERIC_DEFAULTS['album_scale']
@@ -1337,7 +1527,7 @@ class PlayerWindow(QMainWindow):
         # The fixed-size slider moves during resize; an opacity-effect source
         # cache can retain an old clipped area until the next hover repaint.
         # Its own painter handles dimming instead.
-        fading_controls = [self.count_label, self.album_scale_icon, self.sort_albums, self.save_theme_button, refresh, self.tidy_button]
+        fading_controls = [self.count_label, self.album_scale_icon, self.sort_albums, self.save_theme_button, self.tidy_button]
         if self.is_android:
             fading_controls.append(self.settings_button)
         for control in fading_controls:
@@ -1364,7 +1554,7 @@ class PlayerWindow(QMainWindow):
             self.grid.track_row_snaps()
         else:
             for widget in (self.tree, self.grid, self.tree.viewport(), self.grid.viewport(),
-                           self.tree.verticalScrollBar(), self.tree.horizontalScrollBar(), self.grid.verticalScrollBar()):
+                           self.tree.scroll_bar(), self.tree.horizontalScrollBar(), self.grid.verticalScrollBar()):
                 widget.installEventFilter(self)
         self.grid.setObjectName('albumGrid')
         self.grid.setStyleSheet('QListWidget#albumGrid { background: transparent; }')
@@ -1458,11 +1648,11 @@ class PlayerWindow(QMainWindow):
         self.play = QPushButton('Play')
         self.play.setObjectName('play')
         self.play.setProperty('themeRole', 'highlight')
-        self.play.setFixedHeight(44)
+        self.play.setFixedHeight(TRANSPORT_PLAY_HEIGHT)
         self.play.clicked.connect(self.toggle_play)
         self.previous = QPushButton('Previous')
         self.previous.setObjectName('previous')
-        self.previous.setFixedHeight(32)
+        self.previous.setFixedHeight(TRANSPORT_SKIP_HEIGHT)
         self.previous.clicked.connect(self.previous_track)
         self.seek = TimelineSlider()
         self.seek.setRange(0, 0)
@@ -1471,8 +1661,12 @@ class PlayerWindow(QMainWindow):
         self.seek.seekRequested.connect(self.sync_android_media)
         self.next = QPushButton('Next')
         self.next.setObjectName('next')
-        self.next.setFixedHeight(32)
+        self.next.setFixedHeight(TRANSPORT_SKIP_HEIGHT)
         self.next.clicked.connect(self.next_track)
+        self.album_button = QPushButton()
+        self.album_button.setObjectName('openPlayingAlbum')
+        self.album_button.setFixedHeight(TRANSPORT_SKIP_HEIGHT)
+        self.album_button.clicked.connect(self.open_now_playing_album)
         self.volume = ThemeSlider()
         self.volume.setAccessibleName('Volume')
         self.volume.setRange(0, 100)
@@ -1482,9 +1676,11 @@ class PlayerWindow(QMainWindow):
         self.volume.valueChanged.connect(lambda value: self.volume.setToolTip(f'{value}%'))
         self.audio.setVolume(volume_gain(self.volume.value()))
         self.volume.valueChanged.connect(lambda value: self.audio.setVolume(volume_gain(value)))
-        for button in (self.play, self.previous, self.next):
+        QApplication.instance().setProperty('musicVolume', self.volume.value())
+        self.volume.valueChanged.connect(lambda value: QApplication.instance().setProperty('musicVolume', value))
+        for button in (self.play, self.previous, self.next, self.album_button):
             button.setProperty('centerFlatFace', True)
-        self.transport = ResponsiveTransport(self.play, self.previous, self.next, self.seek, self.volume)
+        self.transport = ResponsiveTransport(self.play, self.previous, self.next, self.seek, self.volume, self.album_button)
         if self.is_android:
             self.transport.compact_row_gap = ANDROID_TRANSPORT_ROW_GAP
         else:
@@ -1493,6 +1689,7 @@ class PlayerWindow(QMainWindow):
         outer.addWidget(self.transport)
         self.back_button = QPushButton('Back')
         self.back_button.setAccessibleName('Back to file browser')
+        self.back_button.setProperty('centerFlatFace', True)
         self.back_button.clicked.connect(self.navigate_back)
         self.transport.set_back(self.back_button)
         self.back_action = QAction(self)
@@ -1550,6 +1747,8 @@ class PlayerWindow(QMainWindow):
         QApplication.instance().setProperty('customColorTheme', self.settings.value('selected_color_theme', '') not in ('', *DEFAULT_THEME_IDS))
         if colors:
             colors = soften_theme_colors(colors)
+            if colors.get('themeBackground') and (artwork_active or (artwork_active is None and 'brandLineColor' not in colors)):
+                colors['brandLineColor'] = QColor(colors['themeBackground']).darker(110).name()
             for prop, color in colors.items():
                 QApplication.instance().setProperty(prop, color)
             accent = colors['themeAccent']
@@ -1763,7 +1962,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
     def refresh_open_album_colors(self):
         if self.viewed_album is not None:
-            self.album_presentation.set_artwork(self.viewed_album.artwork, self.album_paper_colors(self.viewed_album.artwork))
+            self.album_presentation.set_artwork(self.viewed_album.artwork, self.album_paper_colors(self.viewed_album.artwork),
+                                                fade_ms=round(self.theme_fade_seconds() * 1000))
 
     def store_theme_colors(self, job, colors):
         self.theme_colors[job] = colors
@@ -1916,6 +2116,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                               case_key=str(album.folder))
         self.cover.setPixmap(case)
         self.now_playing.reveal(True)
+        if hasattr(self, 'track_title'):
+            self.track_title.span_changed()
         if self.now_playing.resizable and self.now_playing.height() == 0:
             height = self.browser_splitter.height()
             self.browser_splitter.setSizes([round(height * .4), round(height * .6)])
@@ -1934,6 +2136,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.open_saved_library()
 
     def open_saved_library(self):
+        self.library_opened = True
         last = Path(str(self.settings.value('folder', music_directory())))
         browser_root = Path(str(self.settings.value('browser_root', last)))
         if filesystem_path(browser_root).is_dir():
@@ -2020,6 +2223,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             return None
         self.prepared_settings = None
         dialog.original_settings = {key: self.settings.value(key) for key in self.settings.allKeys()}
+        dialog.original_library_state = (self.files.filePath(self.tree.rootIndex()), self.current_folder)
         return dialog
 
     def apply_settings(self):
@@ -2092,8 +2296,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             (self.play, 'pause' if playing else 'play', 'Pause' if playing else 'Play'),
             (self.previous, 'previous', 'Previous'),
             (self.next, 'next', 'Next'),
+            (self.album_button, 'album', 'Open playing album'),
             (self.settings_button, 'settings', 'Settings'),
-            (self.refresh_button, 'refresh', 'Refresh'),
             (self.save_theme_button, 'save-theme', 'Save current theme'),
         ):
             button.setText('')
@@ -2105,7 +2309,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             size = round(QApplication.instance().property('buttonIconSize') or 20)
             button.setIconSize(QSize(round(size * 1.5), size) if name == 'save-theme' else QSize(size, size))
             button.setAccessibleName(label)
-            button.setToolTip('' if button in (self.play, self.previous, self.next) else label)
+            button.setToolTip('' if button in (self.play, self.previous, self.next, self.album_button) else label)
 
     def save_current_theme(self):
         self.discard_prepared_settings()
@@ -2164,6 +2368,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         if compact != self.compact_mode:
             self.compact_mode = compact
             self.now_playing.set_resizable(compact or self.is_android)
+            self.cover.drag_enabled = compact and not self.is_android
             self.browser_splitter.setHandleWidth(8 if compact and not self.is_android else 0)
             self.browser_splitter.setCollapsible(1, compact and not self.is_android)
             self.library_layout.setContentsMargins(0 if compact else 16, 0, 0, 0)
@@ -2270,7 +2475,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         kind = event.type()
         if kind == QEvent.Resize and watched is self.library_area:
             self.place_album_header()
-        if kind == QEvent.KeyPress and isinstance(watched, QWidget) and watched.window() is self:
+        if (kind == QEvent.KeyPress and isinstance(watched, QWidget) and watched.window() is self
+                and not isinstance(watched, QLineEdit)):
             key = event.key()
             navigation = (Qt.Key_Tab, Qt.Key_Backtab, Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down,
                           Qt.Key_Home, Qt.Key_End, Qt.Key_PageUp, Qt.Key_PageDown, Qt.Key_Return, Qt.Key_Enter)
@@ -2291,10 +2497,17 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             if isinstance(widget, (QPushButton, ThemedComboBox)):
                 widget.ensurePolished()
                 widget.updateGeometry()
-        for button, base in ((self.play, 44), (self.previous, 32), (self.next, 32)):
+        skip_face = TRANSPORT_SKIP_HEIGHT
+        for button, base in ((self.play, TRANSPORT_PLAY_HEIGHT), (self.previous, TRANSPORT_SKIP_HEIGHT),
+                             (self.next, TRANSPORT_SKIP_HEIGHT), (self.album_button, TRANSPORT_SKIP_HEIGHT),
+                             (self.back_button, TRANSPORT_SKIP_HEIGHT)):
             base = max(base, MINIMUM_TOUCH_TARGET - 2 * CONTROL_HEADROOM) if self.is_android else base
-            button.setFixedHeight(round(base * scale) + 2 * CONTROL_HEADROOM + 2 * BUTTON_SHADOW)
-        for button, width in ((self.save_theme_button, 64), (self.refresh_button, 44), (self.settings_button, 44)):
+            face = round(base * scale / 2) * 2
+            button.setFixedHeight(face + 2 * CONTROL_HEADROOM + 2 * BUTTON_SHADOW)
+            if button is self.next:
+                skip_face = face
+        self.seek.set_groove_height(skip_face)
+        for button, width in ((self.save_theme_button, 64), (self.settings_button, 44)):
             button.setFixedWidth(round(width * scale) + 2 * CONTROL_HEADROOM)
         self.album_scale_control.setMinimumWidth(self.album_scale_control.minimumSizeHint().width())
         self.sort_albums.setFixedHeight(self.sort_albums.sizeHint().height())
@@ -2468,6 +2681,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.tree.setCurrentIndex(index)
             self.tree.scrollTo(index)
         self.settings.setValue('browser_root', str(folder))
+        self.library_opened = True
         self.scan(selected)
         self.schedule_browsing_restore()
 
@@ -2500,7 +2714,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.statusBar().showMessage(f'Unable to open folder: {error}')
 
     def folder_selected(self, current, previous):
-        if self.first_run_needed:
+        # Before the saved library opens, the tree can pick its first entry by itself; that must not replace the saved folder.
+        if self.first_run_needed or not getattr(self, 'library_opened', False):
             return
         path = self.files.filePath(current)
         if path:
@@ -2967,7 +3182,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
     def update_album_header_controls(self):
         enabled = self.viewed_album is None
-        for control in (self.album_scale_control, self.sort_albums, self.save_theme_button, self.refresh_button):
+        for control in (self.album_scale_control, self.sort_albums, self.save_theme_button):
             control.setEnabled(enabled)
         self.album_header.set_pinned(not enabled)
         if self.is_android:
@@ -3260,6 +3475,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
     def set_controls(self):
         self.play.setEnabled(bool(self.queue) and not self.cd_loading)
         self.previous.setEnabled(bool(self.queue))
+        self.album_button.setEnabled(0 <= self.queue_index < len(self.queue))
         self.next.setEnabled(self.queue_index + 1 < len(self.queue) or self.next_album() is not None)
         self.update_track_markers()
         if getattr(self, 'taskbar', None):
@@ -3437,6 +3653,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
                 return
             metadata.close()
         self.browsing_restore_timer.stop()
+        self.tree.search.shutdown()
         self.album_scale_timer.stop()
         self.case_prefetch_timer.stop()
         self.theme_prepare_timer.stop()

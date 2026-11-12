@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory() as directory:
     QTest.qWait(30)
     assert not any(button.isVisible() for button in dialog.tabs.tabBar().findChildren(QToolButton))
     controls = (window.play, window.previous, window.next, window.settings_button,
-                window.refresh_button, window.sort_albums, dialog.action_buttons[-1], dialog.library_button)
+                window.sort_albums, dialog.action_buttons[-1], dialog.library_button)
     original_sizes = [control.size() for control in controls]
     original_hints = [control.sizeHint() for control in controls]
     original_tabs = [dialog.tabs.tabBar().tabSizeHint(i) for i in range(dialog.tabs.count())]

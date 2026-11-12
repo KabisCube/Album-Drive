@@ -1138,10 +1138,14 @@ class ThemeSettingsDialog(QDialog):
                 label.setFixedWidth(column)
                 label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
             label.setMinimumHeight(max(0, label.heightForWidth(label_width)) if narrow else 0)
+        self.narrow_combo_room = max(0, label_width - 64) if narrow else None
         for combo in self.findChildren(ThemedComboBox):
-            combo.setProperty('fitButtonTextLocally', narrow)
+            combo.setProperty('fitButtonTextLocally', narrow or combo is self.ui_font_choice)
             combo.setSizePolicy(QSizePolicy.Ignored if narrow else QSizePolicy.Preferred, QSizePolicy.Fixed)
-            combo.setMinimumWidth(min(160, max(0, label_width - 64)) if narrow else 0)
+            if not combo.property('fitsNarrowText'):
+                combo.setProperty('fitsNarrowText', True)
+                combo.currentIndexChanged.connect(lambda _, target=combo: self.fit_narrow_combo(target))
+            self.fit_narrow_combo(combo)
         for heading in self.findChildren(SettingsSectionLabel):
             heading.setWordWrap(narrow)
             heading.setMinimumWidth(label_width if narrow else 0)
@@ -1196,6 +1200,10 @@ class ThemeSettingsDialog(QDialog):
                 self.prepare_pages()
                 return
         button_text_sizing().refresh()
+
+    def fit_narrow_combo(self, combo):
+        room = getattr(self, 'narrow_combo_room', None)
+        combo.setMinimumWidth(0 if room is None else min(max(160, combo.current_text_width()), room))
 
     def add_numeric(self, forms, definition):
         category, label, key, default, low, high, suffix, step = definition

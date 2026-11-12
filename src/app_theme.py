@@ -622,7 +622,11 @@ def comfortable_artwork_colors(colors):
 def artwork_theme_colors(artwork, mode='any'):
     """Use this cover, falling back to saved colors for unusable artwork."""
     colors = picked_artwork_colors(artwork, mode)
-    return comfortable_artwork_colors(vivid_accent(colors)) if colors else colors
+    if not colors:
+        return colors
+    colors = comfortable_artwork_colors(vivid_accent(colors))
+    colors['brandLineColor'] = QColor(colors['themeBackground']).darker(110).name()
+    return colors
 
 
 def picked_artwork_colors(artwork, mode):

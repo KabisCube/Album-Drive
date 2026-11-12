@@ -65,6 +65,10 @@ with TemporaryDirectory(ignore_cleanup_errors=True) as directory:
                 window, 'album_paper_colors', return_value={'paperBackgroundColor': '#123456', 'textColor': '#fefefe'}):
             settings.setValue('artwork_theme_mode', 'dark')
             window.apply_settings()
+            fade = window.album_presentation.paper_fade
+            if fade.state() == fade.State.Running:
+                assert window.album_presentation.paper_background.name() != '#123456', 'Brightness fades the open track list'
+                fade.setCurrentTime(fade.duration())
             assert window.album_presentation.paper_background.name() == '#123456', 'Brightness refreshes an open track list'
             settings.setValue('artwork_theme_mode', 'any')
             window.apply_settings()

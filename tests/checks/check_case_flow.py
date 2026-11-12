@@ -48,11 +48,10 @@ with TemporaryDirectory() as directory:
     try:
         window.show()
         wait_until(lambda: len(window.albums) == 2 and not window.scanners)
-        assert window.refresh_button.text() == '' and not window.refresh_button.icon().isNull()
-        assert window.refresh_button.accessibleName() == 'Refresh'
+        assert not hasattr(window, 'refresh_button')
         album = window.albums[0]
         header_controls = (window.album_size, window.sort_albums, window.save_theme_button,
-                           window.refresh_button, window.tidy_button)
+                           window.tidy_button)
         option = QStyleOptionSlider()
         window.album_size.initStyleOption(option)
         handle = window.album_size.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, window.album_size)

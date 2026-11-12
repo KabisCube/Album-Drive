@@ -7,7 +7,7 @@ from PySide6.QtCore import QObject, Qt, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtMultimedia import QMediaDevices, QSoundEffect
 from PySide6.QtWidgets import QApplication
-from audio_levels import volume_gain
+from audio_levels import music_volume_gain, volume_gain
 from audio_devices import selected_output
 from haptics import press_haptic
 
@@ -22,7 +22,7 @@ def sound_depth():
 def sound_gain():
     app = QApplication.instance()
     amount = app.property('buttonSoundVolume') if app else None
-    return .22 * volume_gain(100 if amount is None else amount)
+    return .22 * volume_gain(100 if amount is None else amount) * music_volume_gain(app)
 
 
 class ButtonSounds(QObject):

@@ -62,7 +62,7 @@ with TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         window.show_compact_library()
         window.workspace.page_animation.setCurrentTime(window.workspace.page_animation.duration())
         QTest.qWait(150)
-        assert not window.album_scale_control.isVisible() and not window.refresh_button.isVisible()
+        assert not window.album_scale_control.isVisible() and not hasattr(window, 'refresh_button')
         header = window.album_header
         assert not header.scroll_left.isVisible() and not header.scroll_right.isVisible()
         for button in (window.sort_albums, window.save_theme_button, window.settings_button):

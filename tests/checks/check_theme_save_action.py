@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory() as directory:
     dynamic = settings.value('artwork_theme_enabled')
     selected = settings.value('selected_color_theme')
     assert not window.save_theme_button.icon().isNull()
-    assert window.save_theme_button.width() > window.refresh_button.width()
+    assert window.save_theme_button.width() > window.settings_button.width()
     assert window.save_theme_button.iconSize().width() > window.save_theme_button.iconSize().height()
     QTest.mouseClick(window.save_theme_button, Qt.LeftButton)
     presets = saved_color_themes(settings)

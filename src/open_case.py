@@ -16,8 +16,6 @@ from color_rules import artwork_text_color, color_contrast, comfortable_color
 
 PLAYING_ROLE = Qt.UserRole + 1
 PORTRAIT_ASPECT_RATIO = 1.1
-# Phones at least this wide in landscape stretch the track list to the full height of the case.
-TALL_TRACK_LIST_ASPECT_RATIO = 2.0
 ALBUM_TITLE_FONT_BOOST = 2
 
 
@@ -233,8 +231,12 @@ def visible_case_face(rect):
     return fitted_case_rect(rect).translated(0, -CASE_DEPTH)
 
 
-TRACK_LIST_BORDER = 8
 TRACK_LIST_GAP = 12
+PAPER_FADE_STEP_MS = 33
+
+
+def track_list_border():
+    return 8 if running_on_android() else 13
 
 
 class TrackListBackground(QWidget):
@@ -246,11 +248,12 @@ class TrackListBackground(QWidget):
         background_of_theme = self.property('paperThemeBackground') or QApplication.instance().property('themeBackground')
         border = QColor(background_of_theme or '#393939').darker(110)
         face = paint_control(painter, self, button_paint_rect(self), border)
-        radius = max(0.0, corner_radius(12, face.width(), face.height()) - TRACK_LIST_BORDER)
+        width = track_list_border()
+        outer = corner_radius(12, face.width(), face.height())
+        radius = max(outer - width, outer * .5)
         painter.setPen(Qt.NoPen)
         painter.setBrush(background)
-        painter.drawRoundedRect(face.adjusted(TRACK_LIST_BORDER, TRACK_LIST_BORDER, -TRACK_LIST_BORDER, -TRACK_LIST_BORDER),
-                                radius, radius)
+        painter.drawRoundedRect(face.adjusted(width, width, -width, -width), radius, radius)
 
 
 class AlbumPresentation(QWidget):
@@ -269,6 +272,12 @@ class AlbumPresentation(QWidget):
         self.paper_background_accent_color = None
         self.paper_theme_background = None
         self.uses_global_text = True
+        self.paper_fade = QVariantAnimation(self)
+        self.paper_fade.setStartValue(0.0)
+        self.paper_fade.setEndValue(1.0)
+        self.paper_fade.valueChanged.connect(self.advance_paper_fade)
+        self.paper_fade_states = None
+        self.paper_fade_frame = 0
         self.booklet = TrackListBackground(self)
         self.booklet.setObjectName('booklet')
         self.booklet_style = '''
@@ -344,18 +353,55 @@ class AlbumPresentation(QWidget):
         self.album_title.setText(title)
         self.album_title.setVisible(bool(title))
 
-    def set_artwork(self, artwork, theme_colors=None):
+    def set_artwork(self, artwork, theme_colors=None, fade_ms=0):
+        self.paper_fade.stop()
+        start = self.paper_state()
         self.paper_palette = tuple(comfortable_color(color) for color in artwork_palette(artwork))
         paper = theme_colors.get('paperBackgroundColor') if theme_colors else None
-        self.paper_background = QColor(paper) if paper else (self.paper_palette[0] if self.paper_palette else None)
         text_color = (theme_colors.get('paperTextColor') or theme_colors.get('textColor')) if theme_colors else None
         color = QColor(text_color) if text_color else QColor()
-        self.artwork_text_color = color if color.isValid() else None
-        self.paper_button_color = theme_colors.get('themeAccent') if theme_colors else None
-        self.paper_background_accent_color = theme_colors.get('themeBackgroundAccent') if theme_colors else None
-        self.paper_theme_background = theme_colors.get('themeBackground') if theme_colors else None
+        target = {
+            'paper_background': QColor(paper) if paper else (self.paper_palette[0] if self.paper_palette else None),
+            'artwork_text_color': color if color.isValid() else None,
+            'paper_button_color': theme_colors.get('themeAccent') if theme_colors else None,
+            'paper_background_accent_color': theme_colors.get('themeBackgroundAccent') if theme_colors else None,
+            'paper_theme_background': theme_colors.get('themeBackground') if theme_colors else None,
+        }
+        if fade_ms > 0 and self.isVisible() and start['paper_background'] is not None and target['paper_background'] is not None:
+            self.paper_fade_states = start, target
+            self.paper_fade_frame = -PAPER_FADE_STEP_MS
+            self.paper_fade.setDuration(fade_ms)
+            self.paper_fade.start()
+        else:
+            self.apply_paper_state(target)
+
+    def paper_state(self):
+        return {key: getattr(self, key) for key in ('paper_background', 'artwork_text_color', 'paper_button_color',
+                                                    'paper_background_accent_color', 'paper_theme_background')}
+
+    def apply_paper_state(self, state):
+        for key, value in state.items():
+            setattr(self, key, value)
         self.uses_global_text = self.artwork_text_color is None and self.paper_background is None
         self.update_theme()
+
+    def advance_paper_fade(self, amount):
+        amount = float(amount)
+        elapsed = self.paper_fade.currentTime()
+        if amount < 1 and elapsed - self.paper_fade_frame < PAPER_FADE_STEP_MS:
+            return
+        self.paper_fade_frame = elapsed
+        start, target = self.paper_fade_states
+        state = {}
+        for key, end in target.items():
+            begin = start[key]
+            first, second = QColor(begin) if begin else QColor(), QColor(end) if end else QColor()
+            if amount < 1 and first.isValid() and second.isValid():
+                mixed = QColor(*(round(a + (b - a) * amount) for a, b in zip(first.getRgb()[:3], second.getRgb()[:3])))
+                state[key] = mixed if isinstance(end, QColor) else mixed.name()
+            else:
+                state[key] = end if amount >= 1 or not begin else begin
+        self.apply_paper_state(state)
 
     def update_theme(self):
         app = QApplication.instance()
@@ -396,6 +442,9 @@ class AlbumPresentation(QWidget):
             self.arrange()
 
     def hideEvent(self, event):
+        if self.paper_fade.state() == QVariantAnimation.Running:
+            self.paper_fade.stop()
+            self.apply_paper_state(self.paper_fade_states[1])
         self.animation.stop()
         self.layout_animation.stop()
         self.finish()
@@ -439,20 +488,13 @@ class AlbumPresentation(QWidget):
             case_height = case_width * CASE_HEIGHT / CASE_WIDTH
             paper_width = min(width - case_width + 8, case_width * .9)
             left = (self.width() - case_width - paper_width + 8) / 2
-            window = self.window().frameGeometry()
-            if running_on_android() and window.width() >= window.height() * TALL_TRACK_LIST_ASPECT_RATIO:
-                case_top = 8 + (available_height - case_height) / 2
-                case_face = visible_case_face(QRectF(left, case_top - 4 * self.progress, case_width, case_height))
-                top = case_face.top() - self.paper_face_top
-                paper_height = case_face.height() + self.paper_face_top + self.paper_face_bottom
-                front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
-                front_rect.moveCenter(QRectF(left, case_top, case_width, case_height).center())
-            else:
-                paper_height = case_height * .84
-                top = 8 + (available_height - paper_height) / 2
-                front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
-                front_rect.moveCenter(QRectF(left, top, case_width, paper_height).center())
-                case_face = visible_case_face(QRectF(left, top, case_width, case_height))
+            # The track list spans the full height of the case face beside it.
+            case_top = 8 + (available_height - case_height) / 2
+            case_face = visible_case_face(QRectF(left, case_top - 4 * self.progress, case_width, case_height))
+            top = case_face.top() - self.paper_face_top
+            paper_height = case_face.height() + self.paper_face_top + self.paper_face_bottom
+            front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
+            front_rect.moveCenter(QRectF(left, case_top, case_width, case_height).center())
             finish = case_face.right() + TRACK_LIST_GAP - self.paper_face_insets[0]
             start = finish - paper_width - 16
             paper_x = start + (finish - start) * self.progress
@@ -497,7 +539,7 @@ class AlbumPresentation(QWidget):
         self.paper_face_insets = (face.left(), self.booklet.width() - face.right())
         self.paper_face_top = face.top()
         self.paper_face_bottom = self.booklet.height() - face.bottom()
-        inset = 16 + TRACK_LIST_BORDER
+        inset = 16 + track_list_border()
         self.booklet.layout().setContentsMargins(
             round(face.left() + inset), round(face.top() + inset),
             round(self.booklet.width() - face.right() + inset),

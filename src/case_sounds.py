@@ -6,7 +6,7 @@ from PySide6.QtCore import QObject, Qt, QUrl
 from PySide6.QtMultimedia import QMediaDevices, QSoundEffect
 from PySide6.QtWidgets import QApplication
 from audio_devices import selected_output
-from audio_levels import volume_gain
+from audio_levels import music_volume_gain, volume_gain
 
 
 class CaseSounds(QObject):
@@ -32,7 +32,7 @@ class CaseSounds(QObject):
             if voice.audioDevice() != device:
                 voice.setAudioDevice(device)
             value = app.property(f'case{action.title()}Volume')
-            voice.setVolume(.4 * volume_gain(70 if value is None else value))
+            voice.setVolume(.4 * volume_gain(70 if value is None else value) * music_volume_gain(app))
 
     def play(self, action):
         if self.shutting_down:

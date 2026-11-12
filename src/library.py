@@ -70,8 +70,17 @@ def tag_text(tags, *keys):
                 value = value.text
             if isinstance(value, (list, tuple)):
                 value = value[0] if value else ''
-            return str(value)
+            return repair_windows_text(str(value))
     return ''
+
+
+def repair_windows_text(text):
+    if not any('\x80' <= character <= '\x9f' for character in text):
+        return text
+    try:
+        return text.encode('latin-1').decode('cp1252')
+    except UnicodeError:
+        return text
 
 
 def tag_number(value):

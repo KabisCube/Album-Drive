@@ -53,8 +53,6 @@ def main():
     if sys.platform not in ('win32', 'linux'):
         raise SystemExit('Build on Windows or Linux to produce its native executable.')
     root = Path(__file__).resolve().parents[1]
-    subprocess.run([sys.executable, str(root / 'scripts' / 'make_icons.py')], cwd=root, check=True)
-    subprocess.run([sys.executable, str(root / 'scripts' / 'make_button_sounds.py')], cwd=root, check=True)
     system = 'windows' if sys.platform == 'win32' else 'linux'
     architecture = platform.machine().lower()
     architecture = {'amd64': 'x86_64', 'aarch64': 'arm64'}.get(architecture, architecture)

@@ -20,7 +20,7 @@ with TemporaryDirectory() as directory:
     settings.setValue('theme_fade_seconds', 0)
     window = PlayerWindow(settings)
     window.show()
-    buttons = (window.sort_albums, window.save_theme_button, window.refresh_button, window.settings_button)
+    buttons = (window.sort_albums, window.save_theme_button, window.settings_button)
     try:
         for theme in ('chunky', 'classic'):
             settings.setValue('theme', theme)

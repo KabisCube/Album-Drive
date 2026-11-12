@@ -9,7 +9,7 @@ import sqlite3
 from threading import Lock
 from file_paths import filesystem_path
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 class AlbumCache:
