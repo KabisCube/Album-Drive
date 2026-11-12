@@ -4,7 +4,7 @@ import re
 
 from PySide6.QtGui import QColor
 
-from open_case import artwork_accent_palette, artwork_color_range, artwork_palette, artwork_scrollbar_colors, color_contrast
+from open_case import artwork_accent_palette, artwork_color_range, artwork_muted_hues, artwork_palette, artwork_scrollbar_colors, color_contrast
 from themes import accent_shade
 from color_rules import artwork_text_color, comfortable_color, comfortable_surface, SOFT_BLACK, SOFT_WHITE
 
@@ -26,6 +26,8 @@ MINIMUM_BACKGROUND_LIGHTNESS = 40 / 255
 ALBUM_LIGHTNESS_MARGIN = .04
 COMFORTABLE_LIGHTNESS = (16 / 255, 244 / 255)
 REAL_INK_CONTRAST = 2.5
+GREY_INK_CONTRAST = 3.5
+INK_HUE_GAP = 1 / 12
 MEANINGFUL_SHARE = .02
 MINIMUM_DISTINCT_COLORS = 3
 MUTED_RANGE = .3
@@ -35,6 +37,18 @@ MUTED_TEXT_STRENGTHS = (.75, .85, .95)  # Between the even shade steps, so text 
 MUTED_TEXT_CONTRAST = 2
 SINGLE_HUE_RANGE = .1
 OWN_CONTRAST = 3
+TINT_CHROMA = 12
+EXTREME_LIGHTNESS = (.06, .92)
+DISTINCT_LIGHTNESS = .12
+DISTINCT_HUE = 1 / 12
+COMFORTABLE_TEXT_CONTRAST = 7.0
+MODE_LIGHTNESS = (.4, .6)
+HUE_NOVELTY_WEIGHT = 1.5
+MUTED_HUE_DISTANCE = 12
+MUTED_PICK_CHROMA = 30
+PLAIN_INK_LIGHTNESS = (.15, .9)
+ALWAYS_PLAIN_LIGHTNESS = (.08, .94)
+INK_DISTINCT_DISTANCE = 32
 
 
 def contrasting_text(background):
@@ -257,6 +271,68 @@ def range_color(color_range, acceptable):
     return QColor(max(options)[1]) if options else None
 
 
+def ink_reads(surface, ink):
+    """Button icons can lean on a hue difference; on grey (or in grey) only lightness tells them apart."""
+    contrast = color_contrast(surface, ink)
+    if contrast >= MINIMUM_TEXT_CONTRAST:
+        return True
+    hues_differ = is_chromatic(surface) and is_chromatic(ink) and hue_gap(surface, ink) >= INK_HUE_GAP
+    return contrast >= (REAL_INK_CONTRAST if hues_differ else GREY_INK_CONTRAST)
+
+
+def button_ink(button, preferred, taken, merged):
+    """An icon color that reads on the button and differs from the other theme colors, preferring real cover colors."""
+    def usable(color):
+        return ink_reads(button, color) and all(rgb_distance(color, other) >= INK_DISTINCT_DISTANCE for other in taken)
+    if usable(preferred) and not plain_ink(preferred):
+        return preferred
+    ranked = list(dict.fromkeys(color.name() for color, share in sorted(merged, key=lambda entry: entry[1], reverse=True)
+                                if share >= MEANINGFUL_SHARE))
+    ranked = [QColor(name) for name in ranked]
+    real = [color for color in ranked if usable(color)]
+    soft = [color for color in real if not plain_ink(color)]
+    # Real color comes first, then soft greys.
+    colored = [color for color in soft if tinted(color)]
+    if colored or soft:
+        return (colored or soft)[0]
+    # No cover color reads on the button: the nearest deeper or paler shade of the color it wanted,
+    # then of the cover's tones, so it stays as close to the artwork as it can.
+    def nearest_shade(color, allow_plain):
+        shades = [shade for darker in (True, False)
+                  for shade in (ink_away_from(button, color, darker, usable),) if shade is not None
+                  and (allow_plain or not plain_ink(shade))]
+        return min(shades, key=lambda shade: abs(shade.lightnessF() - color.lightnessF()), default=None)
+    for color in [QColor(preferred)] + ranked:
+        if tinted(color):
+            shade = nearest_shade(color, False)
+            if shade is not None:
+                return shade
+    if real:
+        return real[0]
+    if usable(preferred):
+        return preferred
+    for color in [QColor(preferred)] + ranked:
+        shade = nearest_shade(color, True)
+        if shade is not None:
+            return shade
+    fallback = contrasting_text(button)
+    if all(rgb_distance(fallback, other) >= INK_DISTINCT_DISTANCE for other in taken):
+        return fallback
+    return nearest_shade(fallback, True) or fallback
+
+
+def ink_away_from(surface, color, darker, usable):
+    """The same hue made darker or lighter, stopping at the first shade that is usable on the surface."""
+    color = QColor(color)
+    hue, saturation, lightness, _ = color.getHslF()
+    target = 16 / 255 if darker else 244 / 255
+    for step in range(1, 65):
+        candidate = QColor(QColor.fromHslF(max(0, hue), saturation, lightness + (target - lightness) * step / 64).name())
+        if usable(candidate):
+            return candidate
+    return None
+
+
 def separate_button_colors(colors, color_range=()):
     others = [QColor(colors[key]) for key in ('themeBackground', 'textColor', 'themeHighlight')]
     background = others[0]
@@ -283,8 +359,9 @@ def separate_button_colors(colors, color_range=()):
             and color_contrast(background, candidate) >= BUTTON_BACKGROUND_CONTRAST)) or accent
 
     def readable_ink(surface):
-        for minimum in (MINIMUM_TEXT_CONTRAST, REAL_INK_CONTRAST):
-            ink = range_color(color_range, lambda candidate: color_contrast(surface, candidate) >= minimum
+        for strict in (True, False):
+            ink = range_color(color_range, lambda candidate: (color_contrast(surface, candidate) >= MINIMUM_TEXT_CONTRAST
+                                                              if strict else ink_reads(surface, candidate))
                               and visibly_different(candidate, surface))
             if ink is not None:
                 return ink
@@ -295,6 +372,17 @@ def separate_button_colors(colors, color_range=()):
         return ink if legible(ink) and visibly_different(ink, surface) else None
 
     ink = readable_ink(accent)
+    if ink is None or chroma(accent) < MUTED_PICK_CHROMA:
+        # A grey button, or one without readable ink, gives way to a colorful mid-tone from the cover that has both.
+        def colorful_button(candidate):
+            return (chroma(candidate) >= MUTED_PICK_CHROMA and BUTTON_LIGHTNESS[0] <= candidate.lightnessF() <= BUTTON_LIGHTNESS[1]
+                    and stands_apart(candidate) and color_contrast(background, candidate) >= BUTTON_BACKGROUND_CONTRAST
+                    and readable_ink(candidate) is not None)
+        options = [(share ** .5 * chroma(color), color.name()) for color, share in color_range
+                   if share >= MEANINGFUL_SHARE and colorful_button(color)]
+        if options:
+            accent = QColor(max(options)[1])
+            ink = readable_ink(accent)
     if ink is None:
         # Mid tones leave room for one readable ink only, so give the accent a small nudge.
         hue, saturation, lightness, _ = accent.getHslF()
@@ -543,7 +631,85 @@ def artwork_pop(details, main_colors):
     return QColor(*(round(sum(color.getRgb()[channel] for color in family) / len(family)) for channel in range(3)))
 
 
-def main_artwork_colors(color_range, mode, details=()):
+def tinted(color):
+    return chroma(color) >= TINT_CHROMA
+
+
+def plain_extreme(color):
+    """Near white or near black: a last resort for backgrounds and text when the cover has softer options."""
+    return not EXTREME_LIGHTNESS[0] < color.lightnessF() < EXTREME_LIGHTNESS[1]
+
+
+def clearly_different(first, second):
+    """Different lightness, or different hue when both have one."""
+    if abs(first.lightnessF() - second.lightnessF()) >= DISTINCT_LIGHTNESS:
+        return True
+    if tinted(first) and tinted(second):
+        return hue_gap(first, second) >= DISTINCT_HUE
+    return tinted(first) != tinted(second)
+
+
+def hue_novelty(color, chosen):
+    """How far a tinted color's hue is from the hues already in use, from 0 to .5."""
+    hues = [other for other in chosen if tinted(other)]
+    if not tinted(color) or not hues:
+        return 0.0
+    return min(hue_gap(color, other) for other in hues)
+
+
+def plain_ink(color):
+    """Near black or near white: a last resort once the cover's real colors have been tried."""
+    lightness = color.lightnessF()
+    if not ALWAYS_PLAIN_LIGHTNESS[0] <= lightness <= ALWAYS_PLAIN_LIGHTNESS[1]:
+        return True
+    return chroma(color) < TINT_CHROMA and not PLAIN_INK_LIGHTNESS[0] <= lightness <= PLAIN_INK_LIGHTNESS[1]
+
+
+def tinted_text(background, merged):
+    """A shade of the cover's most prominent colored tone, moved just far enough to read comfortably."""
+    target = 0.0 if background.lightnessF() >= .5 else 1.0
+    for color, share in sorted(merged, key=lambda entry: entry[1], reverse=True):
+        if share < MEANINGFUL_SHARE or chroma(color) < MUTED_PICK_CHROMA:
+            continue
+        hue, saturation, lightness, _ = color.getHslF()
+        for step in range(1, 129):
+            candidate = QColor(QColor.fromHslF(max(0, hue), saturation, lightness + (target - lightness) * step / 128).name())
+            if color_contrast(background, candidate) >= COMFORTABLE_TEXT_CONTRAST:
+                if not plain_ink(candidate):
+                    return candidate
+                break
+    return None
+
+
+def readable_text(background, merged):
+    """The most prominent cover color that reads well on a background, avoiding white and black if it can."""
+    options = [(color, share) for color, share in merged if share >= MEANINGFUL_SHARE and color != background
+               and color_contrast(background, color) >= MINIMUM_TEXT_CONTRAST]
+    if not options:
+        return None
+    good = [entry for entry in options if color_contrast(background, entry[0]) >= COMFORTABLE_TEXT_CONTRAST] or options
+    soft = [entry for entry in good if not plain_extreme(entry[0]) and not plain_ink(entry[0])]
+    if soft:
+        return max(soft, key=lambda entry: entry[1])[0]
+    # Only plain black or white reads: a deep or pale shade of the cover's own color fits it better.
+    return tinted_text(background, merged) or max(good, key=lambda entry: entry[1])[0]
+
+
+def merged_share(merged, color):
+    return next((share for other, share in merged if other == color), 0.0)
+
+
+def mode_background(merged, mode):
+    """A prominent cover color on the requested side of mid-grey that still has readable text on it."""
+    wanted = ((lambda color: color.lightnessF() < MODE_LIGHTNESS[0]) if mode == 'dark'
+              else lambda color: color.lightnessF() > MODE_LIGHTNESS[1])
+    options = [(color, share) for color, share in merged
+               if share >= MEANINGFUL_SHARE and wanted(color) and readable_text(color, merged) is not None]
+    soft = [entry for entry in options if not plain_extreme(entry[0])] or options
+    return max(soft, key=lambda entry: entry[1])[0] if soft else None
+
+
+def main_artwork_colors(color_range, mode, details=(), muted=()):
     """Five real cover colors, or None when a cover does not clearly have them."""
     merged = []
     for color, share in color_range:
@@ -551,32 +717,60 @@ def main_artwork_colors(color_range, mode, details=()):
             merged.append((color, share))
     if len(merged) < 5:
         return None
+    # Faint tints (a grey-blue sky) are their own hue, not more grey, when the cover has nothing else in that hue.
+    for color, share in muted:
+        if all(not tinted(other) or hue_gap(color, other) >= DISTINCT_HUE for other, _ in merged) and all(
+                tinted(other) or rgb_distance(color, other) >= MUTED_HUE_DISTANCE for other, _ in merged):
+            merged.append((color, share))
     dominant = merged[0][0]
-    text = max((color for color, share in merged[1:] if share >= MEANINGFUL_SHARE),
-               key=lambda color: color_contrast(dominant, color), default=None)
-    if text is None or color_contrast(dominant, text) < MINIMUM_TEXT_CONTRAST:
+    background = dominant
+    text = readable_text(background, merged)
+    if text is None:
         return None
-    remaining = [entry for entry in merged[1:] if entry[0] != text]
+    wrong_side = ((mode == 'dark' and background.lightnessF() > text.lightnessF())
+                  or (mode == 'light' and background.lightnessF() < text.lightnessF()))
+    if wrong_side:
+        fitting = mode_background(merged, mode)
+        if fitting is not None:
+            background, text = fitting, readable_text(fitting, merged)
+        else:
+            background, text = text, background
+    remaining = [entry for entry in merged if entry[0] not in (background, text)]
     picked = []
     while remaining and len(picked) < 3:
+        chosen = [background, text] + picked
         best = max(remaining, key=lambda entry: entry[1] ** .5 * min(
-            rgb_distance(entry[0], other) for other in [dominant, text] + picked))
+            rgb_distance(entry[0], other) for other in chosen) * (1 + HUE_NOVELTY_WEIGHT * hue_novelty(entry[0], chosen)))
         remaining.remove(best)
         picked.append(best[0])
     if len(picked) < 3:
         return None
+    # When a cover has another hue but none of the picks shows it, the last pick makes way for it.
+    def new_hue(color, others):
+        return tinted(color) and hue_novelty(color, others) >= DISTINCT_HUE
+    if not any(new_hue(color, [background, text] + [other for other in picked if other != color]) for color in picked):
+        fresh = [entry for entry in remaining if new_hue(entry[0], [background, text] + picked)]
+        if fresh:
+            # The plainest pick (a grey, or the least prominent) makes way.
+            plainest = min(range(len(picked)), key=lambda index: (tinted(picked[index]), merged_share(merged, picked[index])))
+            picked[plainest] = max(fresh, key=lambda entry: entry[1] ** .5 * hue_novelty(entry[0], [background, text] + picked))[0]
     accent = artwork_pop(details, merged)
+    if accent is None and max(chroma(color) for color in picked) < MUTED_PICK_CHROMA:
+        # All picks are near grey: the cover's most colorful prominent color leads instead.
+        colorful = [(color, share) for color, share in remaining if share >= MEANINGFUL_SHARE
+                    and chroma(color) >= MUTED_PICK_CHROMA and clearly_different(color, text)]
+        if colorful:
+            accent = max(colorful, key=lambda entry: entry[1] ** .5 * chroma(entry[0]))[0]
+            picked.remove(min(picked, key=lambda color: (tinted(color), merged_share(merged, color))))
     if accent is None:
         accent = max(picked, key=chroma)
         picked.remove(accent)
     hue_from_background = (lambda color: hue_gap(color, dominant)) if is_chromatic(dominant) else chroma
-    button = max(picked, key=hue_from_background)
+    apart = [color for color in picked if clearly_different(color, accent)] or picked
+    button = max(apart, key=hue_from_background)
     picked.remove(button)
-    background = dominant
-    if (mode == 'dark' and background.lightnessF() > text.lightnessF()) or (
-            mode == 'light' and background.lightnessF() < text.lightnessF()):
-        background, text = text, background
-    return assembled_colors(background, text, button, accent, picked[0], picked[0], background, text)
+    ink = button_ink(button, picked[0], (background, text, button, accent), list(merged) + list(color_range))
+    return assembled_colors(background, text, button, accent, ink, picked[0], background, text)
 
 
 def muted_artwork_colors(background, paper, toward=None):
@@ -626,6 +820,23 @@ def artwork_theme_colors(artwork, mode='any'):
         return colors
     colors = comfortable_artwork_colors(vivid_accent(colors))
     colors['brandLineColor'] = QColor(colors['themeBackground']).darker(110).name()
+    return distinct_button_ink(colors, artwork_color_range(artwork))
+
+
+def distinct_button_ink(colors, color_range):
+    """The icon color may not repeat another theme color, and is only plain black or white as a last resort."""
+    ink = QColor(colors['themeBackgroundAccent'])
+    button = QColor(colors['themeAccent'])
+    taken = tuple(QColor(colors[key]) for key in ('themeBackground', 'textColor', 'themeAccent', 'themeHighlight'))
+    repeated = any(rgb_distance(ink, other) < INK_DISTINCT_DISTANCE for other in taken)
+    if not repeated and not plain_ink(ink) and ink_reads(button, ink) and tinted(ink):
+        return colors
+    chosen = button_ink(button, ink, taken, color_range)
+    if not repeated and ink_reads(button, ink) and (plain_ink(chosen) or (tinted(ink) >= tinted(chosen) and not plain_ink(ink))):
+        return colors
+    colors = dict(colors)
+    for key in ('themeBackgroundAccent', 'buttonTextColor', 'buttonIconColor', 'disabledTextColor'):
+        colors[key] = chosen.name()
     return colors
 
 
@@ -635,12 +846,17 @@ def picked_artwork_colors(artwork, mode):
     if not palette:
         return None
     color_range = artwork_color_range(artwork)
-    main_colors = main_artwork_colors(color_range, mode, artwork_accent_palette(artwork))
+    main_colors = main_artwork_colors(color_range, mode, artwork_accent_palette(artwork), artwork_muted_hues(artwork))
     if main_colors is not None:
         return main_colors
     if mode in ('dark', 'light'):
         low, high = (0, .45) if mode == 'dark' else (.65, 1)
         preferred = tuple(color for color in palette if low <= color.lightnessF() <= high)
+        if not preferred:
+            # Blending can average thin line work away; a real cover color on the right side beats an invented shade.
+            real = [(color, share) for color, share in color_range
+                    if share >= MEANINGFUL_SHARE and low <= color.lightnessF() <= high]
+            preferred = tuple(comfortable_color(color) for color, _ in sorted(real, key=lambda entry: entry[1], reverse=True))
         background = QColor(preferred[0] if preferred else palette[0])
         if not preferred:
             if max(background.getRgb()[:3]) - min(background.getRgb()[:3]) < 16:

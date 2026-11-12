@@ -85,6 +85,31 @@ def artwork_color_range(artwork, minimum=.01):
         return ()
 
 
+def artwork_muted_hues(artwork, minimum=.01, low=12, high=26):
+    """Faintly tinted areas, like a grey-blue sky, that the color range counts as plain grey."""
+    if not artwork:
+        return ()
+    try:
+        with Image.open(BytesIO(artwork)) as image:
+            rgba = image.convert('RGBA').resize((128, 128), Image.Resampling.NEAREST)
+            data = rgba.get_flattened_data() if hasattr(rgba, 'get_flattened_data') else rgba.getdata()
+            pixels = [pixel[:3] for pixel in data if pixel[3] >= 128]
+        groups = {}
+        for rgb in pixels:
+            if low <= max(rgb) - min(rgb) < high:
+                hue, _, _ = colorsys.rgb_to_hls(*(channel / 255 for channel in rgb))
+                groups.setdefault(int(hue * 12) % 12, []).append(rgb)
+        colors = []
+        for group in groups.values():
+            if len(group) >= len(pixels) * minimum:
+                strongest = sorted(group, key=lambda rgb: max(rgb) - min(rgb), reverse=True)[:max(1, len(group) // 2)]
+                color = QColor(*(round(sum(rgb[channel] for rgb in strongest) / len(strongest)) for channel in range(3)))
+                colors.append((color, len(group) / len(pixels)))
+        return tuple(sorted(colors, key=lambda entry: entry[1], reverse=True))
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return ()
+
+
 def artwork_accent_palette(artwork):
     if not artwork:
         return ()

@@ -1521,6 +1521,8 @@ class ThemedComboBox(QComboBox):
         self.drop.glide(0)
         view.setFocus(Qt.PopupFocusReason)
         self.popup.setUpdatesEnabled(True)
+        # A translucent popup window can otherwise keep its frame from the last time it was open, in old theme colors.
+        self.popup.update()
         self.popup_position_timer.start(0)
 
     def position_popup(self):
@@ -1589,6 +1591,7 @@ class ThemedComboBox(QComboBox):
         corner = self.mapToGlobal(QPoint()) - self.popup.pos()
         shape = shape.subtracted(QRegion(button.translated(corner.x(), corner.y()).toFillPolygon().toPolygon()))
         self.popup.setMask(shape if not shape.isEmpty() else QRegion(0, final.height() - 1, 1, 1))
+        self.popup.update()
 
     def eventFilter(self, watched, event):
         if watched is self.popup and event.type() == QEvent.MouseButtonPress:

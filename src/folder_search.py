@@ -3,7 +3,7 @@
 import math
 import os
 
-from PySide6.QtCore import QDir, QObject, QEasingCurve, QElapsedTimer, QPointF, QRectF, QThread, QTimer, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QDir, QObject, QPersistentModelIndex, QEasingCurve, QElapsedTimer, QPointF, QRectF, QThread, QTimer, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPalette, QPen, QRegion
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
@@ -99,7 +99,6 @@ class FolderSearchBar(QWidget):
         self.field.textChanged.connect(self.queryChanged)
         self.field.textChanged.connect(lambda _: self.update())
         self.field.installEventFilter(self)
-        self.field.setStyleSheet('QLineEdit#folderSearchField { background: transparent; border: none; padding: 0; }')
         self.field.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.setAccessibleName('Search folders')
         self.setCursor(Qt.PointingHandCursor)
@@ -160,15 +159,13 @@ class FolderSearchBar(QWidget):
             self.field.setFocus(Qt.MouseFocusReason)
 
     def apply_text_color(self, color):
-        palette = self.field.palette()
-        if palette.color(QPalette.Text) == color:
-            return
+        # The app stylesheet colors every text field, so only a rule on this field itself wins over it.
         placeholder = QColor(color)
         placeholder.setAlphaF(.6)
-        for role, value in ((QPalette.Text, color), (QPalette.WindowText, color), (QPalette.PlaceholderText, placeholder)):
-            palette.setColor(QPalette.Active, role, value)
-            palette.setColor(QPalette.Inactive, role, value)
-        self.field.setPalette(palette)
+        style = (f'QLineEdit#folderSearchField {{ background: transparent; border: none; padding: 0; '
+                 f'color: {color.name()}; placeholder-text-color: {placeholder.name(QColor.HexArgb)}; }}')
+        if style != self.field.styleSheet():
+            self.field.setStyleSheet(style)
 
     def update_mask(self):
         outer = self.outer_rect().adjusted(-BUTTON_SHADOW, -BUTTON_SHADOW, 0, BUTTON_SHADOW)
@@ -199,7 +196,7 @@ class FolderSearchBar(QWidget):
             event.ignore()
             return
         self.pressed_part = ('icon' if self.icon_rect(face).contains(point) or not self.expanded
-                             else 'clear' if self.clear_rect(face).contains(point) else 'field')
+                             else 'clear' if self.field.text() and self.clear_rect(face).contains(point) else 'field')
         if self.pressed_part != 'field':
             play_button_sound()
         else:
@@ -236,7 +233,7 @@ class FolderSearchBar(QWidget):
         fill = QColor(app.property('themeAccent') or '#cfe10e')
         ink = QColor(app.property('themeBackgroundAccent') or '#16191e')
         face = paint_control(painter, self, self.outer_rect(), fill, self.pressed_part in ('icon', 'clear'))
-        self.apply_text_color(QColor(app.property('textColor') or '#e9edf3'))
+        self.apply_text_color(ink)
         size = face.height() * .62
         icon = QRectF(0, 0, size, size)
         icon.moveCenter(self.icon_rect(face).center())
@@ -259,6 +256,7 @@ class FolderSearch(QObject):
         self.query = ''
         self.matches = set()
         self.keep = set()
+        self.hidden_rows = []
         self.saved_expanded = None
         self.saved_scroll = 0
         self.timer = QTimer(self)
@@ -358,6 +356,8 @@ class FolderSearch(QObject):
                 hidden = self.active and path not in self.keep
                 if self.tree.isRowHidden(row, parent) != hidden:
                     self.tree.setRowHidden(row, parent, hidden)
+                    if hidden:
+                        self.hidden_rows.append(QPersistentModelIndex(index))
                 if not hidden and self.tree.isExpanded(index):
                     pending.append(index)
 
@@ -372,6 +372,11 @@ class FolderSearch(QObject):
         self.matches, self.keep = set(), set()
         self.wiggle_timer.stop()
         if model is not None:
+            # Rows hidden inside folders that have since closed are out of filter_rows' reach.
+            for index in self.hidden_rows:
+                if index.isValid():
+                    self.tree.setRowHidden(index.row(), index.parent(), False)
+            self.hidden_rows = []
             self.filter_rows()
             if self.saved_expanded is not None:
                 self.tree.collapseAll()
