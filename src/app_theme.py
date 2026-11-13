@@ -834,9 +834,49 @@ def distinct_button_ink(colors, color_range):
     chosen = button_ink(button, ink, taken, color_range)
     if not repeated and ink_reads(button, ink) and (plain_ink(chosen) or (tinted(ink) >= tinted(chosen) and not plain_ink(ink))):
         return colors
+    if not from_cover(chosen, color_range):
+        swapped = text_and_buttons_swapped(colors, ink, color_range)
+        if swapped is not None:
+            return swapped
     colors = dict(colors)
     for key in ('themeBackgroundAccent', 'buttonTextColor', 'buttonIconColor', 'disabledTextColor'):
         colors[key] = chosen.name()
+    return colors
+
+
+def from_cover(color, color_range):
+    return any(rgb_distance(color, other) < INK_DISTINCT_DISTANCE for other, _ in color_range)
+
+
+TEXT_KEYS = ('textColor', 'secondaryTextColor', 'folderArrowColor', 'headingTextColor', 'selectedTextColor',
+             'timelineTextColor')
+BUTTON_KEYS = ('themeAccent', 'timelineColor')
+# The button color becomes the text, so it must still be legible on the background.
+SWAPPED_TEXT_CONTRAST = 2.5
+INK_KEYS = ('themeBackgroundAccent', 'buttonTextColor', 'buttonIconColor', 'disabledTextColor')
+
+
+def text_and_buttons_swapped(colors, preferred, color_range):
+    """When no cover color reads on the buttons, buttons take the text color if a real cover color then reads on them."""
+    old_text, old_button = QColor(colors['textColor']), QColor(colors['themeAccent'])
+    if color_contrast(QColor(colors['themeBackground']), old_button) < SWAPPED_TEXT_CONTRAST:
+        return None
+    taken = (QColor(colors['themeBackground']), old_text, old_button, QColor(colors['themeHighlight']),
+             QColor(colors['buttonFill']))
+    candidates = [preferred] + [color for color, share in sorted(color_range, key=lambda entry: entry[1], reverse=True)
+                                if share >= MEANINGFUL_SHARE]
+    ink = next((color for color in candidates if tinted(color) and not plain_ink(color) and ink_reads(old_text, color)
+                and from_cover(color, color_range)
+                and all(rgb_distance(color, other) >= INK_DISTINCT_DISTANCE for other in taken)), None)
+    if ink is None:
+        return None
+    colors = dict(colors)
+    if QColor(colors.get('paperTextColor', '')) == old_text:
+        # The track list shares the swapped text color when it uses the same one.
+        colors['paperTextColor'] = old_button.name()
+    colors.update({key: old_button.name() for key in TEXT_KEYS if key in colors})
+    colors.update({key: old_text.name() for key in BUTTON_KEYS if key in colors})
+    colors.update({key: ink.name() for key in INK_KEYS})
     return colors
 
 

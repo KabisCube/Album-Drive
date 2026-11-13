@@ -333,6 +333,9 @@ BUTTON_SHADOW = 9
 DROPDOWN_SPRING_FREQUENCY = 18.0
 DROPDOWN_SPRING_DAMPING = .65
 POPUP_TOGGLE_MS = 400
+PAN_SPEED = 20
+PAN_GAP = 40
+PAN_PAUSE_SECONDS = 1.2
 DROPDOWN_MINIMUM_TEXT_SCALE = .8
 
 
@@ -1381,12 +1384,55 @@ QMenu::item {{ padding: 8px 14px; background: transparent; }}
                 painter.drawLine(QPointF(left, y), QPointF(left + width, y))
 
 
+class HoverPan(QObject):
+    """Slowly pans the hovered dropdown option when its name does not fit, like the Now Playing title."""
+
+    def __init__(self, view):
+        super().__init__(view)
+        self.view = view
+        self.index = None
+        self.offset = 0.0
+        self.pause = PAN_PAUSE_SECONDS
+        self.clock = QElapsedTimer()
+        self.timer = QTimer(self)
+        self.timer.setInterval(33)
+        self.timer.timeout.connect(self.advance)
+
+    def follow(self, index, overflows):
+        key = (index.row(), index.column()) if index is not None and index.isValid() and overflows else None
+        if key != self.index:
+            self.index = key
+            self.offset = 0.0
+            self.pause = PAN_PAUSE_SECONDS
+            self.clock.start()
+            self.timer.start() if key is not None else self.timer.stop()
+
+    def advance(self):
+        if not self.view.isVisible():
+            self.follow(None, False)
+            return
+        seconds = self.clock.restart() / 1000
+        if self.pause > 0:
+            self.pause -= seconds
+            return
+        self.offset += seconds * PAN_SPEED
+        self.view.viewport().update()
+
+    def offset_for(self, index, width):
+        if self.index != (index.row(), index.column()):
+            return None
+        if self.offset >= width + PAN_GAP:
+            self.offset = 0.0
+            self.pause = PAN_PAUSE_SECONDS
+        return self.offset
+
+
 class DropdownDelegate(QStyledItemDelegate):
     """Plain menu text with the file browser's three-pixel underline."""
 
     def sizeHint(self, option, index):
-        font = self.parent().fontMetrics()
-        return QSize(font.horizontalAdvance(str(index.data() or '')) + 24, font.height() + 18)
+        # No width of its own: options fit the popup and long names pan instead of scrolling sideways.
+        return QSize(0, self.parent().fontMetrics().height() + 18)
 
     def paint(self, painter, option, index):
         app = QApplication.instance()
@@ -1394,16 +1440,30 @@ class DropdownDelegate(QStyledItemDelegate):
         painter.setFont(self.parent().font())
         painter.setPen(QColor(app.property('textColor') or '#ffffff'))
         rect = option.rect.adjusted(10, 0, -10, 0)
-        text = option.fontMetrics.elidedText(str(index.data() or ''), Qt.ElideRight, rect.width())
-        painter.drawText(rect, Qt.AlignVCenter | Qt.AlignLeading, text)
+        full = str(index.data() or '')
+        full_width = option.fontMetrics.horizontalAdvance(full)
         view = self.parent()
         mouse = view.viewport().mapFromGlobal(QCursor.pos())
         hovered = view.indexAt(mouse) if view.viewport().rect().contains(mouse) and not view.property('keyboardNavigation') else None
+        pan = getattr(view, 'hover_pan', None)
+        if pan is not None and hovered is not None and hovered == index:
+            pan.follow(index, full_width > rect.width())
+        offset = pan.offset_for(index, full_width) if pan is not None and full_width > rect.width() else None
+        if offset is None:
+            text = option.fontMetrics.elidedText(full, Qt.ElideRight, rect.width())
+            painter.drawText(rect, Qt.AlignVCenter | Qt.AlignLeading, text)
+            text_width = option.fontMetrics.horizontalAdvance(text)
+        else:
+            painter.setClipRect(rect)
+            for start in (rect.left() - offset, rect.left() - offset + full_width + PAN_GAP):
+                painter.drawText(QRectF(start, rect.top(), full_width + 2, rect.height()), Qt.AlignVCenter | Qt.AlignLeft, full)
+            painter.setClipping(False)
+            text_width = rect.width()
         underline = (hovered == index if hovered is not None and hovered.isValid()
                      else bool(option.state & QStyle.State_Selected))
         if underline:
             painter.setPen(QPen(QColor(app.property('themeAccent') or GRASS_GREEN), 3, Qt.SolidLine, Qt.FlatCap))
-            width = min(rect.width(), option.fontMetrics.horizontalAdvance(text))
+            width = min(rect.width(), text_width)
             y = min(rect.bottom() - 3, rect.center().y() + option.fontMetrics.height() / 2 + 1)
             left = rect.right() - width if option.direction == Qt.RightToLeft else rect.left()
             painter.drawLine(QPointF(left, y), QPointF(left + width, y))
@@ -1438,6 +1498,9 @@ class ThemedComboBox(QComboBox):
         self.setMaxVisibleItems(10)
         self.view().setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.view().setItemDelegate(DropdownDelegate(self.view()))
+        self.menu_view.hover_pan = HoverPan(self.menu_view)
+        self.menu_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.menu_view.setTextElideMode(Qt.ElideRight)
         self.view().setMouseTracking(True)
         self.view().viewport().setMouseTracking(True)
         self.popup = None
@@ -1532,7 +1595,7 @@ class ThemedComboBox(QComboBox):
         origin = self.mapToGlobal(QPoint(0, self.height() + 2))
         row_height = max(self.view().sizeHintForRow(0), self.view().fontMetrics().height() + 18)
         margin = CONTROL_HEADROOM + 16 + 2 * BUTTON_SHADOW
-        desired = row_height * min(self.count(), self.maxVisibleItems()) + margin
+        desired = row_height * min(self.count(), self.maxVisibleItems()) + margin + ui_depth()
         below = available.bottom() - origin.y() + 1
         button_top = self.mapToGlobal(QPoint()).y() - 2
         above = button_top - available.top()
@@ -1542,7 +1605,7 @@ class ThemedComboBox(QComboBox):
         else:
             height = min(desired, max(1, above))
             y = button_top - height
-        width = min(available.width(), max(self.width(), self.view().sizeHintForColumn(0) + margin + 24 + CONTROL_HEADROOM))
+        width = min(available.width(), self.width())
         x = max(available.left(), min(origin.x(), available.right() - width + 1))
         self.popup.setMinimumSize(0, 0)
         self.popup.setMaximumSize(16777215, 16777215)
@@ -1555,16 +1618,31 @@ class ThemedComboBox(QComboBox):
             self.popup_edge = self.mapToGlobal(QPointF(0, own_face.top()).toPoint()).y()
             final.moveTop(self.popup_edge - round(popup_face.bottom()))
         else:
-            self.popup_edge = self.mapToGlobal(QPointF(0, own_face.bottom()).toPoint()).y()
+            # Below the button's raised underside too, so the popup's rounded top corners are never cut off.
+            self.popup_edge = self.mapToGlobal(QPointF(0, own_face.bottom() + ui_depth()).toPoint()).y()
             final.moveTop(self.popup_edge - round(popup_face.top()))
         self.popup_final = final
         self.popup.setGeometry(self.popup_final)
         padding = 6
         offset = control_offset(self.popup, QRectF(self.popup.rect()), ui_depth())
+        # A scrollbar's empty sides tuck into the popup's edge padding and under the list, so only its knob takes room.
+        scrolls = self.count() > self.maxVisibleItems()
+        tuck = CONTROL_HEADROOM if scrolls else 0
+        # Opening downward, the popup's raised underside adds to its bottom border; the top gets the same so both read equal.
+        balance = 0 if self.popup_opens_up else ui_depth()
         self.popup.layout().setContentsMargins(round(padding + CONTROL_HEADROOM - offset.x()),
-                                              round(padding + CONTROL_HEADROOM - offset.y()) + BUTTON_SHADOW,
-                                              round(padding + CONTROL_HEADROOM + offset.x()),
+                                              round(padding + CONTROL_HEADROOM - offset.y() + balance) + BUTTON_SHADOW,
+                                              round(padding + CONTROL_HEADROOM + offset.x()) - tuck,
                                               round(padding + offset.y()) + BUTTON_SHADOW)
+        self.menu_view.setViewportMargins(0, 0, -tuck, 0)
+        bar = self.menu_view.verticalScrollBar()
+        holder = bar.parentWidget() if bar.parentWidget() is not self.menu_view else bar
+        if holder is not bar and holder.styleSheet() != 'background: transparent;':
+            holder.setStyleSheet('background: transparent;')
+        if tuck:
+            holder.setMask(QRegion(tuck, 0, max(1, bar.sizeHint().width() - tuck), 100000))
+        else:
+            holder.clearMask()
         self.place_popup()
         self.view().scrollToTop()
         self.view().scrollTo(self.model().index(self.currentIndex(), self.modelColumn(), self.rootModelIndex()),
@@ -1600,6 +1678,9 @@ class ThemedComboBox(QComboBox):
         if watched is self.menu_view or watched is self.menu_view.viewport():
             if event.type() == QEvent.KeyPress:
                 self.menu_view.setProperty('keyboardNavigation', True)
+                self.menu_view.viewport().update()
+            elif event.type() == QEvent.Leave and watched is self.menu_view.viewport():
+                self.menu_view.hover_pan.follow(None, False)
                 self.menu_view.viewport().update()
             elif event.type() == QEvent.MouseMove and self.menu_view.property('keyboardNavigation'):
                 self.menu_view.setProperty('keyboardNavigation', False)

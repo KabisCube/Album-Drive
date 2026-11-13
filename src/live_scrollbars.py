@@ -20,6 +20,7 @@ class LiveScrollbars(QObject):
         paper_rail_accent = None
         fill = QColor(app.property('buttonFill') or '#cccccc')
         surface = QColor(background)
+        fill_surface = True
         parent = widget.parentWidget()
         while parent is not None:
             paper = parent.property('paperBackgroundColor')
@@ -36,12 +37,15 @@ class LiveScrollbars(QObject):
                 surface = background.darker(110)
                 break
             if isinstance(parent, QAbstractScrollArea) and parent.window().objectName() == 'albumDriveDropdown':
-                surface = QColor(fill)
+                # The popup's rounded face is already behind it; a square fill would show past its corners.
+                surface = background.darker(110)
+                fill_surface = False
                 break
             parent = parent.parentWidget()
         painter = QPainter(widget)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(widget.rect(), surface)
+        if fill_surface:
+            painter.fillRect(widget.rect(), surface)
         painter.setPen(Qt.NoPen)
         option = QStyleOptionSlider()
         widget.initStyleOption(option)

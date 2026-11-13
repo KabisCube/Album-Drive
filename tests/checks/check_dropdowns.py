@@ -51,7 +51,7 @@ for thickness in (0, 100, 300):
     own_face = control_face(button_paint_rect(choice), widget=choice)
     popup_face = control_face(button_paint_rect(choice.popup), widget=choice.popup)
     gap = choice.popup.y() + popup_face.top() - choice.mapToGlobal(QPoint(0, round(own_face.bottom()))).y()
-    assert abs(gap) <= 1, gap
+    assert abs(gap - ui_depth()) <= 1, (gap, ui_depth())  # Starts below the button's raised underside.
     view = choice.view()
     assert view.visualRect(choice.model().index(0, 0)).top() >= 0
     target = view.visualRect(choice.model().index(1, 0)).center()

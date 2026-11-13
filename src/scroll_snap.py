@@ -3,9 +3,13 @@
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QEvent, QObject, QPoint, QTimer, Qt, QVariantAnimation
 from PySide6.QtWidgets import QAbstractItemView, QApplication, QFormLayout, QScrollArea, QScroller
 
-from themes import BUTTON_SHADOW
+from themes import BUTTON_SHADOW, CONTROL_HEADROOM
 
 SNAP_SETTLE_MS = 180
+FACE_DEPTH = 4
+STOP_ABOVE_FACE = 6
+MINIMUM_STOP_GAP = 24
+SETTINGS_ROWS_PER_NOTCH = 2
 
 
 def layout_bands(layout):
@@ -24,7 +28,8 @@ def layout_bands(layout):
         if geometries:
             top = min(geometry.top() for geometry in geometries)
             bottom = max(geometry.bottom() + 1 for geometry in geometries)
-            bands.append((top, bottom, max(top, min(top + BUTTON_SHADOW, bottom)), max(top, bottom - 2)))
+            visible_top = min(top + BUTTON_SHADOW + CONTROL_HEADROOM - FACE_DEPTH, bottom)
+            bands.append((top, bottom, visible_top, max(visible_top, bottom - BUTTON_SHADOW + FACE_DEPTH)))
     return bands
 
 
@@ -79,7 +84,12 @@ class TopSnap(QObject):
         if not options:
             return None
         clamped = sorted({min(bar.maximum(), max(bar.minimum(), option)) for option in options} | {bar.minimum(), bar.maximum()})
-        return clamped, 2
+        # Stops closer together than a row's face would make one wheel notch feel like less than a row.
+        stops = []
+        for stop in clamped:
+            if not stops or stop - stops[-1] >= MINIMUM_STOP_GAP or stop == bar.maximum():
+                stops.append(stop)
+        return stops, SETTINGS_ROWS_PER_NOTCH
 
     def wheel(self, event):
         # Touchpads scroll by pixels and settle afterwards; mouse wheels step from stop to stop.
@@ -135,8 +145,7 @@ class TopSnap(QObject):
             bands = layout_bands(area.widget().layout())
             if not bands:
                 return []
-            gap = min(band[0] for band in bands)
-            options = {band[0] - gap for band in bands} | {band[3] for band in bands}
+            options = {0} | {band[2] - STOP_ABOVE_FACE for band in bands} | {band[3] for band in bands}
             # A stop is only good if no row's visible part straddles the top edge.
             return [option for option in options
                     if not any(visible_top < option < visible_bottom for _, _, visible_top, visible_bottom in bands)]
