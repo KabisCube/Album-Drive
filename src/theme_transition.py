@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor, QPainter, QPalette
 from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QLabel, QLineEdit, QPlainTextEdit, QScrollBar, QSplitterHandle, QStackedWidget, QWidget
 from shiboken6 import isValid
 
-from themes import accent_shade, corner_radius
+from themes import FIELD_SHADE, PANEL_SHADE, accent_shade, corner_radius
 from color_rules import disabled_text_color, settings_title_color
 
 
@@ -56,6 +56,9 @@ class ThemeTransition(QObject):
                 continue
             if widget is paper or paper.isAncestorOf(widget):
                 continue
+            if isinstance(widget, QSplitterHandle) and widget.splitter() is getattr(self.window, 'browser_splitter', None):
+                # The browser column paints its own raised panel; its handle stays see-through.
+                continue
             if widget.window() is not self.window and not widget.window().isVisible():
                 continue
             self.registered.add(id(widget))
@@ -94,7 +97,7 @@ class ThemeTransition(QObject):
         palette = QPalette(self.palette)
         for role, color in {
             QPalette.Window: background, QPalette.Base: background,
-            QPalette.AlternateBase: background.darker(119), QPalette.WindowText: text,
+            QPalette.AlternateBase: background.darker(FIELD_SHADE), QPalette.WindowText: text,
             QPalette.Text: text, QPalette.Button: QColor(app.property('buttonFill')),
             QPalette.ButtonText: QColor(app.property('buttonTextColor')),
             QPalette.Highlight: QColor(accent_shade(accent.name(), .32)),
@@ -117,8 +120,8 @@ class ThemeTransition(QObject):
                 continue
             special = QPalette(palette)
             if widget is self.window.tree or self.window.tree.isAncestorOf(widget):
-                special.setColor(QPalette.Base, background.darker(110))
-                special.setColor(QPalette.Window, background.darker(110))
+                special.setColor(QPalette.Base, background.darker(PANEL_SHADE))
+                special.setColor(QPalette.Window, background.darker(PANEL_SHADE))
             elif isinstance(widget, QLabel) and widget.objectName() in ('heading', 'muted', 'nowPlayingTitle'):
                 prop = 'headingTextColor' if widget.objectName() == 'heading' else 'secondaryTextColor'
                 special.setColor(QPalette.WindowText, QColor(app.property(prop)))
@@ -128,7 +131,7 @@ class ThemeTransition(QObject):
                 special.setColor(QPalette.Disabled, QPalette.WindowText, disabled_text_color(title))
             widget.setPalette(special)
             if self.window.live_theme and isinstance(widget, TEXT_FIELDS):
-                self.tint_text_field(widget, background.darker(115).name(), text.name(), QColor(disabled_text_color(text)).name())
+                self.tint_text_field(widget, background.darker(FIELD_SHADE).name(), text.name(), QColor(disabled_text_color(text)).name())
             widget.update()
         # Paper retains its cover palette; its knobs follow live button colors.
         for bar in self.window.findChildren(QScrollBar):
@@ -150,8 +153,10 @@ class ThemeTransition(QObject):
                 painter.setBrush(widget.palette().window())
                 radius = corner_radius(8, widget.width(), widget.height())
                 painter.drawRoundedRect(QRectF(widget.rect()), radius, radius)
-            else:
-                painter.fillRect(widget.rect(), widget.palette().window())
+                painter.end()
+                # The browser still paints its sunken folder list and halftone on top.
+                return False
+            painter.fillRect(widget.rect(), widget.palette().window())
             painter.end()
             return True
         return False

@@ -15,3 +15,8 @@ Thumbs.db
 *.swo
 *~
 Desktop.ini
+
+# Local verify runners
+verify.bat
+scripts/verify.py
+scripts/verify_linux.sh

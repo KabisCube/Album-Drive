@@ -15,7 +15,7 @@ from pathlib import Path
 from app_paths import ASSETS_DIR
 from font_support import configure_font_rendering, font_families, load_handwriting_fonts, load_round_fallbacks
 
-from PySide6.QtCore import QDir, QEvent, QEasingCurve, QElapsedTimer, QFile, QIODevice, QLoggingCategory, QPoint, QPointF, QVariantAnimation, QRectF, QSettings, QSignalBlocker, QSize, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QDir, QMargins, QEvent, QEasingCurve, QElapsedTimer, QFile, QIODevice, QLoggingCategory, QPoint, QPointF, QVariantAnimation, QRectF, QSettings, QSignalBlocker, QSize, Qt, QThread, QTimer, QUrl, Signal
 
 # Route FFmpeg output through Qt's severity-aware logger instead of native dumps.
 os.environ['QT_FFMPEG_DEBUG'] = '1'
@@ -45,11 +45,12 @@ from themes import signed_setting_int, resolve_font, THEME_DEFAULT, ALBUM_SORT_D
 from theme_settings import ThemeSettingsDialog, capture_color_theme, custom_color_settings, saved_color_themes
 from theme_transition import ThemeTransition, strip_theme_colors
 from live_scrollbars import install_live_scrollbars
+from raised_tooltip import install_raised_tooltips
 from scroll_shadows import paint_scroll_background
 from case_loader import CaseLoader, prepare_case
 from case_loader import fitted as fitted_size
 from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, case_frame_color, paint_cd_case, paint_shell, artwork_tray_color, fitted_case_rect
-from themes import control_offset
+from themes import PANEL_SHADE, WELL_SHADE, RaisedLabel, control_offset, control_shadow, paint_raised_surface, raised_surface_face, surface_depth
 from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
 from color_rules import timeline_colors
 from settings_store import create_app_settings, library_cache_path, write_theme_files
@@ -66,7 +67,6 @@ from audio_levels import volume_gain
 from android_media import AndroidMedia
 from first_run import FirstRunDialog, apply_system_theme, needs_first_run
 from session_palette import load_session_palette, save_session_palette
-from app_identity import update_theme_icon
 from windows_taskbar import WindowsTaskbar
 from optical_discs import DiscEjector, DiscMonitor, DiscReader, audio_album, cached_audio_valid
 from folder_search import WIGGLE_WIDTH, FolderSearch, FolderSearchBar, wiggle_path
@@ -290,6 +290,10 @@ def transport_icon(name, color, disabled_color=None):
         painter.setPen(QPen(QColor(color), 5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.drawEllipse(QRectF(5.5, 5.5, 15, 15))
         painter.drawLine(QPointF(19.5, 19.5), QPointF(26, 26))
+    elif name == 'collapse':
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(color), 5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.drawPolyline([QPointF(20, 7), QPointF(11, 16), QPointF(20, 25)])
     elif name == 'clear':
         painter.setPen(QPen(QColor(color), 3.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.drawLine(QPointF(8, 8), QPointF(24, 24))
@@ -469,12 +473,33 @@ class NowPlayingCover(QWidget):
                            self.baked_case, QRectF(self.baked_case.rect()))
 
 
+class BrowserColumn(QSplitter):
+    """The file browser and now playing share one raised panel in the browser's shade."""
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        color = QColor(QApplication.instance().property('themeBackground') or BUILDING_GRAY).darker(PANEL_SHADE)
+        face = paint_raised_surface(painter, self, QRectF(self.rect()), color)
+        painter.end()
+        self.fit_face(face)
+
+    def fit_face(self, face):
+        # Everything on the panel sits on its face, so it moves with the face as Thickness changes.
+        margins = QMargins(round(face.left()), round(face.top()), round(self.width() - face.right()),
+                           round(self.height() - face.bottom()))
+        if margins != self.contentsMargins():
+            self.setContentsMargins(margins)
+
+
 class NowPlayingPanel(QWidget):
     geometryChanged = Signal()
 
     def __init__(self):
         super().__init__()
         self.content = QWidget(self)
+        # The browser column's panel shows through, so the app-wide widget background must not cover it.
+        self.content.setStyleSheet('background: transparent;')
         self.content.installEventFilter(self)
         self.cover = None
         self.resizable = False
@@ -530,11 +555,28 @@ class NowPlayingPanel(QWidget):
             self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.arrange()
 
+    def balance_title_gap(self):
+        """Leave as much panel below the title's descenders as there is between the case's shadow and its capitals."""
+        layout = self.content.layout()
+        title = layout.itemAt(layout.count() - 1).widget()
+        metrics = title.fontMetrics()
+        height = title.sizeHint().height()
+        baseline = (height - metrics.height()) / 2 + metrics.ascent()
+        shadow_bottom = self.cover.image_rect().bottom() + control_shadow(CASE_SHADOW_DEPTH).y()
+        above = (self.cover.height() - shadow_bottom) + layout.spacing() + baseline - metrics.capHeight()
+        below = height - (baseline + metrics.descent())
+        margins = layout.contentsMargins()
+        bottom = max(0, int(above - below))
+        if margins.bottom() != bottom:
+            margins.setBottom(bottom)
+            layout.setContentsMargins(margins)
+
     def arrange(self):
         if self.arranging or self.cover is None or self.content.layout() is None:
             return
         self.arranging = True
         try:
+            self.balance_title_gap()
             cover_height = self.cover.heightForWidth(self.width())
             other_height = self.content.layout().sizeHint().height() - self.cover.height()
             if self.resizable:
@@ -545,7 +587,7 @@ class NowPlayingPanel(QWidget):
                 cover_height = min(cover_height, max(0, self.height() - other_height))
             elif isinstance(self.parentWidget(), QSplitter):
                 splitter = self.parentWidget()
-                available = splitter.height() - splitter.widget(0).minimumHeight() - splitter.handleWidth()
+                available = splitter.contentsRect().height() - splitter.widget(0).minimumHeight() - splitter.handleWidth()
                 cover_height = min(cover_height, max(0, available - other_height))
             if self.cover.maximumHeight() != cover_height:
                 self.cover.setFixedHeight(cover_height)
@@ -782,6 +824,7 @@ class FolderBrowser(QTreeView):
         self.verticalScrollBar().sliderPressed.connect(self.scroll_animation.stop)
         self.verticalScrollBar().actionTriggered.connect(self.scroll_animation.stop)
         self.padding_style = None
+        self.well_offset = QPoint()
         self.search_bar = FolderSearchBar(self, transport_icon)
         self.search = FolderSearch(self)
         self.search_bar.queryChanged.connect(self.search.set_query)
@@ -797,8 +840,8 @@ class FolderBrowser(QTreeView):
             self.side_bar.valueChanged.connect(inner.setValue)
             self.side_bar.sliderPressed.connect(self.scroll_animation.stop)
             self.side_bar.actionTriggered.connect(self.scroll_animation.stop)
-            self.side_bar.hide()
         self.update_padding()
+        self.sync_side_bar()
 
     def scroll_bar(self):
         return self.side_bar or self.verticalScrollBar()
@@ -808,29 +851,57 @@ class FolderBrowser(QTreeView):
             return
         inner = self.verticalScrollBar()
         with QSignalBlocker(self.side_bar):
-            self.side_bar.setRange(inner.minimum(), inner.maximum())
-            self.side_bar.setPageStep(inner.pageStep())
+            if inner.maximum() > inner.minimum():
+                self.side_bar.setRange(inner.minimum(), inner.maximum())
+                self.side_bar.setPageStep(inner.pageStep())
+            else:
+                # Qt hides the handle of an empty range; a one-step range under a huge page makes it fill the track.
+                self.side_bar.setRange(0, 1)
+                self.side_bar.setPageStep(1_000_000)
             self.side_bar.setSingleStep(inner.singleStep())
             self.side_bar.setValue(inner.value())
-        visible = inner.maximum() > inner.minimum()
-        if visible != self.side_bar.isVisible():
+        # Always shown, so the list keeps its place; with nothing to scroll the handle fills the whole track.
+        visible = True
+        if visible == self.side_bar.isHidden():
             self.side_bar.setVisible(visible)
             self.update_padding()
         self.place_overlays()
 
     def side_bar_width(self):
-        return self.side_bar.sizeHint().width() - CONTROL_HEADROOM - BROWSER_SCROLLBAR_TUCK if self.side_bar is not None and self.side_bar.isVisible() else 0
+        return self.side_bar.sizeHint().width() - CONTROL_HEADROOM - BROWSER_SCROLLBAR_TUCK if self.side_bar is not None and not self.side_bar.isHidden() else 0
 
     def search_reserve(self):
         return self.search_bar.face_height() + BROWSER_SEARCH_GAP
 
+    def current_well_offset(self):
+        offset = control_offset(self, QRectF(self.rect()), surface_depth())
+        return QPoint(round(offset.x()), round(offset.y()))
+
+    def well_rect(self):
+        """The folder list's opening in the panel face; its floor stays at zero thickness, offset into the opening."""
+        dx, dy = self.well_offset.x(), self.well_offset.y()
+        return QRectF(self.viewport().geometry()).adjusted(-max(dx, 0), -dy, max(-dx, 0), 0)
+
     def update_padding(self):
+        self.well_offset = self.current_well_offset()
+        dx, dy = self.well_offset.x(), self.well_offset.y()
         left = BROWSER_PADDING + self.side_bar_width()
-        top = BROWSER_PADDING + round(self.search_reserve() * self.search_bar.progress)
-        style = f'QTreeView#fileBrowser {{ padding: {top}px {BROWSER_PADDING}px 14px {left}px; }}'
+        # The closed search button rests in the scrollbar's strip; without that strip it would cover the first folder.
+        opened = self.search_bar.progress if self.side_bar_width() else 1.0
+        top = BROWSER_PADDING + round(self.search_reserve() * opened)
+        style = (f'QTreeView#fileBrowser {{ padding: {top + dy}px {BROWSER_PADDING + max(-dx, 0)}px 14px '
+                 f'{left + max(dx, 0)}px; }}')
         if style != self.padding_style:
             self.padding_style = style
+            # A new stylesheet hands widgets back the palette they had before it, which on Android is the
+            # system's; keep the live theme colors set on the browser and its parts instead.
+            kept = [(widget, widget.palette(), widget.autoFillBackground(), widget.testAttribute(Qt.WA_StyledBackground))
+                    for widget in (self, *self.findChildren(QWidget)) if widget.testAttribute(Qt.WA_SetPalette)]
             self.setStyleSheet(style)
+            for widget, palette, autofill, styled in kept:
+                widget.setPalette(palette)
+                widget.setAutoFillBackground(autofill)
+                widget.setAttribute(Qt.WA_StyledBackground, styled)
         self.place_overlays()
 
     def place_overlays(self):
@@ -838,18 +909,75 @@ class FolderBrowser(QTreeView):
             return
         height = self.search_bar.preferred_height()
         top = BROWSER_PADDING - BUTTON_SHADOW - CONTROL_HEADROOM
-        self.search_bar.setGeometry(BROWSER_PADDING - CONTROL_HEADROOM, top,
-                                    max(1, self.width() - 2 * BROWSER_PADDING + 2 * CONTROL_HEADROOM), height)
+        bar_left = BROWSER_PADDING - CONTROL_HEADROOM
+        strip = self.side_bar is not None and not self.side_bar.isHidden()
+        viewport = self.well_rect().toRect()
+        if strip:
+            # The closed button's face centers over the scrollbar; both faces are centered at zero thickness,
+            # so changing Thickness only extrudes them and never pulls them apart.
+            bar_left = round(viewport.left() / 2 - self.search_bar.collapsed_width() / 2)
+        self.search_bar.setGeometry(bar_left, top, max(1, self.width() - bar_left - BROWSER_PADDING + CONTROL_HEADROOM), height)
         self.search_bar.raise_()
-        if self.side_bar is not None and self.side_bar.isVisible():
-            viewport = self.viewport().geometry()
-            left = BROWSER_PADDING - CONTROL_HEADROOM
-            self.side_bar.setGeometry(left, viewport.top(), self.side_bar.sizeHint().width(), viewport.height())
-            self.side_bar.setMask(QRegion(0, 0, max(1, viewport.left() - left), viewport.height()))
+        if strip:
+            width = self.side_bar.sizeHint().width()
+            self.side_bar.resize(width, viewport.height())
+            # Center the visible track in the dark strip left of the folder list.
+            option = QStyleOptionSlider()
+            self.side_bar.initStyleOption(option)
+            groove = QRectF(self.side_bar.style().subControlRect(QStyle.CC_ScrollBar, option, QStyle.SC_ScrollBarGroove, self.side_bar))
+            left = round(viewport.left() / 2 - groove.center().x())
+            # The closed search button sits in the same strip, so the scrollbar starts below it.
+            below_search = top + round(self.search_bar.face_rect().bottom()) + BUTTON_SHADOW + BROWSER_SEARCH_GAP
+            bar_top = max(viewport.top(), below_search)
+            # The handle face stops above the widget by the groove margin and a headroom; run the widget that far past the list.
+            below_face = round(self.side_bar.height() - groove.bottom()) + CONTROL_HEADROOM
+            bar_height = max(1, viewport.bottom() + 1 + below_face - bar_top)
+            self.side_bar.setGeometry(left, bar_top, width, bar_height)
+            self.side_bar.setMask(QRegion(0, 0, max(1, viewport.left() - left), bar_height))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.place_overlays()
+
+    @staticmethod
+    def list_color():
+        return QColor(QApplication.instance().property('themeBackground') or BUILDING_GRAY).darker(WELL_SHADE)
+
+    def event(self, event):
+        handled = super().event(event)
+        if event.type() == QEvent.Paint:
+            if self.current_well_offset() != self.well_offset:
+                QTimer.singleShot(0, self.update_padding)
+            # The walls of the sunken folder list, visible where the floor sits below the opening's rim.
+            well = self.well_rect()
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(Qt.NoPen)
+            panel = QColor(QApplication.instance().property('themeBackground') or BUILDING_GRAY).darker(PANEL_SHADE)
+            painter.setBrush(panel.darker(125))
+            radius = corner_radius(8, well.width(), well.height())
+            painter.drawRoundedRect(well, radius, radius)
+            painter.end()
+        return handled
+
+    def paintEvent(self, event):
+        # The folder list's floor is the normal background, rounded like the panel around it and clipped by the rim.
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        well = self.well_rect().translated(-QPointF(self.viewport().pos()))
+        floor = well.translated(QPointF(self.well_offset))
+        radius = corner_radius(8, well.width(), well.height())
+        rim = QPainterPath()
+        rim.addRoundedRect(well, radius, radius)
+        painter.setClipPath(rim)
+        painter.setBrush(self.list_color())
+        painter.drawRoundedRect(floor, radius, radius)
+        painter.setClipping(False)
+        # The edge halftone is drawn before this paint event, so it goes back on top of the new background.
+        paint_scroll_background(painter, self.viewport())
+        painter.end()
+        super().paintEvent(event)
 
     def updateGeometries(self):
         super().updateGeometries()
@@ -924,7 +1052,7 @@ class FolderBrowser(QTreeView):
         if selected:
             painter.save()
             painter.setClipRect(rect, Qt.IntersectClip)
-            painter.fillRect(rect, self.palette().base())
+            painter.fillRect(rect, self.list_color())
             paint_scroll_background(painter, self.viewport())
             painter.restore()
         if not has_children and not selected:
@@ -1178,12 +1306,15 @@ class DiscDrivePanel(QWidget):
         start = self.height() if self.isVisible() else 0
         self.show()
         self.animation.setStartValue(start)
-        self.animation.setEndValue(height)
+        # Open, the drawer also holds its panel's body, so the face below the rows keeps every row.
+        self.animation.setEndValue(height + round(raised_surface_face(self, QRectF(0, 0, self.width(), height))[1].y()) if height else 0)
         self.animation.start()
         self.arrange()
 
     def arrange(self):
-        self.list.setGeometry(0, self.height() - self.content_height, self.width(), self.content_height)
+        # The rows ride on the raised panel's face, like everything else on the sidebar's panels.
+        face, _ = raised_surface_face(self, QRectF(self.rect()))
+        self.list.setGeometry(round(face.left()), round(face.bottom()) - self.content_height, round(face.width()), self.content_height)
         self.list.position_buttons()
 
     def resizeEvent(self, event):
@@ -1192,7 +1323,9 @@ class DiscDrivePanel(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(QApplication.instance().property('themeBackground') or BUILDING_GRAY).darker(110))
+        painter.setRenderHint(QPainter.Antialiasing)
+        paint_raised_surface(painter, self, QRectF(self.rect()),
+                             QColor(QApplication.instance().property('themeBackground') or BUILDING_GRAY).darker(PANEL_SHADE))
 
 
 class ThemePreparer(QThread):
@@ -1397,6 +1530,7 @@ class PlayerWindow(QMainWindow):
         self.tree.pressed.connect(self.cancel_browsing_restore)
         self.tree.scroll_bar().sliderPressed.connect(self.cancel_browsing_restore)
         self.tree.search_bar.expandedChanged.connect(lambda expanded: self.cancel_browsing_restore())
+        self.tree.search_bar.expandedChanged.connect(lambda expanded: self.update_compact_navigation())
         for bar in (self.tree.verticalScrollBar(), self.tree.horizontalScrollBar()):
             bar.parentWidget().setObjectName('fileBrowserScrollBarContainer')
             bar.parentWidget().setAttribute(Qt.WA_StyledBackground, True)
@@ -1406,7 +1540,7 @@ class PlayerWindow(QMainWindow):
         self.tree.selectionModel().currentChanged.connect(self.folder_selected)
         self.tree.clicked.connect(self.open_compact_folder)
         self.tree.setMinimumHeight(70)
-        browser_column = QSplitter(Qt.Vertical)
+        browser_column = BrowserColumn(Qt.Vertical)
         self.browser_splitter = browser_column
         browser_column.setHandleWidth(0)
         browser_column.addWidget(self.tree)
@@ -1502,7 +1636,7 @@ class PlayerWindow(QMainWindow):
         self.save_theme_button.setObjectName('saveTheme')
         self.save_theme_button.clicked.connect(self.save_current_theme)
         header.addWidget(self.save_theme_button)
-        self.theme_toast = QLabel(self)
+        self.theme_toast = RaisedLabel(self)
         self.theme_toast.setObjectName('themeSavedToast')
         self.theme_toast.setTextFormat(Qt.PlainText)
         self.theme_toast.setWordWrap(True)
@@ -1756,6 +1890,8 @@ class PlayerWindow(QMainWindow):
             timeline = colors['timelineColor']
         app = QApplication.instance()
         install_live_scrollbars(app)
+        if not self.is_android:
+            install_raised_tooltips(app)
         marker = QColor(str(self.settings.value('marker_text_color', MARKER_COLOR_DEFAULT)))
         app.setProperty('handwritingColor', marker.name() if marker.isValid() else MARKER_COLOR_DEFAULT)
         app.setProperty('audioOutputDevice', str(self.settings.value('audio_output_device', '')))
@@ -1843,7 +1979,6 @@ class PlayerWindow(QMainWindow):
             self.album_presentation.update_theme()
         colors = {prop: app.property(prop) for _, _, _, prop, _ in COLOR_SETTINGS}
         accent, background, timeline = (colors[prop] for prop in ('themeAccent', 'themeBackground', 'timelineColor'))
-        update_theme_icon(app, colors['themeHighlight'])
         rounding = app.property('cornerRoundness')
         transition = getattr(self, 'theme_renderer', None)
         if transition is not None:
@@ -2119,7 +2254,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         if hasattr(self, 'track_title'):
             self.track_title.span_changed()
         if self.now_playing.resizable and self.now_playing.height() == 0:
-            height = self.browser_splitter.height()
+            height = self.browser_splitter.contentsRect().height()
             self.browser_splitter.setSizes([round(height * .4), round(height * .6)])
 
     def show_first_run_setup(self):
@@ -2331,12 +2466,13 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             dialog.presets.append(preset)
             with QSignalBlocker(dialog.saved_theme_choice):
                 dialog.saved_theme_choice.addItem(preset['name'], preset['id'])
-        app = QApplication.instance()
-        background = QColor(app.property('themeBackground') or BUILDING_GRAY).darker(120).name()
-        color = app.property('textColor') or '#ffffff'
-        self.theme_toast.setStyleSheet(f'QLabel#themeSavedToast {{ background: {background}; color: {color}; padding: 10px 14px; border-radius: 8px; }}')
+        color = QApplication.instance().property('textColor') or '#ffffff'
+        self.theme_toast.setStyleSheet(f'QLabel#themeSavedToast {{ background: transparent; color: {color}; padding: 0; }}')
         self.theme_toast.setText(f'Theme Saved as "{preset["name"]}"')
-        self.theme_toast.setFixedWidth(min(self.width() - 32, self.theme_toast.fontMetrics().horizontalAdvance(self.theme_toast.text()) + 36))
+        self.theme_toast.fit_face()
+        margins = self.theme_toast.contentsMargins()
+        width = self.theme_toast.fontMetrics().horizontalAdvance(self.theme_toast.text()) + margins.left() + margins.right() + 4
+        self.theme_toast.setFixedWidth(min(self.width() - 32, width))
         self.theme_toast.adjustSize()
         self.position_theme_toast()
         self.theme_toast.show()
@@ -2359,7 +2495,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
     def restore_sidebar_split(self):
         height = self.now_playing.height()
-        available = self.browser_splitter.height() - self.browser_splitter.handleWidth()
+        available = self.browser_splitter.contentsRect().height() - self.browser_splitter.handleWidth()
         self.browser_splitter.setSizes([max(0, available - height), height])
 
     def update_responsive_layout(self, animate=True):
@@ -2376,7 +2512,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             if compact and self.viewed_album is not None:
                 self.workspace.set_page('library', animate=False)
             if compact:
-                height = self.browser_splitter.height()
+                height = self.browser_splitter.contentsRect().height()
                 self.browser_splitter.setSizes([round(height * .4), round(height * .6)])
         # Phones in landscape need the logo's height for the file browser.
         self.brand.setVisible(not (self.is_android and not compact))
@@ -2395,12 +2531,12 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
     def now_playing_limits(self):
         panel = self.now_playing
         minimum = max(MINIMUM_TOUCH_TARGET, panel.content.layout().sizeHint().height() - panel.cover.height())
-        return minimum, min(panel.maximumHeight(), self.browser_splitter.height() - self.tree.minimumHeight())
+        return minimum, min(panel.maximumHeight(), self.browser_splitter.contentsRect().height() - self.tree.minimumHeight())
 
     def set_now_playing_height(self, height):
         minimum, maximum = self.now_playing_limits()
         height = max(minimum, min(maximum, height))
-        self.browser_splitter.setSizes([self.browser_splitter.height() - height, height])
+        self.browser_splitter.setSizes([self.browser_splitter.contentsRect().height() - height, height])
 
     def drag_now_playing(self, delta):
         self.split_animation.stop()
@@ -2444,12 +2580,19 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         from scale_ghost import hide_with_shrink, show_with_grow
         (show_with_grow if library and not self.is_android else hide_with_shrink)(self.back_button)
         self.transport.arrange()
-        self.back_action.setEnabled(library)
-        self.escape_action.setEnabled(library or (not self.compact_mode and self.viewed_album is not None))
+        searching = self.search_open()
+        self.back_action.setEnabled(library or searching)
+        self.escape_action.setEnabled(library or searching or (not self.compact_mode and self.viewed_album is not None))
         self.back_button.setAccessibleName('Back to albums' if self.viewed_album is not None else 'Back to file browser')
 
+    def search_open(self):
+        return self.tree.search_bar.expanded and self.tree.isVisible()
+
     def navigate_back(self):
-        if self.viewed_album is not None and (not self.compact_mode or self.workspace.page == 'library'):
+        if self.search_open():
+            # Back and Esc close an open folder search before they leave the page.
+            self.tree.search_bar.set_expanded(False)
+        elif self.viewed_album is not None and (not self.compact_mode or self.workspace.page == 'library'):
             self.show_albums()
         elif self.compact_mode and self.workspace.page == 'library':
             self.show_compact_browser()
@@ -2767,6 +2910,8 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
         scanner.deleteLater()
         if self.closing and not self.scanners:
             self.close()
+            # The window was already hidden while it waited, so closing it no longer counts as the last window closing.
+            QApplication.quit()
 
     def scan_complete(self, generation, albums, skipped):
         if generation != self.generation or self.closing:

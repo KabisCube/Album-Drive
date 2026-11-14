@@ -57,16 +57,20 @@ def default_color_themes():
             for mode in ('light', 'dark')]
 
 
-def capture_color_theme(presets, name):
-    app = QApplication.instance()
+def unique_theme_name(presets, name):
     existing = {preset['name'] for preset in presets}
     original = name
     suffix = 2
     while name in existing:
         name = f'{original} ({suffix})'
         suffix += 1
+    return name
+
+
+def capture_color_theme(presets, name):
+    app = QApplication.instance()
     colors = {key: str(app.property(prop) or default) for _, _, key, prop, default in COLOR_SETTINGS}
-    return {'id': uuid4().hex, 'name': name, 'colors': colors, 'preserve_palette': True}
+    return {'id': uuid4().hex, 'name': unique_theme_name(presets, name), 'colors': colors, 'preserve_palette': True}
 
 
 def saved_color_themes(settings):
@@ -459,7 +463,7 @@ class ThemeSettingsDialog(QDialog):
         yield
         self.artwork_theme_mode = ThemedComboBox()
         self.artwork_theme_mode.setAccessibleName('Theme brightness')
-        for label, value in (('any', 'any'), ('dark', 'dark'), ('light', 'light')):
+        for label, value in (('Any', 'any'), ('Dark', 'dark'), ('Light', 'light')):
             self.artwork_theme_mode.addItem(label, value)
         self.artwork_theme_mode.setCurrentIndex(max(0, self.artwork_theme_mode.findData(
             str(settings.value('artwork_theme_mode', ARTWORK_THEME_MODE_DEFAULT)))))
@@ -1240,8 +1244,11 @@ class ThemeSettingsDialog(QDialog):
             self.set_setting_color(button, selected)
 
     def set_setting_color(self, button, color):
+        if QColor(color).name() == button.color().name() and not self.artwork_theme.isChecked():
+            return
         self.artwork_theme.setChecked(False)
-        self.show_default_theme()
+        if not self.active_color_choice or self.active_color_choice in DEFAULT_THEME_IDS:
+            self.modify_default_theme()
         button.set_color(color)
         self.sync_color_roles()
         self.queue_preview()
@@ -1284,6 +1291,19 @@ class ThemeSettingsDialog(QDialog):
         self.saved_theme_choice.blockSignals(False)
         self.active_color_choice = ''
 
+    def modify_default_theme(self):
+        """The defaults are never edited; changing one starts a copy of it instead."""
+        brightness = self.fixed_brightness or self.colors_brightness()
+        default = next(preset for preset in self.presets if preset['id'] == f'album-drive-default-{brightness}')
+        name = unique_theme_name(self.presets, f"{default['name']} (modified)")
+        preset = {'id': uuid4().hex, 'name': name, 'colors': {key: button.color().name() for key, button in self.colors.items()}}
+        self.presets.append(preset)
+        self.saved_theme_choice.blockSignals(True)
+        self.saved_theme_choice.addItem(name, preset['id'])
+        self.saved_theme_choice.setCurrentIndex(self.saved_theme_choice.count() - 1)
+        self.saved_theme_choice.blockSignals(False)
+        self.active_color_choice = preset['id']
+
     def show_brightness(self, mode):
         combo = self.artwork_theme_mode
         combo.blockSignals(True)
@@ -1298,7 +1318,7 @@ class ThemeSettingsDialog(QDialog):
         selectable_any = combo.findData('any') >= 0
         combo.blockSignals(True)
         if dynamic and not selectable_any:
-            combo.insertItem(0, 'any', 'any')
+            combo.insertItem(0, 'Any', 'any')
         elif not dynamic and selectable_any:
             self.dynamic_brightness = combo.currentData()
             combo.removeItem(0)

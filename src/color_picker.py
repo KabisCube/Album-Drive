@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QFormLayout, QHBoxLayout, Q
 
 from color_rules import disabled_text_color
 from responsive import ScreenFit
-from themes import ColorSwatch, ThemeSlider, ThemedButton, corner_radius
+from themes import FIELD_SHADE, ColorSwatch, ThemeSlider, ThemedButton, corner_radius
 
 
 class ColorField(QWidget):
@@ -135,7 +135,7 @@ class ColorPickerDialog(QDialog):
         actions.addWidget(self.accept_button)
         root.addLayout(actions)
         app = QApplication.instance()
-        background = QColor(app.property('themeBackground') or '#393939').darker(115).name()
+        background = QColor(app.property('themeBackground') or '#393939').darker(FIELD_SHADE).name()
         text = app.property('textColor') or '#ffffff'
         self.hex_edit.setStyleSheet(f'''QLineEdit {{ background: {background}; color: {text};
             placeholder-text-color: {QColor(disabled_text_color(text)).name()}; border: none; border-radius: {corner_radius(8):g}px; padding: 11px; }}''')

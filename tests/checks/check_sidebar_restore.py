@@ -43,8 +43,8 @@ with TemporaryDirectory() as directory:
         settle(window)
         natural = panel.content.layout().sizeHint().height()
         assert panel.height() <= natural, (panel.height(), natural)
-        assert abs(panel.geometry().bottom() - splitter.rect().bottom()) <= 1, (
-            panel.geometry(), splitter.rect(), splitter.sizes())
+        assert abs(panel.geometry().bottom() - splitter.contentsRect().bottom()) <= 1, (
+            panel.geometry(), splitter.contentsRect(), splitter.sizes())
         cover_height = window.cover.height()
         panel_height = panel.height()
         splitter.moveSplitter(0, 1)
@@ -54,8 +54,8 @@ with TemporaryDirectory() as directory:
         for sizes in ((650, 100), (100, 650), (400, 300)):
             window.resize(500, 1000)
             settle(window)
-            assert abs(panel.geometry().bottom() - splitter.rect().bottom()) <= 1, (
-                sizes, panel.geometry(), splitter.rect(), splitter.sizes())
+            assert abs(panel.geometry().bottom() - splitter.contentsRect().bottom()) <= 1, (
+                sizes, panel.geometry(), splitter.contentsRect(), splitter.sizes())
             window.browser_splitter.setSizes(sizes)
             app.processEvents()
             window.resize(1032, 1165)
@@ -63,12 +63,12 @@ with TemporaryDirectory() as directory:
             panel = window.now_playing
             splitter = window.browser_splitter
             assert not panel.resizable
-            assert abs(panel.geometry().bottom() - splitter.rect().bottom()) <= 1, (
-                sizes, panel.geometry(), splitter.rect(), splitter.sizes())
+            assert abs(panel.geometry().bottom() - splitter.contentsRect().bottom()) <= 1, (
+                sizes, panel.geometry(), splitter.contentsRect(), splitter.sizes())
             assert panel.height() == panel.content.height()
             window.resize(1200, 800)
             settle(window)
-            assert abs(panel.geometry().bottom() - splitter.rect().bottom()) <= 1
+            assert abs(panel.geometry().bottom() - splitter.contentsRect().bottom()) <= 1
         for width, height in ((500, 1200), (1200, 800), (480, 1280), (1100, 1000)):
             window.resize(width, height)
             app.processEvents()
@@ -78,8 +78,8 @@ with TemporaryDirectory() as directory:
                 animation.setCurrentTime(round(animation.duration() * fraction))
                 app.processEvents()
                 app.processEvents()
-                assert abs(panel.geometry().bottom() - splitter.rect().bottom()) <= 1, (
-                    width, height, fraction, panel.geometry(), splitter.rect(), panel.resizable,
+                assert abs(panel.geometry().bottom() - splitter.contentsRect().bottom()) <= 1, (
+                    width, height, fraction, panel.geometry(), splitter.contentsRect(), panel.resizable,
                     window.cover.height(), panel.content.layout().sizeHint(), panel.content.geometry())
             settle(window)
     finally:

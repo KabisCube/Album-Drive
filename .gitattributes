@@ -1,0 +1,2 @@
+# WSL runs these scripts, and bash cannot read Windows line endings.
+*.sh text eol=lf

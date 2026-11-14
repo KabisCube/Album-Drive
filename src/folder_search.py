@@ -4,7 +4,7 @@ import math
 import os
 
 from PySide6.QtCore import QDir, QObject, QPersistentModelIndex, QEasingCurve, QElapsedTimer, QPointF, QRectF, QThread, QTimer, Qt, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPalette, QPen, QRegion
+from PySide6.QtGui import QColor, QFontMetricsF, QGuiApplication, QPainter, QPainterPath, QPalette, QPen, QRegion
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 from button_sounds import play_button_sound
@@ -72,7 +72,7 @@ def wiggle_path(left, center_y, width, phase):
 
 
 class FolderSearchBar(QWidget):
-    """A search button in the browser's corner that unrolls leftward into a search field."""
+    """A search button in the browser's top-left corner that unrolls rightward into a search field."""
 
     queryChanged = Signal(str)
     expandedChanged = Signal(bool)
@@ -92,7 +92,7 @@ class FolderSearchBar(QWidget):
         self.animation.finished.connect(self.finish)
         self.field = QLineEdit(self)
         self.field.setObjectName('folderSearchField')
-        self.field.setPlaceholderText('Search folders')
+        self.field.setPlaceholderText('Search')
         self.field.setAccessibleName('Search folders')
         self.field.setFrame(False)
         self.field.hide()
@@ -102,6 +102,8 @@ class FolderSearchBar(QWidget):
         self.field.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.setAccessibleName('Search folders')
         self.setCursor(Qt.PointingHandCursor)
+        self.keyboard_shown = False
+        QGuiApplication.inputMethod().visibleChanged.connect(self.keyboard_visibility_changed)
 
     def face_height(self):
         return round(SEARCH_FACE_HEIGHT * button_scale())
@@ -115,7 +117,7 @@ class FolderSearchBar(QWidget):
     def outer_rect(self):
         outer = button_paint_rect(self)
         width = self.collapsed_width() + (outer.width() - self.collapsed_width()) * self.progress
-        outer.setLeft(outer.right() - width)
+        outer.setRight(outer.left() + width)
         return outer
 
     def face_rect(self):
@@ -136,6 +138,7 @@ class FolderSearchBar(QWidget):
         self.expanded = expanded
         self.animation.stop()
         if not expanded:
+            self.keyboard_shown = False
             self.field.clear()
             self.field.clearFocus()
         if animate and self.isVisible():
@@ -157,6 +160,18 @@ class FolderSearchBar(QWidget):
         self.place_field()
         if self.expanded:
             self.field.setFocus(Qt.MouseFocusReason)
+            # Phones only show their keyboard for a tap in the field, so ask for it once the bar is open.
+            QGuiApplication.inputMethod().show()
+
+    def keyboard_visibility_changed(self):
+        # Android's Back hides the keyboard without telling the app; with nothing typed, that Back closes the search.
+        visible = QGuiApplication.inputMethod().isVisible()
+        if visible and self.expanded:
+            self.keyboard_shown = True
+        elif not visible and self.keyboard_shown:
+            self.keyboard_shown = False
+            if self.expanded and not self.field.text():
+                self.set_expanded(False)
 
     def apply_text_color(self, color):
         # The app stylesheet colors every text field, so only a rule on this field itself wins over it.
@@ -237,7 +252,8 @@ class FolderSearchBar(QWidget):
         size = face.height() * .62
         icon = QRectF(0, 0, size, size)
         icon.moveCenter(self.icon_rect(face).center())
-        self.icon_factory('search', ink.name()).paint(painter, icon.toRect())
+        # Once open, the button only closes the bar, so it shows that instead of the magnifier.
+        self.icon_factory('collapse' if self.progress > .5 else 'search', ink.name()).paint(painter, icon.toRect())
         if self.progress > .55 and self.field.text():
             icon.moveCenter(self.clear_rect(face).center())
             painter.setOpacity(min(1.0, (self.progress - .55) / .3))

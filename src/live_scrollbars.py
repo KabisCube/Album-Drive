@@ -3,7 +3,7 @@ from PySide6.QtCore import QEvent, QObject, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QApplication, QAbstractScrollArea, QScrollBar, QStyle, QStyleOptionSlider
 
-from themes import CONTROL_HEADROOM, control_face, corner_radius, paint_control
+from themes import CONTROL_HEADROOM, GROOVE_SHADE, PANEL_SHADE, control_face, groove_radius, paint_control
 from color_rules import slider_rail
 from responsive import running_on_android
 from scroll_shadows import install_scroll_shadows
@@ -34,11 +34,11 @@ class LiveScrollbars(QObject):
                     paper_rail_accent = QColor(paper_rail)
                 break
             if parent.objectName() == 'fileBrowser':
-                surface = background.darker(110)
+                surface = background.darker(PANEL_SHADE)
                 break
             if isinstance(parent, QAbstractScrollArea) and parent.window().objectName() == 'albumDriveDropdown':
                 # The popup's rounded face is already behind it; a square fill would show past its corners.
-                surface = background.darker(110)
+                surface = background.darker(PANEL_SHADE)
                 fill_surface = False
                 break
             parent = parent.parentWidget()
@@ -75,9 +75,9 @@ class LiveScrollbars(QObject):
             before.setRight(face.center().x())
             after.setLeft(face.center().x())
         painter.setBrush(paper_rail_accent or rail_accent or slider_rail(surface))
-        painter.drawRoundedRect(before, corner_radius(2), corner_radius(2))
-        painter.setBrush(accent)
-        painter.drawRoundedRect(after, corner_radius(2), corner_radius(2))
+        painter.drawRoundedRect(before, groove_radius(before), groove_radius(before))
+        painter.setBrush(accent.darker(GROOVE_SHADE))
+        painter.drawRoundedRect(after, groove_radius(after), groove_radius(after))
         if (widget.maximum() > widget.minimum() and handle.width() > 2 * CONTROL_HEADROOM
                 and handle.height() > CONTROL_HEADROOM):
             paint_control(painter, widget, knob, accent, shadow=True)

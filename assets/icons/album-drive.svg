@@ -1,4 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <!-- A single cream silhouette, with a generous center hole. -->
-  <path fill="#eae7e2" fill-rule="evenodd" d="M128 16a112 112 0 1 1 0 224a112 112 0 1 1 0-224zm0 85a27 27 0 1 0 0 54a27 27 0 1 0 0-54z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="690" height="690" viewBox="167 163.5 690 690">
+  <g transform="rotate(-5.6)">
+    <path d="M174.0 266.5 L769.0 266.5 L769.0 816.0 L747.0 846.0 L152.0 846.0 L152.0 296.5 Z" fill="#bbbbb1" stroke="#bbbbb1" stroke-width="12" stroke-linejoin="round"/>
+    <path d="M168.0 285.5 L168.0 797.0 L146.0 827.0 L146.0 315.5 Z" fill="#414141"/>
+    <rect x="168" y="260.5" width="607" height="561.5" rx="6" fill="#d3d3d3"/>
+    <rect x="167" y="285.5" width="95" height="511.5" fill="#4b4b4b"/>
+    <rect x="262" y="285.5" width="488" height="511.5" fill="#f0883a"/>
+    <path d="M262 285.5 H750 V797 H262 Z M282 303 V787 H731 V303 Z" fill="#000000" fill-opacity=".06" fill-rule="evenodd"/>
+    <path d="M274 550 a227 227 0 1 0 454 0 a227 227 0 1 0 -454 0 Z M448.5 550 a52.5 52.5 0 1 1 105.0 0 a52.5 52.5 0 1 1 -105.0 0 Z" fill="#ffffff" fill-opacity=".11" fill-rule="evenodd"/>
+    <path d="M750.0 679.3 L271.5 285.5 L332.0 285.5 L750.0 629.5 Z" fill="#ffffff" fill-opacity=".15"/>
+    <path d="M750.0 585.5 L385.5 285.5 L696.5 285.5 L750.0 329.5 Z" fill="#ffffff" fill-opacity=".15"/>
+  </g>
 </svg>

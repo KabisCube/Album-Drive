@@ -141,7 +141,8 @@ def main():
     arguments = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if sys.platform == 'win32':
-        script = subprocess.check_output(['wsl', '--', 'wslpath', '-a', str(Path(__file__).resolve())],
+        # Forward slashes: wsl drops backslashes when started from cmd or PowerShell.
+        script = subprocess.check_output(['wsl', '--', 'wslpath', '-a', Path(__file__).resolve().as_posix()],
                                          text=True).strip()
         return subprocess.run(['wsl', '--', 'python3', script, *sys.argv[1:]], check=True).returncode
     if sys.platform != 'linux':

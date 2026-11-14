@@ -1,16 +1,15 @@
 import ctypes as ct
 from ctypes import wintypes as wt
 from contextlib import contextmanager
-from io import BytesIO
 import logging
 import os
 from pathlib import Path
 import subprocess
 import sys
 
-from PIL import Image
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QSaveFile, Qt
+from PySide6.QtCore import Qt
 
+from app_paths import ASSETS_DIR
 from windows_taskbar import GUID
 
 
@@ -154,51 +153,24 @@ class WindowsIdentity:
         return os.path.normcase(os.path.abspath(target.value)) == os.path.normcase(os.path.abspath(sys.executable))
 
     def update(self, app):
-        accent = app.property('themeIconAccent')
-        if not accent:
-            return
-        directory = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'Album Drive' / 'icons'
-        directory.mkdir(parents=True, exist_ok=True)
-        # Windows caches icons by path, so every colour gets its own file.
-        path = directory / f'theme-{accent.lstrip("#").lower()}.ico'
-        changed = app.property('taskbarIconAccent') != accent or not path.is_file()
-        if changed:
-            data = QByteArray()
-            buffer = QBuffer(data)
-            buffer.open(QIODevice.WriteOnly)
-            if not app.windowIcon().pixmap(256, 256).save(buffer, 'PNG'):
-                raise OSError('Cannot encode the application icon')
-            encoded = BytesIO()
-            with Image.open(BytesIO(bytes(data))) as image:
-                image.save(encoded, format='ICO', sizes=[(size, size) for size in (16, 24, 32, 48, 64, 128, 256)])
-            output = QSaveFile(str(path))
-            contents = encoded.getvalue()
-            if (not output.open(QIODevice.WriteOnly) or output.write(contents) != len(contents)
-                    or not output.commit()):
-                raise OSError(f'Cannot save the application icon: {output.errorString()}')
+        icon_path = ASSETS_DIR / 'icons' / 'album-drive.ico'
         for window in app.topLevelWidgets():
             if window.windowType() == Qt.Window:
-                self.update_window(window, path)
-        if changed:
-            info = ShellFileInfo()
-            if not self.shell.SHGetFileInfoW(str(path), 0, ct.byref(info), ct.sizeof(info), 0x4000):
-                raise OSError('Cannot locate the taskbar icon in the Windows image cache')
-            self.shell.SHUpdateImageW(str(path), 0, 0, info.index)
-            self.shell.SHChangeNotify(0x2000, 0x1005, str(path), None)
-            app.setProperty('taskbarIconAccent', accent)
+                self.update_window(window, icon_path)
         roaming = Path(os.environ.get('APPDATA') or Path.home() / 'AppData' / 'Roaming')
         pinned_directory = roaming / 'Microsoft' / 'Internet Explorer' / 'Quick Launch' / 'User Pinned' / 'TaskBar'
         for shortcut in pinned_directory.glob('*.lnk'):
             try:
-                self.update_shortcut(shortcut, path)
+                self.update_shortcut(shortcut, icon_path)
             except OSError:
                 logging.exception('Cannot refresh pinned icon: %s', shortcut)
-        for old in directory.glob('theme*.ico'):
-            if old != path:
-                try:
-                    old.unlink()
-                except OSError:
-                    pass
+        # Earlier versions tinted the icon with the theme and kept one file per color.
+        old_icons = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'Album Drive' / 'icons'
+        for old in old_icons.glob('theme*.ico'):
+            try:
+                old.unlink()
+            except OSError:
+                pass
 
 
 def update_windows_identity(app):

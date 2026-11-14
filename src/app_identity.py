@@ -7,42 +7,9 @@ from pathlib import Path
 
 from app_paths import ASSETS_DIR
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QIcon
 
 APP_NAME = 'Album Drive'
-
-
-def update_theme_icon(app, accent):
-    """Tint the running app's icon, keeping the disc's transparent silhouette."""
-    color = QColor(accent)
-    if not color.isValid() or app.property('themeIconAccent') == color.name():
-        return
-    if not hasattr(app, '_theme_icon_masks'):
-        source = QPixmap(str(ASSETS_DIR / 'icons' / 'album-drive.png'))
-        if source.isNull():
-            return
-        app._theme_icon_masks = [source.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                                 for size in (16, 24, 32, 48, 64, 128, 256)]
-    icon = QIcon()
-    for mask in app._theme_icon_masks:
-        pixmap = QPixmap(mask)
-        painter = QPainter(pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
-        painter.fillRect(pixmap.rect(), color)
-        painter.end()
-        icon.addPixmap(pixmap)
-    app.setWindowIcon(icon)
-    for window in app.topLevelWidgets():
-        window.setWindowIcon(icon)
-    app.setProperty('themeIconAccent', color.name())
-    if sys.platform == 'win32' and app.platformName() == 'windows':
-        if not hasattr(app, '_theme_icon_timer'):
-            from windows_identity import update_windows_identity
-            app._theme_icon_timer = QTimer(app)
-            app._theme_icon_timer.setSingleShot(True)
-            app._theme_icon_timer.timeout.connect(lambda: update_windows_identity(app))
-        app._theme_icon_timer.start(180)
 
 
 def configure_app(app):

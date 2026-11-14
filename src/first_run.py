@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QLabel, QLayout, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
-from themes import CONTROL_HEADROOM, ChunkyCheckBox, ThemedButton, paint_control, NUMERIC_DEFAULTS
+from themes import CONTROL_HEADROOM, ChunkyCheckBox, ThemedButton, paint_control, shadow_color, NUMERIC_DEFAULTS
 from button_sounds import play_button_sound, prepare_button_sounds
 from responsive import ScreenFit, wrap_freely, wrappable_path
 
@@ -83,7 +83,7 @@ def paint_case(painter, x, y, side, background, text, button, accent, rail):
     spine = side * .13
     edge = side * .035
     painter.setPen(Qt.NoPen)
-    painter.setBrush(QColor(0, 0, 0, 70))
+    painter.setBrush(shadow_color(70, background))
     painter.drawRoundedRect(QRectF(x - 4, y + 3, side + 4, side + 5), 4, 4)
     painter.setBrush(QColor('#d6d6d2'))
     painter.drawRoundedRect(QRectF(x, y, side, side), 4, 4)
@@ -102,7 +102,7 @@ def example_image(mode):
         'fixed_light': fixed_palette('fixed_light'),
     }
     background, text, button, accent, rail = map(QColor, palettes[mode])
-    panel = background.darker(112) if background.lightnessF() > .25 else background.lighter(135)
+    panel = background
     pixmap = QPixmap(512, 512)
     pixmap.fill(background)
     painter = QPainter(pixmap)

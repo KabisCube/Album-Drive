@@ -5,7 +5,7 @@ import re
 from PySide6.QtGui import QColor
 
 from open_case import artwork_accent_palette, artwork_color_range, artwork_muted_hues, artwork_palette, artwork_scrollbar_colors, color_contrast
-from themes import accent_shade
+from themes import FIELD_SHADE, PANEL_SHADE, accent_shade
 from color_rules import artwork_text_color, comfortable_color, comfortable_surface, SOFT_BLACK, SOFT_WHITE
 
 
@@ -49,6 +49,10 @@ MUTED_PICK_CHROMA = 30
 PLAIN_INK_LIGHTNESS = (.15, .9)
 ALWAYS_PLAIN_LIGHTNESS = (.08, .94)
 INK_DISTINCT_DISTANCE = 32
+# Pale skin: an orange-red hue, light and only moderately colorful. Real pinks sit at other hues or are far stronger.
+SKIN_HUE = (5 / 360, 30 / 360)
+SKIN_LIGHTNESS = (.6, .93)
+SKIN_CHROMA = (25, 95)
 
 
 def contrasting_text(background):
@@ -288,7 +292,8 @@ def button_ink(button, preferred, taken, merged):
         return preferred
     ranked = list(dict.fromkeys(color.name() for color, share in sorted(merged, key=lambda entry: entry[1], reverse=True)
                                 if share >= MEANINGFUL_SHARE))
-    ranked = [QColor(name) for name in ranked]
+    ranked = without_skin([QColor(name) for name in ranked]) + [QColor(name) for name in ranked
+                                                                if pale_skin(QColor(name))]
     real = [color for color in ranked if usable(color)]
     soft = [color for color in real if not plain_ink(color)]
     # Real color comes first, then soft greys.
@@ -610,6 +615,18 @@ def one_main_hue(main_colors):
     return together >= sum(share for _, share in chromatic) * MAIN_HUE_SHARE
 
 
+def pale_skin(color):
+    """Covers often show people; their pale skin makes a poor theme color while the cover has anything else."""
+    hue = color.hslHueF()
+    return (SKIN_HUE[0] <= hue <= SKIN_HUE[1] and SKIN_LIGHTNESS[0] <= color.lightnessF() <= SKIN_LIGHTNESS[1]
+            and SKIN_CHROMA[0] <= chroma(color) <= SKIN_CHROMA[1])
+
+
+def without_skin(entries, color=lambda entry: entry):
+    """The entries that are not pale skin, or all of them when skin is all there is."""
+    return [entry for entry in entries if not pale_skin(color(entry))] or list(entries)
+
+
 def artwork_pop(details, main_colors):
     """A small vivid detail that stands out from a cover's main colors."""
     chromatic = [color for color, _ in main_colors if is_chromatic(color)]
@@ -739,7 +756,7 @@ def main_artwork_colors(color_range, mode, details=(), muted=()):
     picked = []
     while remaining and len(picked) < 3:
         chosen = [background, text] + picked
-        best = max(remaining, key=lambda entry: entry[1] ** .5 * min(
+        best = max(without_skin(remaining, lambda entry: entry[0]), key=lambda entry: entry[1] ** .5 * min(
             rgb_distance(entry[0], other) for other in chosen) * (1 + HUE_NOVELTY_WEIGHT * hue_novelty(entry[0], chosen)))
         remaining.remove(best)
         picked.append(best[0])
@@ -749,25 +766,28 @@ def main_artwork_colors(color_range, mode, details=(), muted=()):
     def new_hue(color, others):
         return tinted(color) and hue_novelty(color, others) >= DISTINCT_HUE
     if not any(new_hue(color, [background, text] + [other for other in picked if other != color]) for color in picked):
-        fresh = [entry for entry in remaining if new_hue(entry[0], [background, text] + picked)]
+        fresh = [entry for entry in remaining if new_hue(entry[0], [background, text] + picked)
+                 and not pale_skin(entry[0])]
         if fresh:
             # The plainest pick (a grey, or the least prominent) makes way.
             plainest = min(range(len(picked)), key=lambda index: (tinted(picked[index]), merged_share(merged, picked[index])))
             picked[plainest] = max(fresh, key=lambda entry: entry[1] ** .5 * hue_novelty(entry[0], [background, text] + picked))[0]
     accent = artwork_pop(details, merged)
+    if accent is not None and pale_skin(accent):
+        accent = None
     if accent is None and max(chroma(color) for color in picked) < MUTED_PICK_CHROMA:
         # All picks are near grey: the cover's most colorful prominent color leads instead.
         colorful = [(color, share) for color, share in remaining if share >= MEANINGFUL_SHARE
-                    and chroma(color) >= MUTED_PICK_CHROMA and clearly_different(color, text)]
+                    and chroma(color) >= MUTED_PICK_CHROMA and clearly_different(color, text) and not pale_skin(color)]
         if colorful:
             accent = max(colorful, key=lambda entry: entry[1] ** .5 * chroma(entry[0]))[0]
             picked.remove(min(picked, key=lambda color: (tinted(color), merged_share(merged, color))))
     if accent is None:
-        accent = max(picked, key=chroma)
+        accent = max(picked, key=lambda color: (not pale_skin(color), chroma(color)))
         picked.remove(accent)
     hue_from_background = (lambda color: hue_gap(color, dominant)) if is_chromatic(dominant) else chroma
     apart = [color for color in picked if clearly_different(color, accent)] or picked
-    button = max(apart, key=hue_from_background)
+    button = max(without_skin(apart), key=hue_from_background)
     picked.remove(button)
     ink = button_ink(button, picked[0], (background, text, button, accent), list(merged) + list(color_range))
     return assembled_colors(background, text, button, accent, ink, picked[0], background, text)
@@ -818,9 +838,35 @@ def artwork_theme_colors(artwork, mode='any'):
     colors = picked_artwork_colors(artwork, mode)
     if not colors:
         return colors
-    colors = comfortable_artwork_colors(vivid_accent(colors))
+    colors = shared_background(comfortable_artwork_colors(vivid_accent(colors)))
     colors['brandLineColor'] = QColor(colors['themeBackground']).darker(110).name()
-    return distinct_button_ink(colors, artwork_color_range(artwork))
+    colors = distinct_button_ink(colors, artwork_color_range(artwork))
+    return softened_ink(colors)
+
+
+def shared_background(colors):
+    """The track list and the rest of the app share one background: the album's own color when the text reads on it
+    as well as the track list's own text has to, otherwise the readable one the app picked."""
+    background, paper = QColor(colors['themeBackground']), QColor(colors.get('paperBackgroundColor', ''))
+    if not paper.isValid() or paper == background:
+        return colors
+    text = QColor(colors['textColor'])
+    surfaces = (paper, paper.darker(PANEL_SHADE))
+    if min(color_contrast(surface, text) for surface in surfaces) >= FALLBACK_TEXT_CONTRAST:
+        return dict(colors, themeBackground=paper.name())
+    return dict(colors, paperBackgroundColor=background.name(), paperTextColor=text.name())
+
+
+def softened_ink(colors):
+    """The icon color is chosen after the comfortable pass, so it gets the same limit: never pure black or white."""
+    button, ink = QColor(colors['themeAccent']), QColor(colors['themeBackgroundAccent'])
+    softened = QColor(comfortable_artwork_colors({'ink': ink.name()})['ink'])
+    if not ink_reads(button, softened):
+        # Pure white was only just enough; the softest opposite extreme reads instead.
+        ends = [shade_at(ink, level) for level in COMFORTABLE_LIGHTNESS]
+        softened = next((end for end in sorted(ends, key=lambda end: abs(end.lightnessF() - ink.lightnessF()))
+                         if ink_reads(button, end)), softened)
+    return dict(colors, **{key: softened.name() for key in INK_KEYS})
 
 
 def distinct_button_ink(colors, color_range):
@@ -970,8 +1016,8 @@ def classic_artwork_style(style, colors):
     accent = QColor(colors['themeAccent'])
     replacements = {
         '#16191e': background.name(), '#1c2128': background.darker(110).name(),
-        '#191d23': background.darker(119).name(), '#222831': background.darker(115).name(),
-        '#262e38': background.darker(120).name(), '#303945': background.lighter(115).name(),
+        '#191d23': background.darker(FIELD_SHADE).name(), '#222831': background.darker(FIELD_SHADE).name(),
+        '#262e38': background.darker(FIELD_SHADE).name(), '#303945': background.lighter(115).name(),
         '#38424d': background.darker(130).name(), '#2b333e': colors['buttonFill'],
         '#3b4654': accent.name(), '#3b4959': colors['buttonFill'],
         '#36414e': accent.name(), '#3b4c3a': accent_shade(accent.name(), .32),

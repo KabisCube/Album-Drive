@@ -52,8 +52,10 @@ with tempfile.TemporaryDirectory() as folder:
         window.disc_panel.animation.setCurrentTime(280)
         app.processEvents()
         assert window.disc_list.y() == 0
-        assert window.disc_panel.x() == window.tree.x()
-        assert window.disc_panel.width() == window.tree.width()
+        # The drive rows and the folder browser sit on raised faces that line up.
+        rows, browser = window.disc_list, window.tree
+        assert rows.mapTo(window, rows.rect().topLeft()).x() == browser.mapTo(window, browser.rect().topLeft()).x()
+        assert rows.width() == browser.width()
         assert window.disc_list.item(0).text().startswith('Disc Drive')
         window.disc_list.setCurrentRow(0)
         wait_until(lambda: not window.scanners and window.albums[0].folder == root / 'Disc/Album')
@@ -115,7 +117,8 @@ with tempfile.TemporaryDirectory() as folder:
         window.disc_panel.animation.setCurrentTime(280)
         window.update_optical_discs([])
         window.disc_panel.animation.pause()
-        full_height = window.disc_panel.content_height
+        full_height = window.disc_panel.animation.startValue()
+        assert full_height >= window.disc_panel.content_height
         assert window.disc_list.count() == 1
         assert not window.disc_list.isEnabled()
         assert window.disc_panel.height() == full_height

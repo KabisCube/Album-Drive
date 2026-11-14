@@ -51,12 +51,13 @@ for mode in ('light', 'dark'):
 saved = dialog.saved_theme_choice
 assert [saved.itemText(index) for index in range(2)] == ['Default light', 'Default dark']
 assert saved.findText('Default') < 0
-assert saved.currentData() == 'album-drive-default-dark'
+assert saved.currentText() == 'Default dark (modified)', 'editing a default starts a modified copy'
 combo.setCurrentIndex(combo.findData('light'))
 combo.activated.emit(combo.currentIndex())
 assert saved.currentData() == 'album-drive-default-light'
 dialog.set_setting_color(background, QColor('#ddeeff'))
-assert saved.currentData() == 'album-drive-default-light' and dialog.active_color_choice == ''
+assert saved.currentText() == 'Default light (modified) (2)' and dialog.active_color_choice == saved.currentData()
+assert next(preset for preset in dialog.presets if preset['id'] == 'album-drive-default-light')['colors'] == FIXED_THEMES['fixed_light']
 saved.setCurrentIndex(saved.findData('album-drive-default-dark'))
 assert background.color().name() == FIXED_THEMES['fixed_dark']['theme_background_color']
 assert combo.currentData() == 'dark'

@@ -31,6 +31,14 @@ UI_FONT_DEFAULT = 'AlbumRound-Bold.ttf'
 ALBUM_SORT_DEFAULT = 'newest'
 VOLUME_DEFAULT = 100
 CONTROL_HEADROOM = 12
+# QColor.darker factors for shared shades, so every surface that uses one stays in step.
+FIELD_SHADE = 115  # text fields, plain menus, the color picker, table rows and headers: 13% darker than the background
+HALFTONE_SHADE = 125  # halftone dots: 20% darker than the surface they fade into
+GROOVE_SHADE = 105  # slider and scrollbar track parts in the button color: 5% darker than it
+PANEL_SHADE = 110  # the raised panels behind the logo, file browser and now playing
+WELL_SHADE = 100 + (PANEL_SHADE - 100) // 2  # the sunken folder list: half as dark as the panels
+WELL_HALFTONE_SHADE = 100 + (HALFTONE_SHADE - 100) // 2  # the sunken folder list's halftone: half as dark as elsewhere
+SURFACE_MAX_DEPTH = 7  # px the raised panels behind the logo, file browser and now playing extrude at most
 ANDROID_FOLDER_FONT_BOOST = 2
 _control_preview = ContextVar('control_preview', default=None)
 LOGO_BACKGROUND_HEIGHT = 1.8
@@ -284,6 +292,10 @@ def ui_depth():
     return 4 * max(0, min(300, NUMERIC_DEFAULTS['ui_thickness'] if amount is None else amount)) / 100
 
 
+def surface_depth():
+    return min(ui_depth(), SURFACE_MAX_DEPTH)
+
+
 def control_offset(widget, rect, depth):
     if not isinstance(widget, QWidget):
         return QPointF(0, depth)
@@ -357,9 +369,81 @@ def control_silhouette(widget, rect, pressed=False):
     return outline
 
 
+SHADOW_ALPHA = 65
+LIGHT_THEME_SHADOW_SCALE = .7  # shadows on light themes are 30% fainter
+
+
+def shadow_color(alpha=SHADOW_ALPHA, background=None):
+    if background is None:
+        background = QApplication.instance().property('themeBackground') or BUILDING_GRAY
+    light = QColor(background).lightnessF() >= .5
+    return QColor(0, 0, 0, round(alpha * LIGHT_THEME_SHADOW_SCALE) if light else alpha)
+
+
 def control_shadow(depth=None):
     size = min(BUTTON_SHADOW, max(0, ui_depth() if depth is None else depth) * .75)
     return QPointF(-size * 2 / 3, size)
+
+
+def raised_surface_face(widget, rect, depth=None):
+    """A panel's face at the current Thickness. The panel at zero thickness is the outer edge; the face gives up
+    room on the sides the body extrudes toward, so the panel never grows past where it sits."""
+    depth = surface_depth() if depth is None else depth
+    offset = control_offset(widget, rect, depth)
+    face = QRectF(rect)
+    if offset.x() >= 0:
+        face.setRight(rect.right() - offset.x())
+    else:
+        face.setLeft(rect.left() - offset.x())
+    face.setBottom(rect.bottom() - offset.y())
+    return face, offset
+
+
+def paint_raised_surface(painter, widget, rect, color, base_radius=8):
+    """A large panel with the same body as the controls on it. Returns its face."""
+    face, offset = raised_surface_face(widget, rect)
+    radius = corner_radius(base_radius, face.width(), face.height())
+    painter.setPen(Qt.NoPen)
+    if not offset.isNull():
+        body = control_body(face.width(), face.height(), radius, offset.x(), offset.y()).translated(face.topLeft())
+        painter.fillPath(body, QColor(color).darker(125))
+    painter.setBrush(QColor(color))
+    painter.drawRoundedRect(face, radius, radius)
+    return face
+
+
+def paint_raised_panel(painter, widget):
+    """The raised panel of dropdown lists, also behind tooltips and toasts so they all match."""
+    background = QColor(QApplication.instance().property('themeBackground') or BUILDING_GRAY).darker(PANEL_SHADE)
+    return paint_control(painter, widget, button_paint_rect(widget), background)
+
+
+class RaisedLabel(QLabel):
+    """Text on the dropdown list's raised panel."""
+
+    PADDING = (14, 8)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setStyleSheet('background: transparent; border: none; padding: 0;')
+        self.fit_face()
+
+    def fit_face(self):
+        probe = QRectF(0, 0, 200, 100)
+        rect = QRectF(probe).adjusted(0, BUTTON_SHADOW, 0, -BUTTON_SHADOW)
+        face = control_face(rect, widget=self)
+        horizontal, vertical = self.PADDING
+        self.setContentsMargins(round(face.left() + horizontal), round(face.top() + vertical),
+                                round(probe.right() - face.right() + horizontal), round(probe.bottom() - face.bottom() + vertical))
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        paint_raised_panel(painter, self)
+        painter.end()
+        super().paintEvent(event)
 
 
 def paint_control(painter, widget, rect, color, pressed=False, depth=None, rounding=None, shadow=True):
@@ -393,7 +477,7 @@ def paint_control(painter, widget, rect, color, pressed=False, depth=None, round
     if shadow and not shadow_offset.isNull():
         footprint = control_shadow_body(face.width(), face.height(), radius, offset.x(), offset.y(),
                                         shadow_offset.x(), shadow_offset.y())
-        surface.fillPath(footprint.translated(face.topLeft()), QColor(0, 0, 0, 65))
+        surface.fillPath(footprint.translated(face.topLeft()), shadow_color())
     if not pressed:
         surface.fillPath(body, QColor(color).darker(125))
     surface.fillPath(front, QColor(color))
@@ -409,6 +493,16 @@ def corner_radius(base, width=None, height=None):
     if width is not None and height is not None:
         maximum = min(maximum, width / 2, height / 2)
     return maximum * min(100, max(0, 100 if amount is None else amount)) / 100
+
+
+GROOVE_ROUNDNESS_SCALE = 1.875  # thin grooves round this much faster than the Corner roundness, fully round from about 53%
+
+
+def groove_radius(rect):
+    """Corner radius of a thin slider or scrollbar groove."""
+    amount = control_property('cornerRoundness')
+    amount = min(100, max(0, 100 if amount is None else amount))
+    return min(rect.width(), rect.height()) / 2 * min(1, amount * GROOVE_ROUNDNESS_SCALE / 100)
 
 
 def round_stylesheet(style, amount):
@@ -554,11 +648,18 @@ def draw_centered_text(painter, rect, font, text, color, fit=False):
     ink = QPainterPath()
     ink.setFillRule(Qt.WindingFill)
     ink.addText(0, 0, font, text)
+    # Vertically, the capitals are centered, so descenders and lowercase-only words never shift the baseline.
+    capitals = QPainterPath()
+    capitals.addText(0, 0, font, 'H')
+    scale = 1
     if fit and not ink.isEmpty():
         bounds = ink.boundingRect()
         scale = min(1, max(0, rect.width()) / max(1, bounds.width()), max(0, rect.height()) / max(1, bounds.height()))
         ink = QTransform.fromScale(scale, scale).map(ink)
-    ink.translate(QRectF(rect).center() - ink.boundingRect().center())
+    capital = capitals.boundingRect()
+    center = QRectF(rect).center()
+    middle = capital.center().y() * scale if not capitals.isEmpty() else ink.boundingRect().center().y()
+    ink.translate(center.x() - ink.boundingRect().center().x(), center.y() - middle)
     painter.setRenderHint(QPainter.Antialiasing)
     painter.fillPath(ink, QColor(color))
 
@@ -790,13 +891,13 @@ def lettering_shadow(font_name, text, depth):
 
 
 @lru_cache(maxsize=32)
-def lettering_shadow_pixmap(font_name, text, depth, width, height, ratio, x, y):
+def lettering_shadow_pixmap(font_name, text, depth, width, height, ratio, x, y, alpha=SHADOW_ALPHA):
     layer = QPixmap(ceil(width * ratio), ceil(height * ratio))
     layer.setDevicePixelRatio(ratio)
     layer.fill(Qt.transparent)
     painter = QPainter(layer)
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.fillPath(lettering_shadow(font_name, text, depth).translated(x, y), QColor(0, 0, 0, 65))
+    painter.fillPath(lettering_shadow(font_name, text, depth).translated(x, y), QColor(0, 0, 0, alpha))
     painter.end()
     return layer
 
@@ -823,19 +924,19 @@ class ChunkyBrand(QLabel):
         bounds = path.boundingRect()
         app = QApplication.instance()
         depth = ui_depth()
-        stripe = self.background_rect()
-        position = QPointF(self.width() / 2 - bounds.center().x(),
-                           stripe.center().y() + LOGO_BACKGROUND_TRIM / 2 - depth - bounds.center().y() + LOGO_VERTICAL_OFFSET)
+        # The logo panel has the controls' thickness, and the lettering rides on its face.
+        stripe = paint_raised_surface(painter, self, self.background_rect(),
+                                      QApplication.instance().property('brandLineColor') or '#f7f5f1', base_radius=6)
+        # Lettering and its own extrusion are centered on the face together.
+        position = QPointF(stripe.center().x() - bounds.center().x(),
+                           stripe.center().y() + LOGO_BACKGROUND_TRIM / 2 - depth / 2 - bounds.center().y() + LOGO_VERTICAL_OFFSET)
         path.translate(position)
         color = QColor(app.property('brandTextColor') or '#afbe0c')
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(QApplication.instance().property('brandLineColor') or '#f7f5f1'))
-        painter.drawRoundedRect(stripe, corner_radius(6, stripe.width(), stripe.height()),
-                               corner_radius(6, stripe.width(), stripe.height()))
         if depth:
             painter.drawPixmap(0, 0, lettering_shadow_pixmap(
                 self.font().toString(), self.text(), depth, self.width(), self.height(),
-                self.devicePixelRatioF(), position.x(), position.y()))
+                self.devicePixelRatioF(), position.x(), position.y(), shadow_color().alpha()))
             painter.setBrush(color.darker(150))
             for step in range(1, max(1, round(depth * 2)) + 1):
                 painter.drawPath(path.translated(0, min(depth, step * .5)))
@@ -931,7 +1032,7 @@ QSlider::handle:horizontal { width: 48px; height: 36px; margin: -20px 0 -8px 0; 
         handle = self.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, self)
         groove = QRectF(12, (self.height() - 8) / 2, max(1, self.width() - 24), 8)
         clip = QPainterPath()
-        radius = corner_radius(4, groove.width(), groove.height())
+        radius = groove_radius(groove)
         clip.addRoundedRect(groove, radius, radius)
         painter.save()
         painter.setClipPath(clip, Qt.IntersectClip)
@@ -944,7 +1045,8 @@ QSlider::handle:horizontal { width: 48px; height: 36px; margin: -20px 0 -8px 0; 
             fill.setLeft(handle.center().x())
         else:
             fill.setRight(handle.center().x())
-        painter.fillRect(fill, accent if self.isEnabled() else disabled_text_color(accent))
+        groove = accent.darker(GROOVE_SHADE)
+        painter.fillRect(fill, groove if self.isEnabled() else disabled_text_color(groove))
         painter.restore()
         accent_knob(app.property('themeAccent') or GRASS_GREEN,
                     app.property('buttonFill') or '#f7f5f1', size=24).paint(
@@ -1701,9 +1803,7 @@ class ThemedComboBox(QComboBox):
             painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setPen(Qt.NoPen)
-            outer = button_paint_rect(watched)
-            background = QColor(app.property('themeBackground') or BUILDING_GRAY).darker(110)
-            paint_control(painter, watched, outer, background)
+            paint_raised_panel(painter, watched)
             painter.end()
             return True
         return super().eventFilter(watched, event)
@@ -1795,10 +1895,10 @@ def chunky_style(base, accent=GRASS_GREEN, background=BUILDING_GRAY, timeline=TI
     for original, replacement in {
         '#16191e': background,
         '#1c2128': QColor(background).darker(110).name(),
-        '#191d23': QColor(background).darker(119).name(),
-        '#222831': QColor(background).darker(115).name(),
+        '#191d23': QColor(background).darker(FIELD_SHADE).name(),
+        '#222831': QColor(background).darker(FIELD_SHADE).name(),
         '#242b32': QColor(background).darker(110).name(),
-        '#262e38': QColor(background).darker(120).name(),
+        '#262e38': QColor(background).darker(FIELD_SHADE).name(),
         '#303945': QColor(background).lighter(115).name(),
         '#38424d': QColor(background).darker(130).name(),
         '#94a0ae': '#d0dce2',
@@ -1883,4 +1983,4 @@ QWidget { selection-background-color: #67401e; selection-color: #ffffff; }
         '#67401e', accent_shade(accent, 0.32)).replace('#352a20', accent_shade(accent, 0.12)).replace(
         '#73502c', accent_shade(accent, 0.45)).replace('#b84c00', color.darker(160).name()).replace(
         '#a44100', color.darker(180).name()).replace('#1c2128', QColor(background).darker(110).name()).replace(
-        '#222831', QColor(background).darker(115).name()).replace('#38424d', QColor(background).darker(130).name()) + SCROLLBAR_STYLE
+        '#222831', QColor(background).darker(FIELD_SHADE).name()).replace('#38424d', QColor(background).darker(130).name()) + SCROLLBAR_STYLE

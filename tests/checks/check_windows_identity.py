@@ -15,7 +15,8 @@ if sys.platform != 'win32':
 from PIL import Image
 from PySide6.QtCore import QCoreApplication, QEvent, QSettings
 from PySide6.QtWidgets import QApplication, QMainWindow
-from app_identity import configure_app, update_theme_icon
+from app_identity import configure_app
+from app_paths import ASSETS_DIR
 from windows_identity import APP_ID, GUID, PROPERTY_FORMAT, STORE_IID, PropertyKey, PropVariant, WindowsIdentity, call, check, interface, query
 
 
@@ -100,64 +101,41 @@ try:
         create_shortcut(shortcut, APP_ID)
         create_shortcut(unrelated, 'Other.App')
         original = unrelated.read_bytes()
-        paths = []
+        icon = ASSETS_DIR / 'icons' / 'album-drive.ico'
+        stale = root / 'Album Drive/icons/theme-cfe10e.ico'
+        stale.parent.mkdir(parents=True)
+        stale.write_bytes(b'old')
+
+        def shortcut_icon(path):
+            pointer = ct.c_void_p()
+            clsid = GUID.parse('00021401-0000-0000-C000-000000000046')
+            iid = GUID.parse('000214F9-0000-0000-C000-000000000046')
+            check(shell.ole.CoCreateInstance(ct.byref(clsid), None, 1, ct.byref(iid), ct.byref(pointer)))
+            with interface(pointer) as link, interface(query(link, '0000010B-0000-0000-C000-000000000046')) as persist:
+                check(call(persist, 5, str(path), 0, types=(wt.LPCWSTR, wt.DWORD)))
+                location = ct.create_unicode_buffer(32768)
+                index = ct.c_int()
+                check(call(link, 16, location, len(location), ct.byref(index),
+                           types=(wt.LPWSTR, ct.c_int, ct.POINTER(ct.c_int))))
+                return Path(location.value), index.value
+
         previous_icon = None
-        for accent in ('#cfe10e', '#a03070'):
-            update_theme_icon(app, accent)
-            app._theme_icon_timer.stop()
+        for _ in range(2):
             shell.update(app)
             native_icon = window._theme_taskbar_icon.value
             assert native_icon_size(native_icon) == (256, 256)
             for size in (0, 1):
                 assert shell.user.SendMessageW(int(window.winId()), 0x7f, size, 0) == native_icon
             if previous_icon:
-                assert native_icon != previous_icon
                 assert native_icon_size(previous_icon) is None
             previous_icon = native_icon
-            icon = root / f'Album Drive/icons/theme-{accent[1:]}.ico'
             properties = window_properties()
             assert properties[3] == f'{icon},0' and properties[5] == APP_ID
-            assert icon.is_file()
-            with Image.open(icon) as image:
-                assert image.ico.sizes() == {(size, size) for size in (16, 24, 32, 48, 64, 128, 256)}
-                pixels = image.convert('RGBA')
-                colors = [pixels.getpixel((x, y)) for y in range(pixels.height) for x in range(pixels.width)]
-                assert any(color[3] == 0 for color in colors)
-                assert all(color[:3] == tuple(bytes.fromhex(accent[1:]))
-                           for color in colors if color[3] == 255)
-            pointer = ct.c_void_p()
-            clsid = GUID.parse('00021401-0000-0000-C000-000000000046')
-            iid = GUID.parse('000214F9-0000-0000-C000-000000000046')
-            check(shell.ole.CoCreateInstance(ct.byref(clsid), None, 1, ct.byref(iid), ct.byref(pointer)))
-            with interface(pointer) as link, interface(query(link, '0000010B-0000-0000-C000-000000000046')) as persist:
-                check(call(persist, 5, str(shortcut), 0, types=(wt.LPCWSTR, wt.DWORD)))
-                location = ct.create_unicode_buffer(32768)
-                index = ct.c_int()
-                check(call(link, 16, location, len(location), ct.byref(index),
-                           types=(wt.LPWSTR, ct.c_int, ct.POINTER(ct.c_int))))
-                assert Path(location.value) == icon and index.value == 0
+            assert shortcut_icon(shortcut) == (icon, 0)
             assert unrelated.read_bytes() == original
-            paths.append(icon)
-        assert len(set(paths)) == 2 and not paths[0].exists() and paths[1].is_file()
-        shortcut.unlink()
-        update_theme_icon(app, '#237bb4')
-        app._theme_icon_timer.stop()
-        shell.update(app)
-        icon = root / 'Album Drive/icons/theme-237bb4.ico'
-        properties = window_properties()
-        assert properties[3] == f'{icon},0' and properties[5] == APP_ID
-        assert app.property('taskbarIconAccent') == '#237bb4'
+        assert not stale.exists(), 'old per-color icons are cleaned up'
         with Image.open(icon) as image:
-            pixels = image.convert('RGBA')
-            data = pixels.get_flattened_data() if hasattr(pixels, 'get_flattened_data') else pixels.getdata()
-            opaque = [color for color in data if color[3] == 255]
-            assert opaque and all(color[:3] == (35, 123, 180) for color in opaque)
-        assert native_icon_size(previous_icon) is None
-        previous_icon = window._theme_taskbar_icon.value
-        assert native_icon_size(previous_icon) == (256, 256)
-        for size in (0, 1):
-            assert shell.user.SendMessageW(int(window.winId()), 0x7f, size, 0) == previous_icon
-        assert unrelated.read_bytes() == original
+            assert image.ico.sizes() == {(size, size) for size in (16, 24, 32, 48, 64, 128, 256)}
         window.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         assert native_icon_size(previous_icon) is None
@@ -170,35 +148,19 @@ try:
         settings.setValue('welcome_complete', True)
         window = PlayerWindow(settings)
         assert not window.isVisible()
-        icon = root / f"Album Drive/icons/theme-{app.property('themeIconAccent')[1:]}.ico"
         properties = window_properties()
         assert properties[3] == f'{icon},0' and properties[5] == APP_ID
-        assert app.property('taskbarIconAccent') == app.property('themeIconAccent')
         assert native_icon_size(window._theme_taskbar_icon.value) == (256, 256)
-        app._theme_icon_timer.stop()
         window.close()
         window.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         dragged = pinned / 'AlbumDrive.lnk'
         create_shortcut(dragged, None)
         with patch.object(sys, 'frozen', True, create=True):
-            update_theme_icon(app, '#40a060')
-            app._theme_icon_timer.stop()
             shell.update(app)
-        icon = root / 'Album Drive/icons/theme-40a060.ico'
-        pointer = ct.c_void_p()
-        clsid = GUID.parse('00021401-0000-0000-C000-000000000046')
-        iid = GUID.parse('000214F9-0000-0000-C000-000000000046')
-        check(shell.ole.CoCreateInstance(ct.byref(clsid), None, 1, ct.byref(iid), ct.byref(pointer)))
-        with interface(pointer) as link, interface(query(link, '0000010B-0000-0000-C000-000000000046')) as persist:
-            check(call(persist, 5, str(dragged), 0, types=(wt.LPCWSTR, wt.DWORD)))
-            location = ct.create_unicode_buffer(32768)
-            index = ct.c_int()
-            check(call(link, 16, location, len(location), ct.byref(index),
-                       types=(wt.LPWSTR, ct.c_int, ct.POINTER(ct.c_int))))
-            assert Path(location.value) == icon, location.value
+        assert shortcut_icon(dragged)[0] == icon
         assert unrelated.read_bytes() == original
 finally:
     ole.CoUninitialize()
 
-print('PASS: themed taskbar identity before first show, stable icon updates without pinning, native cleanup, pinned updates, unrelated shortcuts preserved')
+print("PASS: static taskbar identity before first show, native icon cleanup, pinned updates, stale themed icons removed, unrelated shortcuts preserved")

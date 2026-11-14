@@ -9,7 +9,7 @@ from PySide6.QtCore import QPointF, QRectF, QSizeF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QTransform
 from case_finish import paint_case_finish
 from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
-from themes import control_body, control_offset, control_property, control_shadow, control_shadow_body
+from themes import control_body, control_offset, control_property, control_shadow, control_shadow_body, shadow_color
 
 
 CASE_DEPTH = 6
@@ -64,6 +64,17 @@ def fitted_case_rect(rect):
     return target
 
 
+def case_shadow(widget, rect, shadow_offset):
+    """The shadow footprint of a case fitted in rect, in the widget's coordinates."""
+    offset = control_offset(widget, rect, CASE_DEPTH)
+    target = rect.translated(-offset)
+    scale_x, scale_y = rect.width() / CASE_WIDTH, rect.height() / CASE_HEIGHT
+    face = target.adjusted(scale_x * .4, scale_y * .4, -scale_x * .4, -scale_y * .4)
+    return control_shadow_body(round(face.width(), 3), round(face.height(), 3),
+                               round(CASE_RADIUS * min(scale_x, scale_y), 3), round(offset.x(), 3), round(offset.y(), 3),
+                               round(shadow_offset.x(), 3), round(shadow_offset.y(), 3)).translated(face.topLeft())
+
+
 def paint_cd_case(painter, widget, rect, pixmap, key='', angle=0, visible=None, shadow=True):
     offset = control_offset(widget, rect, CASE_DEPTH)
     target = rect.translated(-offset)
@@ -80,7 +91,7 @@ def paint_cd_case(painter, widget, rect, pixmap, key='', angle=0, visible=None, 
     shadow_offset = QTransform().rotate(-angle).map(control_shadow(CASE_SHADOW_DEPTH))
     if CASE_SHADOW_ENABLED and shadow and not shadow_offset.isNull():
         footprint = control_shadow_body(*geometry, round(shadow_offset.x(), 3), round(shadow_offset.y(), 3))
-        painter.fillPath(footprint.translated(face.topLeft()), QColor(0, 0, 0, 65))
+        painter.fillPath(footprint.translated(face.topLeft()), shadow_color())
     body = control_body(*geometry).translated(face.topLeft())
     frame = case_frame_color()
     painter.fillPath(body, frame.darker(125))

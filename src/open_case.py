@@ -7,15 +7,17 @@ from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRectF, Qt, QVariantAn
 from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform
 from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QLabel, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QVBoxLayout, QWidget
 from responsive import running_on_android, wrap_freely
-from themes import NUMERIC_DEFAULTS, button_paint_rect, control_face, corner_radius, paint_control
+from themes import NUMERIC_DEFAULTS, button_paint_rect, control_face, control_offset, control_shadow, control_shadow_body, corner_radius, paint_control, shadow_color, ui_depth
 from font_support import font_family_css
 from shiboken6 import isValid
-from case_shell import CASE_DEPTH, paint_cd_case, fitted_case_rect
+from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, case_shadow, paint_cd_case, fitted_case_rect
 from case_geometry import CASE_WIDTH, CASE_HEIGHT
 from color_rules import artwork_text_color, color_contrast, comfortable_color
 
 PLAYING_ROLE = Qt.UserRole + 1
 PORTRAIT_ASPECT_RATIO = 1.1
+FLOATING_SHADOW_SHIFT = 25  # how far down the open case and track list shadows start, as if floating higher
+FLOATING_SHADOW = QPointF(-FLOATING_SHADOW_SHIFT * 2 / 3, FLOATING_SHADOW_SHIFT)
 ALBUM_TITLE_FONT_BOOST = 2
 
 
@@ -230,6 +232,7 @@ class CaseFront(QWidget):
         self.pixmap = QPixmap()
         self.sheen_key = ''
         self.lighting_source = None
+        self.casts_shadow = True
         self.setStyleSheet('background: transparent;')
 
     def image_rect(self):
@@ -248,7 +251,7 @@ class CaseFront(QWidget):
         if self.lighting_source is not None and isValid(self.lighting_source):
             origin = self.mapFromGlobal(self.lighting_source.mapToGlobal(QPoint()))
             lighting = QRectF(self.lighting_source.rect()).translated(origin)
-        paint_cd_case(painter, self, target, self.pixmap, self.sheen_key, visible=lighting, shadow=True)
+        paint_cd_case(painter, self, target, self.pixmap, self.sheen_key, visible=lighting, shadow=self.casts_shadow)
 
 
 def visible_case_face(rect):
@@ -265,6 +268,17 @@ def track_list_border():
 
 
 class TrackListBackground(QWidget):
+    def face(self):
+        return control_face(button_paint_rect(self), widget=self)
+
+    def shadow(self, shadow_offset):
+        rect = button_paint_rect(self)
+        face = self.face()
+        offset = control_offset(self, rect, ui_depth())
+        radius = corner_radius(12, face.width(), face.height())
+        return control_shadow_body(face.width(), face.height(), radius, offset.x(), offset.y(),
+                                   shadow_offset.x(), shadow_offset.y()).translated(face.topLeft())
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -272,7 +286,7 @@ class TrackListBackground(QWidget):
         # The border and thickness use the panel shade the file browser would have in the opened album's theme.
         background_of_theme = self.property('paperThemeBackground') or QApplication.instance().property('themeBackground')
         border = QColor(background_of_theme or '#393939').darker(110)
-        face = paint_control(painter, self, button_paint_rect(self), border)
+        face = paint_control(painter, self, button_paint_rect(self), border, shadow=False)
         width = track_list_border()
         outer = corner_radius(12, face.width(), face.height())
         radius = max(outer - width, outer * .5)
@@ -337,6 +351,7 @@ class AlbumPresentation(QWidget):
         self.paper_opacity.setOpacity(1)
         self.booklet.setGraphicsEffect(self.paper_opacity)
         self.front = CaseFront(self)
+        self.front.casts_shadow = False
         self.animation = QVariantAnimation(self)
         self.animation.setDuration(420)
         self.animation.setStartValue(0.0)
@@ -540,6 +555,23 @@ class AlbumPresentation(QWidget):
         paper = control_face(button_paint_rect(self.booklet), widget=self.booklet).translated(self.booklet.pos())
         return case, paper
 
+    def paintEvent(self, event):
+        # The open case and track list float high, so their shadows fall farther away than the controls' do.
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        color = shadow_color()
+        case = QPainterPath()
+        if not self.front.pixmap.isNull():
+            case = case_shadow(self.front, self.front.image_rect(), control_shadow(CASE_SHADOW_DEPTH)).translated(
+                QPointF(self.front.pos()) + FLOATING_SHADOW)
+            painter.fillPath(case, color)
+        if self.booklet.isVisible():
+            # One shadow: where the two overlap it is not darkened twice.
+            paper = self.booklet.shadow(control_shadow()).translated(QPointF(self.booklet.pos()) + FLOATING_SHADOW)
+            painter.setOpacity(self.paper_opacity.opacity())
+            painter.fillPath(paper.subtracted(case), color)
+
     def arrange(self):
         window = self.window().frameGeometry()
         target = float(window.width() < window.height() * PORTRAIT_ASPECT_RATIO)
@@ -569,9 +601,7 @@ class AlbumPresentation(QWidget):
             round(face.left() + inset), round(face.top() + inset),
             round(self.booklet.width() - face.right() + inset),
             round(self.booklet.height() - face.bottom() + inset - 2))
-        if not visible.isEmpty() and (visible.left() > 0 or visible.top() > 0):
-            self.booklet.setMask(QRegion(visible.toAlignedRect()))
-        else:
-            self.booklet.clearMask()
+        # The track list slides out from behind the case, which is drawn over it, so it is never cut off.
+        self.booklet.clearMask()
         self.front.update()
         self.update()

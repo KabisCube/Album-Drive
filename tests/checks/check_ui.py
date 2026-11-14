@@ -127,7 +127,9 @@ with tempfile.TemporaryDirectory() as directory:
     assert window.album_table.rowCount() == 2
     assert window.album_table.columnCount() == 2
     assert window.album_table.horizontalHeader().isHidden()
-    assert not window.album_presentation.booklet.mask().contains(window.album_presentation.booklet.rect().topLeft())
+    presentation = window.album_presentation
+    assert presentation.booklet.mask().isEmpty(), 'the track list is not cut off by the case'
+    assert presentation.children().index(presentation.front) > presentation.children().index(presentation.booklet)
     assert window.album_artwork.width() >= 250
     assert window.album_artwork.isVisible() and window.album_table.isVisible()
     assert window.tree.isVisible() and window.play.isVisible()
