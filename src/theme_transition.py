@@ -81,12 +81,13 @@ class ThemeTransition(QObject):
                 self.surfaces.add(widget)
                 widget.installEventFilter(self)
 
-    def tint_text_field(self, field, background, text, placeholder):
+    def tint_text_field(self, field, background, text, placeholder, selection):
         # Stylesheets ignore later palette changes on text fields, so each one gets its own rule.
         tint = field.property('liveThemeTint')
-        if tint != background + text and (tint is not None or not field.styleSheet()):
-            field.setProperty('liveThemeTint', background + text)
-            field.setStyleSheet(f'background: {background}; color: {text}; placeholder-text-color: {placeholder}; border: none;')
+        if tint != background + text + selection and (tint is not None or not field.styleSheet()):
+            field.setProperty('liveThemeTint', background + text + selection)
+            field.setStyleSheet(f'background: {background}; color: {text}; placeholder-text-color: {placeholder}; '
+                                f'selection-background-color: {selection}; selection-color: {text}; border: none;')
 
     def update_colors(self):
         self.register_widgets()
@@ -130,8 +131,10 @@ class ThemeTransition(QObject):
                 special.setColor(QPalette.WindowText, title)
                 special.setColor(QPalette.Disabled, QPalette.WindowText, disabled_text_color(title))
             widget.setPalette(special)
-            if self.window.live_theme and isinstance(widget, TEXT_FIELDS):
-                self.tint_text_field(widget, background.darker(FIELD_SHADE).name(), text.name(), QColor(disabled_text_color(text)).name())
+            # The folder search field keeps the Background accent color it sets on itself.
+            if self.window.live_theme and isinstance(widget, TEXT_FIELDS) and widget.objectName() != 'folderSearchField':
+                self.tint_text_field(widget, background.darker(FIELD_SHADE).name(), text.name(), QColor(disabled_text_color(text)).name(),
+                                     QColor(app.property('themeHighlight') or accent).name())
             widget.update()
         # Paper retains its cover palette; its knobs follow live button colors.
         for bar in self.window.findChildren(QScrollBar):

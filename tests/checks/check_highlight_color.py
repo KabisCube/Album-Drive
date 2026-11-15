@@ -31,7 +31,7 @@ with TemporaryDirectory() as directory:
     settings.setValue('artwork_theme_enabled', False)
     window = PlayerWindow(settings)
     window.show()
-    for theme in ('chunky', 'classic'):
+    for theme in ('chunky',):
         window.set_theme(theme)
         app.processEvents()
         dialog = ThemeSettingsDialog(settings, window)

@@ -263,6 +263,11 @@ TRACK_LIST_GAP = 12
 PAPER_FADE_STEP_MS = 33
 
 
+TITLE_BAND_GAP = -3.4  # space above and below the album name, measured from the border thickness
+TITLE_TABLE_GAP = 8
+TRACK_SCROLLBAR_GAP = 1
+
+
 def track_list_border():
     return 8 if running_on_android() else 13
 
@@ -292,7 +297,13 @@ class TrackListBackground(QWidget):
         radius = max(outer - width, outer * .5)
         painter.setPen(Qt.NoPen)
         painter.setBrush(background)
-        painter.drawRoundedRect(face.adjusted(width, width, -width, -width), radius, radius)
+        paper = face.adjusted(width, width, -width, -width)
+        title = self.findChild(QLabel, 'bookletAlbumTitle')
+        if title is not None and not title.isHidden():
+            # The album name sits on the border, centered in its own band above the paper.
+            band = title.geometry()
+            paper.setTop(band.bottom() + 1 + band.top() - face.top())
+        painter.drawRoundedRect(paper, radius, radius)
 
 
 class AlbumPresentation(QWidget):
@@ -392,6 +403,7 @@ class AlbumPresentation(QWidget):
     def set_album_title(self, title):
         self.album_title.setText(title)
         self.album_title.setVisible(bool(title))
+        self.arrange()
 
     def set_artwork(self, artwork, theme_colors=None, fade_ms=0):
         self.paper_fade.stop()
@@ -596,11 +608,16 @@ class AlbumPresentation(QWidget):
         self.paper_face_insets = (face.left(), self.booklet.width() - face.right())
         self.paper_face_top = face.top()
         self.paper_face_bottom = self.booklet.height() - face.bottom()
-        inset = 16 + track_list_border()
-        self.booklet.layout().setContentsMargins(
-            round(face.left() + inset), round(face.top() + inset),
-            round(self.booklet.width() - face.right() + inset),
-            round(self.booklet.height() - face.bottom() + inset - 2))
+        border = track_list_border()
+        inset = 16 + border
+        titled = not self.album_title.isHidden()
+        layout = self.booklet.layout()
+        # With a title, the band above the paper is the border plus a gap on each side of the name.
+        layout.setSpacing(round(border + TITLE_BAND_GAP + TITLE_TABLE_GAP) if titled else 7)
+        layout.setContentsMargins(
+            round(face.left() + inset), round(face.top() + (border + TITLE_BAND_GAP if titled else inset)),
+            round(self.booklet.width() - face.right() + border + TRACK_SCROLLBAR_GAP),
+            round(self.booklet.height() - face.bottom() + border))
         # The track list slides out from behind the case, which is drawn over it, so it is never cut off.
         self.booklet.clearMask()
         self.front.update()

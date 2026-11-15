@@ -1,12 +1,11 @@
 """Readable application colors sampled from the now-playing artwork."""
 
-import re
 
 from PySide6.QtGui import QColor
 
 from open_case import artwork_accent_palette, artwork_color_range, artwork_muted_hues, artwork_palette, artwork_scrollbar_colors, color_contrast
-from themes import FIELD_SHADE, PANEL_SHADE, accent_shade
-from color_rules import artwork_text_color, comfortable_color, comfortable_surface, SOFT_BLACK, SOFT_WHITE
+from themes import PANEL_SHADE
+from color_rules import artwork_text_color, comfortable_color, comfortable_surface, relative_luminance, SOFT_BLACK, SOFT_WHITE
 
 
 MINIMUM_TEXT_CONTRAST = 4.5
@@ -24,9 +23,10 @@ POP_FAMILY_RANGE = .03
 POP_MAIN_SHARE = .04
 MINIMUM_BACKGROUND_LIGHTNESS = 40 / 255
 ALBUM_LIGHTNESS_MARGIN = .04
-COMFORTABLE_LIGHTNESS = (16 / 255, 244 / 255)
+COMFORTABLE_LIGHTNESS = (MINIMUM_BACKGROUND_LIGHTNESS, 244 / 255)  # every album color gets the background's limits
 REAL_INK_CONTRAST = 2.5
 GREY_INK_CONTRAST = 3.5
+ICON_MINIMUM_CONTRAST = 3.0  # the least any fallback icon color may contrast with its button
 INK_HUE_GAP = 1 / 12
 MEANINGFUL_SHARE = .02
 MINIMUM_DISTINCT_COLORS = 3
@@ -828,8 +828,7 @@ def comfortable_artwork_colors(colors):
         color = QColor(value)
         return shade_at(color, max(low, min(COMFORTABLE_LIGHTNESS[1], color.lightnessF()))).name()
 
-    backgrounds = ('themeBackground', 'paperBackgroundColor')
-    return {key: within(value, MINIMUM_BACKGROUND_LIGHTNESS if key in backgrounds else COMFORTABLE_LIGHTNESS[0])
+    return {key: within(value, COMFORTABLE_LIGHTNESS[0])
             for key, value in colors.items()}
 
 
@@ -838,10 +837,213 @@ def artwork_theme_colors(artwork, mode='any'):
     colors = picked_artwork_colors(artwork, mode)
     if not colors:
         return colors
-    colors = shared_background(comfortable_artwork_colors(vivid_accent(colors)))
+    color_range = artwork_color_range(artwork)
+    picked = distinct_theme_colors(text_at_the_extreme(vivid_accent(colors)), color_range)
+    colors = shared_background(comfortable_artwork_colors(picked))
     colors['brandLineColor'] = QColor(colors['themeBackground']).darker(110).name()
-    colors = distinct_button_ink(colors, artwork_color_range(artwork))
-    return softened_ink(colors)
+    colors = softened_ink(distinct_button_ink(colors, color_range))
+    accent = background_accent(colors, color_range, picked).name()
+    colors = cover_button_for_icons(dict(colors, **{key: accent for key in INK_KEYS}), color_range)
+    # Softening and invented colors can land two roles on the same color again, so check once more.
+    colors = text_at_the_extreme(comfortable_artwork_colors(colors), readable_icons=True)
+    return distinct_theme_colors(colors, color_range, picked, softened=True)
+
+
+THEME_ROLES = ('themeBackground', 'textColor', 'themeAccent', 'themeHighlight', 'themeBackgroundAccent')
+
+
+def text_at_the_extreme(colors, readable_icons=False):
+    """On a light theme the darkest picked color becomes the text, on a dark one the lightest, so the darkest or
+    lightest cover color is never spent on buttons or icons. The text's side of the background decides light or dark, and
+    darkest or lightest means the most contrast with the background on that side. The two roles trade colors."""
+    background = QColor(colors['themeBackground'])
+    luminance = relative_luminance
+    dark_text = luminance(QColor(colors['textColor'])) <= luminance(background)
+    # The accent keeps its color: it is often the cover's one vivid detail.
+    roles = [role for role in THEME_ROLES if role not in ('themeBackground', 'themeHighlight')
+             and (luminance(QColor(colors[role])) <= luminance(background)) == dark_text]
+    extreme = max(roles, key=lambda role: color_contrast(background, QColor(colors[role])))
+    if extreme == 'textColor':
+        return colors
+    if readable_icons:
+        # Once the icons are chosen, a trade may not leave them unreadable on the buttons.
+        button = QColor(colors['textColor'] if extreme == 'themeAccent' else colors['themeAccent'])
+        icon = QColor(colors['textColor'] if extreme == 'themeBackgroundAccent' else colors['themeBackgroundAccent'])
+        if not ink_reads(button, icon):
+            return colors
+    colors = dict(colors)
+    colors['textColor'], colors[extreme] = colors[extreme], colors['textColor']
+    return colors
+ROLE_DISTINCT_DISTANCE = 16  # the five colors never come closer than this, so none read as the same color
+
+
+def distinct_theme_colors(colors, color_range, picked=None, softened=False):
+    """The five colors people can set in the settings are never the same color. In priority order, a role that
+    repeats an earlier one is swapped for its first pick, a cover color, or the cover's hues at another of the
+    cover's lightness levels; readable choices are tried first."""
+    colors = dict(colors)
+    cover = [color for color, _ in sorted(color_range, key=lambda entry: entry[1], reverse=True)]
+    lightness = [color.lightnessF() for color in cover] or [.5]
+    low, high = min(lightness), max(lightness)
+
+    def soften(role, color):
+        if not softened:
+            return QColor(color)
+        return shade_at(QColor(color), max(COMFORTABLE_LIGHTNESS[0], min(COMFORTABLE_LIGHTNESS[1], QColor(color).lightnessF())))
+
+    def variants(color):
+        hue, saturation, level, _ = QColor(color).getHslF()
+        levels = sorted((low + (high - low) * step / 24 for step in range(25)), key=lambda value: abs(value - level))
+        levels += sorted((step / 24 for step in range(1, 24)), key=lambda value: abs(value - level))
+        return [QColor(QColor.fromHslF(max(0, hue), saturation, value).name()) for value in levels]
+
+    def apart(role, color, chosen):
+        # The icon color also draws the grooves on the background, so it keeps further away from it.
+        gaps = [INK_DISTINCT_DISTANCE if role == 'themeBackgroundAccent' and index == 0 else ROLE_DISTINCT_DISTANCE
+                for index in range(len(chosen))]
+        return all(rgb_distance(color, other) >= gap for other, gap in zip(chosen, gaps))
+
+    chosen = []
+    changed = set()
+    for role in THEME_ROLES:
+        current = QColor(colors[role])
+        # A new button color also has to keep its icons readable.
+        unreadable = (role == 'themeBackgroundAccent' and 'themeAccent' in changed
+                      and not ink_reads(QColor(colors['themeAccent']), current))
+        if not unreadable and apart(role, current, chosen):
+            chosen.append(current)
+            continue
+        background = QColor(colors['themeBackground'])
+        button = QColor(colors['themeAccent'])
+        candidates = ([QColor(picked[role])] if picked and role in picked else []) + cover
+        candidates += [variant for color in [current] + cover for variant in variants(color)]
+        readable = {
+            'textColor': lambda color: color_contrast(background, color) >= MINIMUM_TEXT_CONTRAST,
+            'themeAccent': lambda color: color_contrast(background, color) >= BUTTON_BACKGROUND_CONTRAST,
+            'themeBackgroundAccent': lambda color: ink_reads(button, color),
+        }.get(role, lambda color: True)
+        relaxed = {'textColor': lambda color: color_contrast(background, color) >= FALLBACK_TEXT_CONTRAST,
+                   'themeBackgroundAccent': lambda color: color_contrast(button, color) >= ICON_MINIMUM_CONTRAST}.get(
+            role, lambda color: True)
+        replacement = None
+        for test in (readable, relaxed):
+            for candidate in candidates:
+                candidate = soften(role, candidate)
+                if test(candidate) and apart(role, candidate, chosen):
+                    replacement = candidate
+                    break
+            if replacement is not None:
+                break
+        replacement = replacement or current
+        if replacement.name() != current.name():
+            changed.add(role)
+        colors[role] = replacement.name()
+        chosen.append(replacement)
+    colors.update({key: colors['textColor'] for key in TEXT_KEYS if key in colors})
+    if 'paperTextColor' in colors and colors.get('paperBackgroundColor') == colors['themeBackground']:
+        colors['paperTextColor'] = colors['textColor']
+    colors.update({key: colors['themeAccent'] for key in BUTTON_KEYS if key in colors})
+    if 'brandTextColor' in colors:
+        colors['brandTextColor'] = colors['themeHighlight']
+    colors.update({key: colors['themeBackgroundAccent'] for key in INK_KEYS if key in colors})
+    return colors
+
+
+def background_accent(colors, color_range, picked=None):
+    """The one Background accent color: button icons and the empty part of grooves both use it, so it should read on
+    the buttons. It never comes from the same cover color as the background, text, button or accent color (judged by
+    the colors first picked, before they were softened); then an invented near black or white ink is swapped for a
+    cover color, or one made from the cover's hues within its lightness range."""
+    background, button = QColor(colors['themeBackground']), QColor(colors['themeAccent'])
+    text = QColor(colors['textColor'])
+    highlight = QColor(colors['themeHighlight'])
+    ink = QColor(colors['themeBackgroundAccent'])
+    cover = [color for color, share in sorted(color_range, key=lambda entry: entry[1], reverse=True)
+             if share >= MEANINGFUL_SHARE]
+    if picked and cover:
+        def source(color):
+            return min(cover, key=lambda option: rgb_distance(option, QColor(color))).name()
+        taken = {source(picked[key]) for key in ('themeBackground', 'textColor', 'themeAccent', 'themeHighlight')}
+        if source(ink) in taken:
+            free = [color for color in cover if color.name() not in taken]
+            first = QColor(picked['themeBackgroundAccent'])
+            options = [QColor(comfortable_artwork_colors({'ink': color.name()})['ink'])
+                       for color in free + ([first] if source(first) not in taken else [])]
+            readable = next((color for color in options if ink_reads(button, color)), None)
+            usable = next((color for color in ([options[-1]] if source(first) not in taken else []) + options
+                           if color_contrast(button, color) >= ICON_MINIMUM_CONTRAST), None)
+            if readable is not None or usable is not None:
+                return readable or usable
+
+    def fits(color):
+        return (ink_reads(button, color)
+                and rgb_distance(color, background) >= INK_DISTINCT_DISTANCE
+                and all(rgb_distance(color, other) >= ROLE_DISTINCT_DISTANCE for other in (button, text, highlight))
+                and COMFORTABLE_LIGHTNESS[0] <= color.lightnessF() <= COMFORTABLE_LIGHTNESS[1])
+
+    if not cover:
+        return ink
+    # A cover color, or a shade of one within the cover's lightness, is kept; anything else gives way to the cover.
+    if cover_like(ink, color_range):
+        return ink
+    every = [QColor(comfortable_artwork_colors({'ink': color.name()})['ink'])
+             for color, _ in sorted(color_range, key=lambda entry: entry[1], reverse=True)]
+    real = next((color for color in every if fits(color)), None)
+    if real is not None:
+        return real
+    low = max(COMFORTABLE_LIGHTNESS[0], min(color.lightnessF() for color in every))
+    high = min(COMFORTABLE_LIGHTNESS[1], max(color.lightnessF() for color in every))
+    for color in sorted(every, key=lambda option: hue_gap(option, ink) if is_chromatic(option) else 1):
+        hue, saturation, lightness, _ = color.getHslF()
+        levels = sorted((low + (high - low) * step / 32 for step in range(33)), key=lambda level: abs(level - lightness))
+        for level in levels:
+            candidate = QColor(QColor.fromHslF(max(0, hue), saturation, level).name())
+            if fits(candidate):
+                return candidate
+    return ink
+
+
+def cover_like(color, color_range):
+    """A real cover color, or a cover hue at a lightness the cover itself reaches."""
+    if from_cover(color, color_range):
+        return True
+    levels = [option.lightnessF() for option, _ in color_range]
+    if not levels or not min(levels) - .02 <= color.lightnessF() <= max(levels) + .02 or not is_chromatic(color):
+        return False
+    return any(is_chromatic(option) and hue_gap(option, color) < .03
+               and abs(option.hslSaturationF() - color.hslSaturationF()) < .25 for option, _ in color_range)
+
+
+def cover_button_for_icons(colors, color_range):
+    """When the icons could only read on the button in an invented color, move the button to a nearby cover color or
+    cover shade on which a real cover color reads instead."""
+    ink = QColor(colors['themeBackgroundAccent'])
+    if not color_range or cover_like(ink, color_range):
+        return colors
+    background, text, highlight = (QColor(colors[key]) for key in ('themeBackground', 'textColor', 'themeHighlight'))
+    button = QColor(colors['themeAccent'])
+    every = [QColor(comfortable_artwork_colors({'c': color.name()})['c'])
+             for color, _ in sorted(color_range, key=lambda entry: entry[1], reverse=True)]
+    low, high = min(color.lightnessF() for color in every), max(color.lightnessF() for color in every)
+
+    def apart(color, others):
+        return all(rgb_distance(color, other) >= ROLE_DISTINCT_DISTANCE for other in others)
+
+    buttons = list(every)
+    for color in every:
+        hue, saturation, _, _ = color.getHslF()
+        buttons += [QColor(QColor.fromHslF(max(0, hue), saturation, low + (high - low) * step / 24).name()) for step in range(25)]
+    buttons = [option for option in buttons if apart(option, (background, text, highlight))
+               and color_contrast(background, option) >= BUTTON_BACKGROUND_CONTRAST]
+    for option in sorted(buttons, key=lambda option: rgb_distance(option, button)):
+        icon = next((color for color in every if ink_reads(option, color)
+                     and apart(color, (background, text, highlight, option))), None)
+        if icon is not None:
+            colors = dict(colors, themeAccent=option.name())
+            colors.update({key: option.name() for key in BUTTON_KEYS if key in colors})
+            colors.update({key: icon.name() for key in INK_KEYS if key in colors})
+            return colors
+    return colors
 
 
 def shared_background(colors):
@@ -1008,22 +1210,3 @@ def picked_artwork_colors(artwork, mode):
                                                    text_minimum, paper_background, color_range),
                              artwork_colors + tuple(color for color, _ in color_range))
     return keep_album_lightness(colors, color_range, artwork_colors)
-
-
-def classic_artwork_style(style, colors):
-    """Retain classic geometry while recoloring all of its fixed surfaces."""
-    background = QColor(colors['themeBackground'])
-    accent = QColor(colors['themeAccent'])
-    replacements = {
-        '#16191e': background.name(), '#1c2128': background.darker(110).name(),
-        '#191d23': background.darker(FIELD_SHADE).name(), '#222831': background.darker(FIELD_SHADE).name(),
-        '#262e38': background.darker(FIELD_SHADE).name(), '#303945': background.lighter(115).name(),
-        '#38424d': background.darker(130).name(), '#2b333e': colors['buttonFill'],
-        '#3b4654': accent.name(), '#3b4959': colors['buttonFill'],
-        '#36414e': accent.name(), '#3b4c3a': accent_shade(accent.name(), .32),
-        '#222b30': background.darker(115).name(), '#344735': accent_shade(accent.name(), .32),
-        '#bddc9c': accent.name(), '#e0edcf': colors['buttonFill'],
-        '#566272': accent.name(),
-    }
-    # Replace in one pass so a sampled color cannot be replaced again.
-    return re.sub(r'#[0-9a-fA-F]{6}', lambda match: replacements.get(match[0], match[0]), style)

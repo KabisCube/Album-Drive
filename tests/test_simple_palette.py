@@ -51,8 +51,8 @@ class SimplePaletteTests(unittest.TestCase):
                 self.assertLessEqual(len({colors[key] for key in roles}), 6)
                 self.assertEqual(colors['brandTextColor'], colors['themeHighlight'])
                 self.assertEqual(colors['headingTextColor'], colors['textColor'])
-                self.assertEqual(colors['buttonTextColor'], colors['themeBackgroundAccent'])
-                self.assertEqual(colors['buttonIconColor'], colors['themeBackgroundAccent'])
+                self.assertEqual(colors['buttonTextColor'], colors['buttonIconColor'])
+                self.assertTrue(QColor(colors['themeBackgroundAccent']).isValid())
 
     def test_buttons_preserve_chosen_ink_for_light_and_dark_surfaces(self):
         for fill in ('#eeeeee', '#111111', '#ac2614', '#2c80ee'):
@@ -78,7 +78,8 @@ class SimplePaletteTests(unittest.TestCase):
             colors = artwork_theme_colors(output.getvalue(), mode)
             highlight = QColor(colors['themeHighlight'])
             self.assertNotEqual(colors['themeAccent'], colors['themeBackground'])
-            self.assertEqual(colors['buttonTextColor'], colors['themeBackgroundAccent'])
+            self.assertEqual(colors['buttonTextColor'], colors['buttonIconColor'])
+            self.assertEqual(colors['themeBackgroundAccent'], colors['buttonIconColor'], 'icons and grooves share one color')
             self.assertEqual(colors['brandTextColor'], highlight.name())
             self.assertEqual(colors['headingTextColor'], colors['textColor'])
         colors = artwork_theme_colors(output.getvalue(), 'dark')
@@ -120,6 +121,29 @@ class SimplePaletteTests(unittest.TestCase):
             self.assertTrue(all(not restored.colors[key].isEnabled() for key in PRIMARY_COLOR_KEYS))
             self.assertFalse(restored.saved_theme_choice.isEnabled())
             restored.reject()
+
+    def test_the_five_settings_colors_never_repeat(self):
+        covers = [
+            [(247, 248, 247)] * 82 + [(19, 23, 16)] * 6 + [(183, 184, 180)] * 3 + [(255, 255, 255)] * 3
+            + [(158, 41, 24)] * 2 + [(131, 133, 129)] * 2 + [(93, 24, 14)] * 2,
+            [(0, 0, 0)] * 84 + [(187, 187, 187)] * 4 + [(78, 78, 78)] * 4 + [(255, 255, 255)] * 4 + [(133, 133, 133)] * 4,
+            [(0, 0, 0)] * 100,
+            [(242, 239, 223)] * 100,
+        ]
+        roles = ('themeBackground', 'textColor', 'themeAccent', 'themeHighlight', 'themeBackgroundAccent')
+        for pixels in covers:
+            image = Image.new('RGB', (len(pixels), 1))
+            image.putdata(pixels)
+            output = BytesIO()
+            image.save(output, format='PNG')
+            for mode in ('any', 'dark', 'light'):
+                colors = artwork_theme_colors(output.getvalue(), mode)
+                values = [QColor(colors[role]) for role in roles]
+                for index, first in enumerate(values):
+                    for second in values[index + 1:]:
+                        gap = sum((a - b) ** 2 for a, b in zip(first.getRgb()[:3], second.getRgb()[:3])) ** .5
+                        self.assertGreaterEqual(gap, 16, (mode, [color.name() for color in values]))
+                self.assertEqual(colors['buttonIconColor'], colors['themeBackgroundAccent'])
 
 
 if __name__ == '__main__':

@@ -107,7 +107,7 @@ with tempfile.TemporaryDirectory() as directory:
     manual.applied.connect(window.apply_settings)
     manual.saved_theme_choice.setCurrentIndex(0)
     manual.saved_theme_choice.setCurrentIndex(manual.saved_theme_choice.findData(preset_id))
-    manual.theme_name = 'classic'
+    manual.theme_name = 'chunky'
     assert not manual.artwork_theme.isChecked()
     for key, value in snapshot.items():
         assert manual.colors[key].color().name() == value

@@ -23,12 +23,14 @@ def disabled_text_color(value):
     return QColor(value).darker(120)
 
 
+def relative_luminance(color):
+    channels = [channel / 12.92 if channel <= .04045 else ((channel + .055) / 1.055) ** 2.4
+                for channel in (color.redF(), color.greenF(), color.blueF())]
+    return sum(channel * weight for channel, weight in zip(channels, (.2126, .7152, .0722)))
+
+
 def color_contrast(first, second):
-    def luminance(color):
-        channels = [channel / 12.92 if channel <= .04045 else ((channel + .055) / 1.055) ** 2.4
-                    for channel in (color.redF(), color.greenF(), color.blueF())]
-        return sum(channel * weight for channel, weight in zip(channels, (.2126, .7152, .0722)))
-    light, dark = sorted((luminance(first), luminance(second)), reverse=True)
+    light, dark = sorted((relative_luminance(first), relative_luminance(second)), reverse=True)
     return (light + .05) / (dark + .05)
 
 

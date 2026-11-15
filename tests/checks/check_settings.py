@@ -134,7 +134,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert 'logo_line_height' not in dialog.numbers
     dialog.apply()
     wait_until(lambda: window.current_folder == new and not window.scanners)
-    assert app.property('playerTheme') == 'classic'
+    assert app.property('playerTheme') == 'chunky', 'the removed classic look falls back to the default'
     assert window.album_table.font().family() == font['family']
     assert app.property('timelineFontSize') == font_sizes(settings)['timeline_font_size']
     assert app.property('mainFontSize') == 22

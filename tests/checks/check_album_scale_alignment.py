@@ -22,7 +22,7 @@ with TemporaryDirectory() as directory:
     window.show()
     buttons = (window.sort_albums, window.save_theme_button, window.settings_button)
     try:
-        for theme in ('chunky', 'classic'):
+        for theme in ('chunky',):
             settings.setValue('theme', theme)
             for size in (20, 44, 72):
                 settings.setValue('button_size', size)

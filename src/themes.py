@@ -200,6 +200,7 @@ QPushButton#previous, QPushButton#next {{ padding: 0px {14*scale:g}px; min-heigh
 '''
     return typography + '''
 QWidget { color: TEXT; selection-color: SELECTED; }
+QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox { selection-background-color: SELECTIONBG; selection-color: TEXT; }
 QLabel#muted, QStatusBar { color: SECONDARY; }
 QLabel#heading { color: HEADING; }
 QLabel#brand { color: BRAND; }
@@ -217,7 +218,8 @@ QHeaderView::section, QMenu, QMenuBar, QToolTip { color: TEXT; }
 '''.replace('LABELDIM', f'rgba{disabled_text.getRgb()}').replace('OPTIONDIM', f'rgba{disabled_title.getRgb()}').replace('SECONDARY', colors['secondaryTextColor']).replace('SELECTED', colors['selectedTextColor']).replace(
         'HEADING', colors['headingTextColor']).replace('BRAND', colors['brandTextColor']).replace(
         'BUTTON', colors['buttonTextColor']).replace('DISABLED', colors['disabledTextColor']).replace(
-        'HIGHLIGHTCONTENT', colors['themeAccent']).replace('TEXT', colors['textColor']) + SCROLLBAR_STYLE
+        'HIGHLIGHTCONTENT', colors['themeAccent']).replace('SELECTIONBG', colors['themeHighlight']).replace(
+        'TEXT', colors['textColor']) + SCROLLBAR_STYLE
 
 
 def control_property(name):
@@ -561,8 +563,6 @@ class ThemeSaveIcon(QIconEngine):
         color = QColor(app.property('buttonIconColor') or '#101010')
         if mode == QIcon.Disabled:
             color = disabled_text_color(color)
-        if app.property('playerTheme') == 'classic':
-            color = button_text_color(app.property('buttonFill') or '#cccccc', mode != QIcon.Disabled)
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
         scale = min(rect.width() / 48, rect.height() / 32)

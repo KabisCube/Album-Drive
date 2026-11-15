@@ -55,7 +55,7 @@ from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
 from color_rules import timeline_colors
 from settings_store import create_app_settings, library_cache_path, write_theme_files
 from themes import DEFAULT_THEME_IDS, THEME_FADE_MAX_SECONDS, ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, UI_FONT_DEFAULT, CONTROL_HEADROOM, BUTTON_SHADOW, ThemedMenu, ThemeSaveIcon, button_scale, migrate_button_size
-from app_theme import classic_artwork_style, artwork_theme_colors, simplify_theme_colors, soften_theme_colors, button_text_color_for_palette
+from app_theme import artwork_theme_colors, simplify_theme_colors, soften_theme_colors, button_text_color_for_palette
 from button_sounds import prepare_button_sounds, play_button_sound
 from case_sounds import prepare_case_sounds, play_case_sound
 from audio_devices import selected_output
@@ -72,7 +72,7 @@ from optical_discs import DiscEjector, DiscMonitor, DiscReader, audio_album, cac
 from folder_search import WIGGLE_WIDTH, FolderSearch, FolderSearchBar, wiggle_path
 
 
-CLASSIC_STYLE = """
+BASE_STYLE = """
 QWidget { background: #16191e; color: #e9edf3; font-size: 13px; }
 QMainWindow { background: #16191e; }
 QLabel#brand { font-size: 24px; font-weight: 700; color: #bddc9c; }
@@ -112,8 +112,8 @@ QToolTip { background: #303945; color: #ffffff; border: 1px solid #566272; }
 TRANSPORT_PLAY_HEIGHT = 44
 TRANSPORT_SKIP_HEIGHT = 32
 
-STYLE = chunky_style(CLASSIC_STYLE)
-THEMES = {'chunky': ('Chunky landscape', STYLE), 'classic': ('Classic dark', CLASSIC_STYLE)}
+STYLE = chunky_style(BASE_STYLE)
+THEMES = {'chunky': ('Chunky landscape', STYLE)}
 
 
 def load_app_font():
@@ -1988,9 +1988,7 @@ class PlayerWindow(QMainWindow):
             self.seek.update()
             self.update_transport_icons()
             return
-        style = chunky_style(CLASSIC_STYLE, accent, background, timeline, rounding) if name == 'chunky' else CLASSIC_STYLE
-        if name == 'classic' and (app.property('artworkTheme') or app.property('customColorTheme')):
-            style = classic_artwork_style(style, colors)
+        style = chunky_style(BASE_STYLE, accent, background, timeline, rounding)
         style += text_style()
         style += 'QListWidget#albumGrid::item:hover, QListWidget#albumGrid::item:selected { background: transparent; border: none; }'
         style += '''
@@ -1998,8 +1996,6 @@ QTreeView, QTableWidget, QTabWidget::pane { border-radius: 8px; }
 QTabBar::tab, QMenu, QSpinBox, QDoubleSpinBox { border-radius: 6px; }
 QToolTip { border-radius: 4px; }
 '''
-        if name == 'classic':
-            style += 'QPushButton, QPushButton#play { background: ' + QApplication.instance().property('buttonFill') + '; }'
         style = round_stylesheet(style, rounding)
         # Cap radii to the available width so extra rounding never becomes square.
         panel = QColor(background).darker(110).name()
@@ -2199,7 +2195,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             app.setProperty('artworkTheme', bool(artwork_colors))
             self.refresh_theme_colors()
             return
-        # Keep classic's dynamic surfaces active until the final fallback frame.
+        # Keep the dynamic surfaces active until the final fallback frame.
         app.setProperty('artworkTheme', True)
         timeline_target = timeline_colors(target['themeBackground'], target['themeAccent'],
                                           target['themeBackgroundAccent'])

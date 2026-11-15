@@ -36,13 +36,13 @@ FIXED_THEMES = {
         'theme_paper_text_color': '#bfa799'},
     'fixed_light': {
         'theme_accent_color': '#da7d5d', 'theme_highlight_color': '#d6c399', 'theme_background_color': '#eee4c4',
-        'theme_background_accent_color': '#816555', 'theme_timeline_color': '#d6c399',
-        'theme_brand_line_color': '#d8cfb2', 'theme_folder_arrow_color': '#97774b', 'theme_button_fill': '#9f8f6e',
-        'theme_button_icon_color': '#816555', 'theme_button_text_color': '#816555',
-        'theme_disabled_text_color': '#816555', 'theme_text_color': '#97774b', 'theme_secondary_text_color': '#97774b',
-        'theme_heading_text_color': '#97774b', 'theme_brand_text_color': '#da7d5d',
-        'theme_selected_text_color': '#97774b', 'theme_timeline_text_color': '#97774b',
-        'theme_paper_text_color': '#97774b'},
+        'theme_background_accent_color': '#97774b', 'theme_timeline_color': '#d6c399',
+        'theme_brand_line_color': '#d8cfb2', 'theme_folder_arrow_color': '#816555', 'theme_button_fill': '#9f8f6e',
+        'theme_button_icon_color': '#97774b', 'theme_button_text_color': '#97774b',
+        'theme_disabled_text_color': '#97774b', 'theme_text_color': '#816555', 'theme_secondary_text_color': '#816555',
+        'theme_heading_text_color': '#816555', 'theme_brand_text_color': '#da7d5d',
+        'theme_selected_text_color': '#816555', 'theme_timeline_text_color': '#816555',
+        'theme_paper_text_color': '#816555'},
 }
 THEME_CHOICE_KEYS = (*FIXED_THEMES['fixed_light'], 'custom_theme_colors', 'selected_color_theme',
                      'artwork_theme_enabled', 'artwork_theme_mode')

@@ -13,8 +13,8 @@ from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
-from app_theme import artwork_theme_colors, hue_gap, ink_reads, is_chromatic
-from open_case import artwork_accent_palette, artwork_palette, color_contrast, readable_paper_text
+from app_theme import artwork_theme_colors, cover_like, hue_gap, ink_reads, is_chromatic
+from open_case import artwork_accent_palette, artwork_color_range, artwork_palette, color_contrast, readable_paper_text
 from theme_settings import ThemeSettingsDialog
 
 
@@ -61,8 +61,12 @@ class ArtworkModeTests(unittest.TestCase):
             for role in ('textColor', 'buttonTextColor', 'timelineTextColor', 'selectedTextColor', 'paperTextColor'):
                 self.assertGreater(QColor(colors[role]).hslSaturationF(), .1, (mode, role, colors[role]))
         colors = artwork_theme_colors(artwork)
-        self.assertEqual(colors['textColor'], '#e2b96b')
-        self.assertEqual(colors['buttonTextColor'], colors['themeBackgroundAccent'])
+        self.assertLess(hue_gap(QColor(colors['textColor']), QColor('#e2b96b')), .02)
+        background = QColor(colors['themeBackground'])
+        self.assertTrue(all(color_contrast(background, QColor(colors['textColor']))
+                            >= color_contrast(background, QColor(colors[role])) for role in ('themeAccent', 'themeBackgroundAccent')),
+                        'the text gets the lightest of the dark theme colors')
+        self.assertEqual(colors['buttonTextColor'], colors['buttonIconColor'])
         self.assertGreaterEqual(color_contrast(QColor(colors['themeBackground']), QColor(colors['textColor'])), 4.5)
         foreground = readable_paper_text(QColor('#122b40'), QColor('#f4f4f4'), artwork_palette(artwork))
         self.assertEqual(foreground.name(), '#e2b96b')
@@ -72,7 +76,7 @@ class ArtworkModeTests(unittest.TestCase):
         self.assertEqual(artwork_theme_colors(artwork), artwork_theme_colors(artwork, 'any'))
         self.assertEqual(artwork_theme_colors(artwork), artwork_theme_colors(artwork, 'invalid'))
 
-    def test_simple_cover_keeps_pink_ink_and_highlight_hue(self):
+    def test_simple_cover_keeps_pink_highlight_and_readable_cover_icons(self):
         for background in ((45, 228, 220), (24, 43, 71)):
             pink = (220, 109, 164)
             artwork = cover(*([background] * 60 + [(48, 51, 51)] * 25 + [pink] * 15))
@@ -80,10 +84,11 @@ class ArtworkModeTests(unittest.TestCase):
             sampled_pink = min(artwork_palette(artwork), key=lambda color:
                                sum((actual - expected) ** 2 for actual, expected in zip(color.getRgb()[:3], pink)))
             self.assertTrue(all(abs(actual - expected) <= 2 for actual, expected in zip(sampled_pink.getRgb()[:3], pink)))
-            # The icon keeps the cover's pink hue, shaded only as far as it must be to read on the button.
+            # The pink belongs to the accent, so the icons take another cover color that reads on the button.
             ink = QColor(colors['buttonTextColor'])
-            self.assertLess(hue_gap(ink, sampled_pink), .02)
             self.assertTrue(ink_reads(QColor(colors['themeAccent']), ink))
+            self.assertTrue(cover_like(ink, artwork_color_range(artwork)))
+            self.assertGreaterEqual(sum((a - b) ** 2 for a, b in zip(ink.getRgb()[:3], QColor(colors['themeBackground']).getRgb()[:3])) ** .5, 32)
             self.assertLess(hue_gap(QColor(colors['themeHighlight']), sampled_pink), .02)
             self.assertEqual(colors['headingTextColor'], colors['textColor'])
 
@@ -115,7 +120,7 @@ class ArtworkModeTests(unittest.TestCase):
                     self.assertEqual(colors['brandTextColor'], colors['themeHighlight'])
 
     def test_low_color_covers_get_gentle_distinct_shades_of_the_artwork(self):
-        roles = ('themeBackground', 'textColor', 'themeAccent', 'themeHighlight', 'themeBackgroundAccent', 'buttonFill')
+        roles = ('themeBackground', 'textColor', 'themeAccent', 'themeHighlight', 'buttonIconColor', 'buttonFill')
         for rgb in ((157, 151, 139), (128, 128, 128), (0, 0, 0), (255, 255, 255), (192, 48, 32),
                     (16, 24, 64), (242, 239, 223), (38, 34, 30)):
             for mode in ('any', 'dark', 'light'):
@@ -124,8 +129,8 @@ class ArtworkModeTests(unittest.TestCase):
                     self.assertEqual(len({colors[role] for role in roles}), len(roles))
                     background = QColor(colors['themeBackground'])
                     # Icons may leave the gentle range: they must read on the button first.
-                    lightness = [QColor(colors[role]).lightnessF() for role in roles if role != 'themeBackgroundAccent']
-                    self.assertTrue(ink_reads(QColor(colors['themeAccent']), QColor(colors['themeBackgroundAccent'])))
+                    lightness = [QColor(colors[role]).lightnessF() for role in roles if role != 'buttonIconColor']
+                    self.assertTrue(ink_reads(QColor(colors['themeAccent']), QColor(colors['buttonIconColor'])))
                     self.assertLessEqual(max(abs(level - background.lightnessF()) for level in lightness), .51)
                     self.assertGreaterEqual(color_contrast(background, QColor(colors['textColor'])), 1.9)
                     if background.hslSaturationF() > .1:
@@ -141,7 +146,7 @@ class ArtworkModeTests(unittest.TestCase):
             self.assertEqual((colors['themeBackground'], colors['textColor']), wanted[:2])
             self.assertEqual({colors['themeAccent'], colors['themeHighlight']}, {wanted[2], wanted[3]})
             # The coral icon keeps its hue, made paler only as far as it must be to read on the button.
-            ink = QColor(colors['themeBackgroundAccent'])
+            ink = QColor(colors['buttonIconColor'])
             self.assertLess(hue_gap(ink, QColor(wanted[4])), .02)
             self.assertTrue(ink_reads(QColor(colors['themeAccent']), ink))
         dark = artwork_theme_colors(artwork, 'dark')
@@ -157,7 +162,7 @@ class ArtworkModeTests(unittest.TestCase):
         image.save(output, format='PNG')
         for mode in ('any', 'light', 'dark'):
             colors = artwork_theme_colors(output.getvalue(), mode)
-            for role in ('themeHighlight', 'themeAccent', 'themeBackgroundAccent', 'buttonFill'):
+            for role in ('themeHighlight', 'themeAccent', 'buttonIconColor', 'buttonFill'):
                 with self.subTest(mode=mode, role=role, value=colors[role]):
                     self.assertLessEqual(QColor(colors[role]).lightnessF(), .87)
 
@@ -179,7 +184,7 @@ class ArtworkModeTests(unittest.TestCase):
         colors = artwork_theme_colors(artwork)
         vividness = lambda value: max(QColor(value).getRgb()[:3]) - min(QColor(value).getRgb()[:3])
         self.assertGreaterEqual(vividness(colors['themeHighlight']), vividness(colors['themeAccent']))
-        self.assertGreaterEqual(vividness(colors['themeHighlight']), vividness(colors['themeBackgroundAccent']))
+        self.assertGreaterEqual(vividness(colors['themeHighlight']), vividness(colors['buttonIconColor']))
 
     def test_small_vivid_pop_becomes_the_accent(self):
         muted = ('#e3d5bb', '#30453c', '#9f9b60', '#818a63', '#e5c38e')
@@ -204,7 +209,7 @@ class ArtworkModeTests(unittest.TestCase):
         colors = artwork_theme_colors(output.getvalue())
         accent = QColor(colors['themeHighlight'])
         self.assertTrue(.3 <= accent.lightnessF() <= .8, accent.name())
-        for role in ('themeAccent', 'buttonFill', 'themeBackgroundAccent'):
+        for role in ('themeAccent', 'buttonFill', 'buttonIconColor'):
             self.assertGreaterEqual(QColor(colors[role]).lightnessF(), .2, role)
         self.assertGreaterEqual(color_contrast(QColor(colors['themeAccent']), QColor(colors['buttonTextColor'])), 4.5)
 
@@ -229,7 +234,7 @@ class ArtworkModeTests(unittest.TestCase):
         colors = artwork_theme_colors(artwork)
         background = QColor(colors['themeBackground'])
         self.assertGreater(QColor(colors['textColor']).lightnessF(), background.lightnessF(), 'a pale cover keeps pale text')
-        for role in ('textColor', 'themeAccent', 'themeHighlight', 'themeBackgroundAccent', 'buttonFill'):
+        for role in ('textColor', 'themeAccent', 'themeHighlight', 'buttonIconColor', 'buttonFill'):
             color = QColor(colors[role])
             gap = abs(color.hslHueF() - background.hslHueF())
             self.assertLess(min(gap, 1 - gap), .04, role)

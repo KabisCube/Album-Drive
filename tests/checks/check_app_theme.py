@@ -50,7 +50,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert not app.property('artworkTheme')
     assert app.property('themeBackground') == '#54585b'
 
-    for theme in ('chunky', 'classic'):
+    for theme in ('chunky',):
         window.set_theme(theme)
         for name in ('Blue', 'Gold'):
             window.scan(root / name)
