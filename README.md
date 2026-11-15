@@ -1,5 +1,7 @@
-![Album Drive preview](docs/preview1.png)
-![Album Drive preview](docs/preview2.png)
+<p align="center">
+	<img src=".github/images/preview1.png" alt="Album Drive preview landscape" height="550">
+	<img src=".github/images/preview2.png" alt="Album Drive preview portrait" height="550">
+</p>
 
 Album Drive is a simple and cute local music player that uses your folder structure instead of metadata to organize your music. It supports music folders and audio CDs in a CD/DVD drive.
 
@@ -34,7 +36,7 @@ bash scripts/setup_android.sh
 python3 scripts/build_android.py
 ```
 
-The SDK, NDK, Python environment, and compiler cache stay in `~/.cache/album-drive-android`. The APK is written to `dist/AlbumDrive-android-arm64-debug.apk`. After setting up WSL, Windows can also run `python scripts/build_android.py`, or `run-android.bat` to build, install, and open the app on a phone connected by USB with USB debugging turned on. Add `--skip-build` to reinstall the last build. The script downloads Google's Android platform tools the first time if `adb` is not already installed. The Android wheels and Python compiler revision are pinned together; do not update either independently. Debug builds are signed for local testing, not Play Store publication.
+The SDK, NDK, Python environment, and compiler cache stay in `~/.cache/album-drive-android`. The APK is written to `dist/AlbumDrive-android-arm64-debug.apk`. After setting up WSL, Windows can also run `python scripts/build_android.py`, or `tools\run-android.bat` to build, install, and open the app on a phone connected by USB with USB debugging turned on. Add `--skip-build` to reinstall the last build. The script downloads Google's Android platform tools the first time if `adb` is not already installed. The Android wheels and Python compiler revision are pinned together; do not update either independently. Debug builds are signed for local testing, not Play Store publication.
 
 
 ### Logs
@@ -45,7 +47,7 @@ Unexpected Python errors are recorded in `logs/errors.log` beside the app. Nativ
 ## licenses
 | Font | Use | License or notice |
 | --- | --- | --- |
-| Album Round Bold | Main interface; original for Album Drive | [GPLv3 notice](licenses/fonts/AlbumRound-LICENSE.txt) |
-| Album Marker 01–03 | Handwritten sleeves; original for Album Drive | [GPL-3.0-or-later notice](licenses/fonts/handwriting/AlbumMarker-LICENSE.txt) |
-| [Resource Han Rounded SC Bold](https://github.com/CyanoHao/Resource-Han-Rounded) | Japanese, Korean, and Chinese fallback; Cyano Hao, with portions by Adobe | [SIL Open Font License 1.1](licenses/fonts/cjk/ResourceHanRounded-LICENSE.txt) |
+| Album Round Bold | Main interface; original for Album Drive | [GPLv3 notice](docs/licenses/fonts/AlbumRound-LICENSE.txt) |
+| Album Marker 01–03 | Handwritten sleeves; original for Album Drive | [GPL-3.0-or-later notice](docs/licenses/fonts/handwriting/AlbumMarker-LICENSE.txt) |
+| [Resource Han Rounded SC Bold](https://github.com/CyanoHao/Resource-Han-Rounded) | Japanese, Korean, and Chinese fallback; Cyano Hao, with portions by Adobe | [SIL Open Font License 1.1](docs/licenses/fonts/cjk/ResourceHanRounded-LICENSE.txt) |
 

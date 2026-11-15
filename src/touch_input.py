@@ -1,7 +1,7 @@
 """Android touch handling: one place that decides what each finger movement means."""
 from math import hypot
 
-from PySide6.QtCore import QElapsedTimer, QEvent, QObject, QPoint, QPointF, Qt, QTimer
+from PySide6.QtCore import QElapsedTimer, QEvent, QObject, QPointF, Qt, QTimer
 from PySide6.QtGui import QContextMenuEvent, QMouseEvent
 from PySide6.QtWidgets import QAbstractItemView, QAbstractSlider, QApplication, QScroller, QScrollerProperties
 

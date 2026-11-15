@@ -13,7 +13,7 @@ if errorlevel 1 (
 if errorlevel 1 goto failed
 
 :dependencies
-"%PYTHON%" -m pip install -r requirements-build.txt
+"%PYTHON%" -m pip install -r requirementsuild.txt
 if errorlevel 1 goto failed
 
 "%PYTHON%" scripts\build.py

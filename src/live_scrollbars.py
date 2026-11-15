@@ -17,7 +17,6 @@ class LiveScrollbars(QObject):
         accent = QColor(app.property('themeAccent') or '#888888')
         rail_accent = QColor(app.property('themeBackgroundAccent')) if app.property('themeBackgroundAccent') else None
         paper_rail_accent = None
-        fill = QColor(app.property('buttonFill') or '#cccccc')
         surface = QColor(background)
         fill_surface = True
         parent = widget.parentWidget()

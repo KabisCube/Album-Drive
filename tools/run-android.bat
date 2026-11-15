@@ -1,14 +1,15 @@
 @echo off
-rem Builds a signed release APK, installs it on the phone connected by USB, and opens it.
-rem Use "run-android-release.bat --skip-build" to reinstall the last release build.
+rem Builds the Android APK, installs it on the phone connected by USB, and opens it.
+rem Use "tools\run-android.bat --skip-build" to reinstall the last build.
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 set "PACKAGE=org.albumdrive.albumdrive"
-set "APK=dist\AlbumDrive-android-arm64.apk"
+set "APK=dist\AlbumDrive-android-arm64-debug.apk"
+rem Drawing size in percent: 100, or 30 to 90 in steps of 5. Lower scrolls smoother but looks softer.
+set "RENDER_SCALE=60"
 set "TOOLS=%LOCALAPPDATA%\AlbumDrive"
 set "ADB_ZIP=https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
-set "INSTALL_LOG=%TEMP%\album-drive-install.log"
 
 call :find_adb
 if not defined ADB call :download_adb
@@ -24,18 +25,21 @@ if /i "%~1"=="--skip-build" goto install
 
 where wsl.exe >nul 2>&1
 if errorlevel 1 goto wsl_missing
-wsl -- python3 scripts/build_android.py --release
+wsl -- python3 scripts/build_android.py
 if errorlevel 1 goto build_failed
 
 :install
 if not exist "%APK%" goto apk_missing
 echo.
 echo Installing on the phone...
-"%ADB%" install -r "%APK%" > "%INSTALL_LOG%" 2>&1
-set "INSTALL_RESULT=%errorlevel%"
-type "%INSTALL_LOG%"
-findstr /c:"INSTALL_FAILED_UPDATE_INCOMPATIBLE" "%INSTALL_LOG%" >nul && goto signature_mismatch
-if not "%INSTALL_RESULT%"=="0" goto install_failed
+"%ADB%" install -r "%APK%"
+if errorlevel 1 goto install_failed
+rem Android only allows this per-app override on debug builds, set from a computer.
+"%ADB%" shell am compat reset-all %PACKAGE% >nul 2>&1
+if not "%RENDER_SCALE%"=="100" (
+    "%ADB%" shell am compat enable DOWNSCALED %PACKAGE% >nul 2>&1
+    "%ADB%" shell am compat enable DOWNSCALE_%RENDER_SCALE% %PACKAGE% >nul 2>&1
+)
 "%ADB%" shell monkey -p %PACKAGE% -c android.intent.category.LAUNCHER 1 >nul 2>&1
 if errorlevel 1 goto launch_failed
 
@@ -111,20 +115,12 @@ exit /b 1
 
 :install_failed
 echo.
-echo Install failed. See the error above.
+echo Install failed. If the error mentions a signature mismatch, uninstall Album Drive from the phone and try again.
 pause
 exit /b 1
 
 :launch_failed
 echo.
 echo Album Drive was installed but did not open. Start it from the phone.
-pause
-exit /b 1
-
-:signature_mismatch
-echo.
-echo The phone has a version of Album Drive signed with a different key, such as a debug build.
-echo Android cannot update it in place. Uninstall Album Drive from the phone and run this again.
-echo Uninstalling also removes the app's settings on the phone.
 pause
 exit /b 1

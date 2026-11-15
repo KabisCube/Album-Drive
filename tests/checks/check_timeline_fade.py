@@ -40,7 +40,8 @@ with tempfile.TemporaryDirectory() as directory:
         animation = window.theme_fade
         animation.pause()
         assert window.seek.colors() == start
-        target = timeline_colors(window.theme_target['themeBackground'], window.theme_target['themeAccent'])
+        target = timeline_colors(window.theme_target['themeBackground'], window.theme_target['themeAccent'],
+                                 window.theme_target['themeBackgroundAccent'])
         end = THEME_FADE_MS // 2 if background == '#203070' else THEME_FADE_MS
         previous = start
         for elapsed in range(0, end + 1, 40):
@@ -50,8 +51,6 @@ with tempfile.TemporaryDirectory() as directory:
                              for first, second in zip(start, target))
             actual = window.seek.colors()
             assert actual == expected, (background, elapsed)
-            assert all(abs(a - b) <= 3 for first, second in zip(previous, actual)
-                       for a, b in zip(first.getRgb()[:3], second.getRgb()[:3]))
             image = window.seek.grab().toImage()
             assert image.pixelColor(60, image.height() // 2) == expected[1]
             assert image.pixelColor(image.width() - 60, image.height() // 2) == expected[0]

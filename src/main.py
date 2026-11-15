@@ -15,7 +15,7 @@ from pathlib import Path
 from app_paths import ASSETS_DIR
 from font_support import configure_font_rendering, font_families, load_handwriting_fonts, load_round_fallbacks
 
-from PySide6.QtCore import QDir, QMargins, QEvent, QEasingCurve, QElapsedTimer, QFile, QIODevice, QLoggingCategory, QPoint, QPointF, QVariantAnimation, QRectF, QSettings, QSignalBlocker, QSize, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QDir, QMargins, QEvent, QEasingCurve, QElapsedTimer, QFile, QIODevice, QLoggingCategory, QPoint, QPointF, QVariantAnimation, QRectF, QSignalBlocker, QSize, Qt, QThread, QTimer, QUrl, Signal
 
 # Route FFmpeg output through Qt's severity-aware logger instead of native dumps.
 os.environ['QT_FFMPEG_DEBUG'] = '1'
@@ -23,7 +23,7 @@ if sys.platform == 'win32':
     os.environ.setdefault('QT_FFMPEG_EXCLUDE_ENCODERS', 'h264_mf,hevc_mf,av1_mf')
 QLoggingCategory.setFilterRules('*.debug=false\n*.info=false')
 logging.basicConfig(level=logging.WARNING)
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontDatabase, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTextLayout, QTextOption, QTransform
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontDatabase, QIcon, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTextLayout, QTextOption, QTransform
 from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFileSystemModel, QGraphicsOpacityEffect, QHBoxLayout,
@@ -49,7 +49,7 @@ from raised_tooltip import install_raised_tooltips
 from scroll_shadows import paint_scroll_background
 from case_loader import CaseLoader, prepare_case
 from case_loader import fitted as fitted_size
-from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, case_frame_color, paint_cd_case, paint_shell, artwork_tray_color, fitted_case_rect
+from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, case_frame_color, paint_cd_case, paint_shell, fitted_case_rect
 from themes import PANEL_SHADE, WELL_SHADE, RaisedLabel, control_offset, control_shadow, paint_raised_surface, raised_surface_face, surface_depth
 from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
 from color_rules import timeline_colors
@@ -389,6 +389,14 @@ class NowPlayingCover(QWidget):
         shift = control_offset(self, rect, CASE_DEPTH).x()
         return rect.left() - shift, rect.right() - shift
 
+    def widest_case_span(self):
+        """Where the case's edges sit when it fills the full width."""
+        area = QRectF(self.contentsRect())
+        area.setHeight(area.width() * 4)
+        rect = fitted_case_rect(area)
+        shift = control_offset(self, rect, CASE_DEPTH).x()
+        return rect.left() - shift, rect.right() - shift
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and not self._pixmap.isNull() and self.image_rect().contains(event.position()):
             self.cover_pressed = True
@@ -631,13 +639,34 @@ class NowPlayingPanel(QWidget):
 
 
 class ArtworkHeading(QLabel):
-    def __init__(self, cover):
+    """Centered between the file browser's sunken edge and the top of the case."""
+
+    def __init__(self, cover, browser=None, top_room=0):
         super().__init__('NOW PLAYING')
         self.cover = cover
+        self.browser = browser
+        self.top_room = top_room
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        return QSize(hint.width(), hint.height() + self.top_room)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def gap(self):
+        rect = QRectF(self.rect())
+        if self.browser is not None and self.browser.isVisible():
+            edge = self.browser.mapToGlobal(QPoint(0, round(self.browser.well_rect().bottom())))
+            rect.setTop(float(self.mapFromGlobal(edge).y()))
+        case = self.cover.image_rect()
+        top = case.top() - control_offset(self.cover, case, CASE_DEPTH).y()
+        rect.setBottom(float(self.mapFromGlobal(self.cover.mapToGlobal(QPoint(0, round(top)))).y()))
+        return rect if rect.height() > 0 else QRectF(self.rect())
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        rect = QRectF(self.rect()).translated(self.cover.case_center_x() - self.width() / 2, 0)
+        rect = self.gap().translated(self.cover.case_center_x() - self.width() / 2, 0)
         draw_centered_text(painter, rect, self.font(), self.text(),
                            QApplication.instance().property('textColor') or '#e9edf3')
 
@@ -648,6 +677,7 @@ class MarqueeTitle(QLabel):
     def __init__(self, cover=None):
         super().__init__()
         self.cover = cover
+        self.anchored = False  # in portrait the title keeps the full-size case's left edge as the case shrinks
         self.offset = 0.0
         self.pause_remaining = 1.2
         self.clock = QElapsedTimer()
@@ -666,7 +696,7 @@ class MarqueeTitle(QLabel):
     def span(self):
         if self.cover is None or self.cover.pixmap().isNull() or self.cover.width() <= 0:
             return 0.0, float(self.width())
-        left, right = self.cover.case_span()
+        left, right = self.cover.widest_case_span() if self.anchored else self.cover.case_span()
         origin = self.mapFromGlobal(self.cover.mapToGlobal(QPoint())).x()
         left, right = max(0.0, left + origin), min(float(self.width()), right + origin)
         return (left, right) if right - left > 8 else (0.0, float(self.width()))
@@ -1548,7 +1578,7 @@ class PlayerWindow(QMainWindow):
         now_playing = NowPlayingPanel()
         self.now_playing = now_playing
         playing_layout = QVBoxLayout(now_playing.content)
-        playing_layout.setContentsMargins(0, side.spacing(), 0, 0)
+        playing_layout.setContentsMargins(0, 0, 0, 0)
         playing_layout.setSpacing(2)
         self.cover = NowPlayingCover()
         self.cover.auto_height = False
@@ -1557,7 +1587,8 @@ class PlayerWindow(QMainWindow):
         self.cover.clicked.connect(self.open_now_playing_album)
         self.cover.dragged.connect(self.drag_now_playing)
         self.cover.dragFinished.connect(self.settle_now_playing)
-        self.now_playing_heading = ArtworkHeading(self.cover)
+        self.sidebar_spacing = side.spacing()
+        self.now_playing_heading = ArtworkHeading(self.cover, self.tree, self.sidebar_spacing)
         self.now_playing_heading.setObjectName('nowPlayingHeading')
         playing_layout.addWidget(self.now_playing_heading)
         playing_layout.addWidget(self.cover)
@@ -1873,7 +1904,7 @@ class PlayerWindow(QMainWindow):
         if name not in THEMES:
             name = 'chunky'
         saved = self.saved_theme_colors()
-        accent, background, timeline = (saved[prop] for prop in ('themeAccent', 'themeBackground', 'timelineColor'))
+        accent = saved['themeAccent']
         QApplication.instance().setProperty('playerTheme', name)
         for prop, color in saved.items():
             QApplication.instance().setProperty(prop, color)
@@ -1886,8 +1917,6 @@ class PlayerWindow(QMainWindow):
             for prop, color in colors.items():
                 QApplication.instance().setProperty(prop, color)
             accent = colors['themeAccent']
-            background = colors['themeBackground']
-            timeline = colors['timelineColor']
         app = QApplication.instance()
         install_live_scrollbars(app)
         if not self.is_android:
@@ -1967,7 +1996,6 @@ class PlayerWindow(QMainWindow):
     def refresh_theme_colors(self, update_tracklist=False):
         """Update colors without resetting layouts, artwork or UI animations."""
         app = QApplication.instance()
-        name = app.property('playerTheme')
         app.setProperty('brandTextColor', app.property('themeHighlight'))
         for prop in ('buttonTextColor', 'buttonIconColor', 'disabledTextColor'):
             app.setProperty(prop, app.property('themeBackgroundAccent'))
@@ -2496,7 +2524,12 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             self.compact_mode = compact
             self.now_playing.set_resizable(compact or self.is_android)
             self.cover.drag_enabled = compact and not self.is_android
+            self.track_title.anchored = compact
+            self.track_title.span_changed()
             self.browser_splitter.setHandleWidth(8 if compact and not self.is_android else 0)
+            # The heading centers in the gap above the case, which grows by the handle.
+            self.now_playing_heading.top_room = self.sidebar_spacing + self.browser_splitter.handleWidth()
+            self.now_playing_heading.updateGeometry()
             self.browser_splitter.setCollapsible(1, compact and not self.is_android)
             self.library_layout.setContentsMargins(0 if compact else 16, 0, 0, 0)
             self.place_album_header()

@@ -89,8 +89,12 @@ for area in areas:
     app.processEvents()
     assert top.width() == area.viewport().width()
     bar.setValue(bar.maximum())
-    assert not top.isHidden() and bottom.isHidden()
+    # The bottom shadow fades out before it hides.
+    assert not top.isHidden() and top.requested_visible and not bottom.requested_visible
     bar.setRange(0, 0)
+    for fade in (top, bottom):
+        if fade.animation.state() == fade.animation.State.Running:
+            fade.animation.setCurrentTime(fade.animation.duration())
     assert top.isHidden() and bottom.isHidden()
     assert top.opacity == 0 and bottom.opacity == 0
     area.close()

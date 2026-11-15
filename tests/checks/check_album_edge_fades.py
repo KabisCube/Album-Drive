@@ -87,11 +87,19 @@ for background in ('#393939', '#f4f4f4'):
     if background == '#393939':
         grid.grab().save('build/debug/album-edge-fades.png')
     bar.setValue(bar.maximum())
-    assert not top.isHidden() and bottom.isHidden()
+    # Edge fades ease out before they hide.
+    assert not top.isHidden() and top.requested_visible and not bottom.requested_visible
     bar.setValue(0)
+    assert not top.requested_visible and not bottom.isHidden() and bottom.requested_visible
+    for fade in grid.edge_fades:
+        if fade.animation.state() == fade.animation.State.Running:
+            fade.animation.setCurrentTime(fade.animation.duration())
     assert top.isHidden() and not bottom.isHidden()
 grid.clear()
 app.processEvents()
+for fade in grid.edge_fades:
+    if fade.animation.state() == fade.animation.State.Running:
+        fade.animation.setCurrentTime(fade.animation.duration())
 assert all(fade.isHidden() for fade in grid.edge_fades)
 grid.close()
 print('PASS: subtle top/bottom album fades follow theme colors, stay fixed while scrolling, preserve the middle and do not intercept input')

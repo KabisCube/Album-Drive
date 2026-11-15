@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import threading
 
-from app_paths import PROJECT_ROOT
+from app_paths import FROZEN, PROJECT_ROOT
 
 from PySide6.QtCore import QStandardPaths, QtMsgType, qInstallMessageHandler, qVersion
 
@@ -79,7 +79,8 @@ def install_error_log(app, directory=None):
     existing = getattr(app, '_runtime_error_log', None)
     if existing is not None and not existing.closed:
         return existing
-    target = Path(directory) if directory is not None else PROJECT_ROOT / 'logs'
+    # Source runs keep logs with the other generated files; packaged apps write beside the app.
+    target = Path(directory) if directory is not None else PROJECT_ROOT / ('logs' if FROZEN else 'build/logs')
     try:
         logger = RuntimeErrorLog(target)
     except OSError:

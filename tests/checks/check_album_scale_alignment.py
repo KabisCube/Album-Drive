@@ -32,7 +32,11 @@ with TemporaryDirectory() as directory:
                     for thickness in (0, 100, 300):
                         settings.setValue('ui_thickness', thickness)
                         window.apply_settings()
-                        QTest.qWait(20)
+                        # A new button size animates the header; measure once it has settled.
+                        settled = None
+                        while settled != [b.mapTo(window, QPoint()).y() for b in buttons]:
+                            settled = [b.mapTo(window, QPoint()).y() for b in buttons]
+                            QTest.qWait(100)
                         centers = [button.mapTo(window, QPoint()).y()
                                    + control_face(button_paint_rect(button), widget=button, depth=0).center().y()
                                    for button in buttons]

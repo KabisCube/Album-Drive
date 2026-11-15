@@ -29,8 +29,8 @@ def order_qt_libraries(arguments):
 
 def stage_sources(root, stage):
     stage.mkdir(parents=True, exist_ok=True)
-    for name in ('src', 'assets', 'licenses'):
-        shutil.copytree(root / name, stage / name, dirs_exist_ok=True,
+    for name, source in (('src', 'src'), ('assets', 'assets'), ('licenses', 'docs/licenses')):
+        shutil.copytree(root / source, stage / name, dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     shutil.copy2(root / 'LICENSE', stage / 'LICENSE.txt')
     shutil.copy2(root / 'README.md', stage / 'README.md')

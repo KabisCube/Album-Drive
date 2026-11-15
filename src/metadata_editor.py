@@ -3,7 +3,7 @@ import json
 from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QHeaderView,
+    QAbstractItemView, QDialog, QFormLayout, QHBoxLayout, QHeaderView,
     QLabel, QLayout, QLineEdit, QPlainTextEdit, QScrollArea, QSizePolicy, QTabWidget, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )

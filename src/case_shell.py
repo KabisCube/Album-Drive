@@ -1,12 +1,11 @@
 """Molded jewel-case variants; sleeve artwork is never changed on disk."""
-from hashlib import blake2b
 from functools import lru_cache
 from io import BytesIO
 import colorsys
 from threading import Lock
 from PIL import Image
 from PySide6.QtCore import QPointF, QRectF, QSizeF, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QTransform
+from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF, QTransform
 from case_finish import paint_case_finish
 from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
 from themes import control_body, control_offset, control_property, control_shadow, control_shadow_body, shadow_color
@@ -17,14 +16,6 @@ CASE_SHADOW_ENABLED = True
 CASE_SHADOW_DEPTH = 8
 CASE_RADIUS = 2.4
 CASE_COLOR = '#dddddd'
-CASE_COLORS = (
-    ('#a7b3b6', '#202224', '#dce2e3'),
-    ('#bcc5c6', '#292b2c', '#e6e9e8'),
-    ('#899295', '#25282a', '#cbd2d4'),
-    ('#b9b9ac', '#252624', '#deded2'),
-)
-
-
 def case_frame_color():
     background = QColor(control_property('themeBackground') or '#808080')
     amount = min(1, max(0, background.lightnessF() * 2))
@@ -115,13 +106,6 @@ def paint_cd_case(painter, widget, rect, pixmap, key='', angle=0, visible=None, 
     return painted
 
 
-def case_variant(key):
-    if not key:
-        return 0
-    return int.from_bytes(blake2b(str(key).encode('utf-8', 'surrogatepass'), digest_size=4,
-                                person=b'casebody').digest(), 'big') % 4
-
-
 @lru_cache(maxsize=256)
 def artwork_tray_color(artwork):
     """Reserve colored trays for mostly neutral sleeves with isolated vivid ink."""
@@ -179,11 +163,6 @@ def shell_image(tray_color=''):
     # Shared by the case loader threads; QImage is safe to paint from any thread.
     with _shell_lock:
         return cached_shell_image(tray_color)
-
-
-@lru_cache(maxsize=32)
-def shell_pixmap(tray_color=''):
-    return QPixmap.fromImage(shell_image(tray_color))
 
 
 @lru_cache(maxsize=32)

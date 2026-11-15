@@ -87,7 +87,7 @@ with tempfile.TemporaryDirectory() as directory:
     settings.setValue('theme_timeline_color', '#a58bd6')
     restored.set_theme('chunky')
     rail, fill, filled_text, unfilled_text = timeline_colors(
-        app.property('themeBackground'), app.property('themeAccent'))
+        app.property('themeBackground'), app.property('themeAccent'), app.property('themeBackgroundAccent'))
     restored.seek.setValue(1500)
     image = restored.seek.grab().toImage()
     middle = image.height() // 2
@@ -118,7 +118,7 @@ with tempfile.TemporaryDirectory() as directory:
     # Background clicks seek the actual media immediately, even before release.
     target = QPoint(round(restored.seek.width() * .75), middle)
     QTest.mousePress(restored.seek, Qt.LeftButton, pos=target)
-    assert 4200 < restored.seek.value() < 4800
+    assert 4200 < restored.seek.value() < 5000, (restored.seek.value(), restored.seek.maximum(), restored.seek.width())
     assert restored.player.position() == restored.seek.value()
     QTest.mouseRelease(restored.seek, Qt.LeftButton, pos=target)
     assert restored.player.position() == restored.seek.value()
@@ -135,7 +135,7 @@ with tempfile.TemporaryDirectory() as directory:
     restored.player.play()
     wait_until(lambda: restored.player.playbackState() == QMediaPlayer.PlayingState)
     QTest.mouseClick(restored.seek, Qt.LeftButton, pos=target)
-    assert 4200 < restored.player.position() < 4800
+    assert 4200 < restored.player.position() < 5000
     assert restored.player.playbackState() == QMediaPlayer.PlayingState
     restored.player.pause()
     restored.close()

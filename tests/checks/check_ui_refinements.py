@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory() as directory:
     seek = window.seek
     seek.setRange(0, 100000)
     rail, fill, filled_text, unfilled_text = timeline_colors(
-        app.property('themeBackground'), app.property('themeAccent'))
+        app.property('themeBackground'), app.property('themeAccent'), app.property('themeBackgroundAccent'))
     for value in (0, 100000):
         seek.setValue(value)
         path = seek.timestamp_path()

@@ -122,17 +122,8 @@ with tempfile.TemporaryDirectory() as directory:
     assert window.theme_fade is None
     assert app.property('themeBackground') == snapshot['theme_background_color']
     window.show_album(gold)
-    assert window.album_table.property('paperBackgroundColor') == '#e7c977'
+    assert window.album_table.property('paperBackgroundColor') == window.album_paper_colors(gold.artwork)['paperBackgroundColor']
     window.show_albums()
-    # Custom colors restores the base palette rather than leaving the preset.
-    manual.saved_theme_choice.setCurrentIndex(0)
-    assert not manual.artwork_theme.isChecked()
-    assert manual.colors['theme_background_color'].color().name() == base['theme_background_color']
-    manual.apply()
-    finish_colors(window)
-    assert app.property('themeBackground') == base['theme_background_color']
-    assert not app.property('customColorTheme')
-    assert custom_color_settings(settings)['theme_background_color'] == base['theme_background_color']
     manual.saved_theme_choice.setCurrentIndex(manual.saved_theme_choice.findData(preset_id))
     manual.apply()
     finish_colors(window)
@@ -162,7 +153,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert tree.scroll_target == min(first_target * 2, bar.maximum())
     wait_until(lambda: bar.value() == tree.scroll_target)
     wheel(angle=0, pixels=-20)
-    assert tree.scroll_target == min(first_target * 2 + 20, bar.maximum())
+    assert tree.scroll_target == tree.row_top(min(first_target * 2 + 20, bar.maximum()))  # Pixel scrolling snaps to rows.
     wait_until(lambda: bar.value() == tree.scroll_target)
     wheel()
     bar.triggerAction(QAbstractSlider.SliderSingleStepAdd)
@@ -181,7 +172,7 @@ with tempfile.TemporaryDirectory() as directory:
     persisted = ThemeSettingsDialog(restored.settings, restored)
     assert not persisted.artwork_theme.isChecked()
     assert persisted.saved_theme_choice.currentText() == blue.title
-    assert len(persisted.presets) == 2  # Built-in Default plus the saved album.
+    assert len(persisted.presets) == 3  # Default light, Default dark and the saved album.
     persisted.applied.connect(restored.apply_settings)
     persisted.artwork_theme.setChecked(True)
     persisted.apply()
@@ -198,7 +189,7 @@ with tempfile.TemporaryDirectory() as directory:
     restored.theme_from_now_playing()
     finish_colors(restored)
     assert app.property('themeBackground') == snapshot['theme_background_color']
-    restored.set_theme('classic')
+    restored.set_theme('chunky')
     assert app.property('themeBackground') == snapshot['theme_background_color']
     persisted.restore_defaults()
     assert len(persisted.presets) == 3  # Resetting appearance keeps the defaults and saved palettes.

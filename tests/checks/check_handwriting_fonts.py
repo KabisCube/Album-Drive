@@ -43,12 +43,12 @@ with tempfile.TemporaryDirectory() as directory:
         selected = PlayerWindow.artist_handwriting(controller, portable / 'artist')
         assert selected.family() == 'Album Marker 02'
         first.unlink()
-        shutil.copy2(root / 'assets' / 'fonts' / 'handwriting' / 'AlbumMarker04-Regular.ttf', folder / 'Replacement.ttf')
+        shutil.copy2(root / 'assets' / 'fonts' / 'handwriting' / 'AlbumMarker03-Regular.ttf', folder / 'Replacement.ttf')
         app.setProperty('playerFontLoaded', False)
         load_app_font()
         fonts = app.property('handwritingFonts')
-        assert len(fonts) == 1 and fonts[0]['family'] == 'Album Marker 04'
+        assert len(fonts) == 1 and fonts[0]['family'] == 'Album Marker 03'
         selected = PlayerWindow.artist_handwriting(controller, portable / 'artist')
-        assert selected.family() == 'Album Marker 04'
+        assert selected.family() == 'Album Marker 03'
 
 print('PASS: portable font path, empty folder, added/removed fonts, invalid fonts, font picker, and saved artist reassignment')

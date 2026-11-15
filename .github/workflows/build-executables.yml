@@ -23,14 +23,14 @@ jobs:
           python-version: '3.10'
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            requirements-build.txt
+            requirements/app.txt
+            requirements/build.txt
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libpulse0 libasound2 desktop-file-utils
-      - run: python -m pip install -r requirements-build.txt
+      - run: python -m pip install -r requirements/build.txt
       - name: Check Qt runtime
         run: |
           python -c "import platform, PySide6, shiboken6; print('Python', platform.python_version(), 'PySide6', PySide6.__version__, 'shiboken6', shiboken6.__version__)"
@@ -74,6 +74,6 @@ jobs:
           path: |
             build/*smoke*.json
             build/pyinstaller/**/warn-AlbumDrive.txt
-            logs/*.log
+            build/logs/*.log
             dist/**/logs/*.log
           if-no-files-found: ignore

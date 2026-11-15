@@ -1,13 +1,12 @@
 """Library, audio and appearance settings with saved color themes and Apply/Cancel."""
 
-from pathlib import Path
 from music_folders import choose_music_directory, music_directory
 import json
 from uuid import uuid4
 from PySide6.QtGui import QColor, QFontDatabase, QIcon, QIconEngine, QPainter, QPen, QPixmap, QResizeEvent
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QRectF, QSize, Qt, Signal, QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLayout, QScrollArea, QSizePolicy, QStyle, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QFormLayout, QHBoxLayout, QLabel, QLayout, QScrollArea, QSizePolicy, QStyle, QTabWidget, QVBoxLayout, QWidget
 
 from themes import signed_setting_int, resolve_font, THEME_DEFAULT, CLEANING_DEFAULT, COLOR_SETTINGS, NUMERIC_DEFAULTS, ChunkyCheckBox, ChunkyTabBar, ColorSwatch, ThemedButton, ThemedComboBox, ThemeSlider
 from themes import ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, UI_FONT_DEFAULT, MARKER_COLOR_DEFAULT
@@ -15,7 +14,7 @@ from settings_store import read_theme_files, write_theme_files
 from color_picker import ColorPickerDialog
 from color_rules import disabled_text_color
 from themes import MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS, THEME_FADE_MAX_SECONDS
-from responsive import NARROW_WIDTH, SHORT_HEIGHT, ScreenFit, running_on_android
+from responsive import NARROW_WIDTH, ScreenFit, running_on_android
 from themes import PRIMARY_COLOR_KEYS, CONTROL_HEADROOM, BUTTON_SHADOW, MAX_FONT_SIZE, FONT_SCALE_KEYS, button_scale, button_text_sizing, local_control_theme, migrate_button_size, migrate_font_settings
 from app_theme import simplify_color_settings
 from first_run import FIXED_THEMES, system_theme_choice

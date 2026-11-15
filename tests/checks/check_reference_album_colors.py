@@ -38,7 +38,7 @@ with TemporaryDirectory() as directory:
         ('Orange sample', '#ec981f', .055, .125, {}),
         ('Yellow sample', '#e5d715', .13, .20, {}),
         ('Landscape sample', None, .52, .55,
-         {'any': '#cea968', 'dark': '#091619', 'light': '#d3b278'}),
+         {'any': '#cea968', 'light': '#cea968'}),
     )
     loaded = []
     for name, accent, minimum_hue, maximum_hue, backgrounds in references:
@@ -48,23 +48,26 @@ with TemporaryDirectory() as directory:
         albums, skipped = scan_library(folder)
         assert len(albums) == 1 and not skipped
         album = albums[0]
-        loaded.append((album, minimum_hue, maximum_hue, backgrounds))
+        loaded.append((album, minimum_hue, maximum_hue, backgrounds, accent))
         for mode in ('any', 'dark', 'light'):
             colors = artwork_theme_colors(album.artwork, mode)
             highlight = QColor(colors['themeHighlight'])
-            assert minimum_hue <= highlight.hslHueF() <= maximum_hue, (album.title, mode, highlight.name())
-            assert highlight.hslSaturationF() >= (.35 if backgrounds else .65), (album.title, mode, highlight.name())
+            # When the pop is the cover's only light color, a light theme uses it as the background instead.
+            popped = QColor(colors['themeBackground']) if accent and colors['themeBackground'] == accent else highlight
+            if backgrounds and mode not in backgrounds:
+                assert QColor(colors['themeBackground']).lightnessF() < .3
+                continue
+            assert minimum_hue <= popped.hslHueF() <= maximum_hue, (album.title, mode, highlight.name())
+            assert popped.hslSaturationF() >= (.35 if backgrounds else .65), (album.title, mode, highlight.name())
             if backgrounds:
                 assert colors['themeBackground'] == backgrounds[mode]
-                if mode != 'dark':
-                    assert .47 <= QColor(colors['themeAccent']).hslHueF() <= .62
     settings = QSettings(str(root / 'settings.ini'), QSettings.IniFormat)
     settings.setValue('folder', str(music))
     settings.setValue('theme_fade_seconds', 0)
     window = PlayerWindow(settings)
     try:
         window.show()
-        for album, minimum_hue, maximum_hue, backgrounds in loaded:
+        for album, minimum_hue, maximum_hue, backgrounds, accent_color in loaded:
             window.queue = [(track, album) for track in album.tracks]
             window.play_index(0, autoplay=False)
             for mode in ('any', 'dark', 'light'):
@@ -72,12 +75,13 @@ with TemporaryDirectory() as directory:
                 window.theme_from_now_playing()
                 app.processEvents()
                 accent = QColor(app.property('themeHighlight'))
-                assert app.property('brandTextColor') == app.property('headingTextColor') == accent.name()
-                assert minimum_hue <= accent.hslHueF() <= maximum_hue
+                assert app.property('brandTextColor') == accent.name()
+                if backgrounds and mode not in backgrounds:
+                    continue
+                if not (accent_color and app.property('themeBackground') == accent_color):
+                    assert minimum_hue <= accent.hslHueF() <= maximum_hue
                 if backgrounds:
                     assert app.property('themeBackground') == backgrounds[mode]
-                    if mode != 'dark':
-                        assert .47 <= QColor(app.property('themeAccent')).hslHueF() <= .62
                     button_face = control_face(button_paint_rect(window.previous), widget=window.previous)
                     image = window.previous.grab().toImage()
                     assert image.pixelColor(round(button_face.center().x()), round(button_face.top() + 5)).name() == app.property('themeAccent')
@@ -91,4 +95,4 @@ with TemporaryDirectory() as directory:
         window.close()
         while window.scanners:
             QTest.qWait(10)
-print('PASS: three generated reference covers preserve accent hues, landscape backgrounds and blue cloud buttons')
+print('PASS: three generated reference covers preserve accent hues and landscape backgrounds')

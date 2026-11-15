@@ -6,14 +6,6 @@ SOFT_BLACK = '#101010'
 SOFT_WHITE = '#f4f4f4'
 
 
-def emphasized_text(text, background, amount=.14):
-    color = QColor(text)
-    lightness = color.lightnessF()
-    lightness += (1 - lightness) * amount if QColor(background).lightnessF() < .5 else -lightness * amount
-    color.setHslF(color.hslHueF(), color.hslSaturationF(), lightness, color.alphaF())
-    return color
-
-
 def disabled_text_color(value):
     return QColor(value).darker(120)
 
@@ -84,36 +76,6 @@ def comfortable_color(value):
         color.setHslF(color.hslHueF(), color.hslSaturationF(),
                       max(16 / 255, min(244 / 255, lightness)), color.alphaF())
     return color
-
-
-def comfortable_surface(value):
-    return QColor(_comfortable_surface(QColor(value).name()))
-
-
-@lru_cache(maxsize=512)
-def _comfortable_surface(value):
-    color = comfortable_color(value)
-    hue, saturation, lightness, alpha = color.getHslF()
-    lightness = max(36 / 255, lightness)
-    color = QColor.fromHslF(hue, saturation, lightness, alpha)
-    inks = (QColor(SOFT_BLACK), QColor(SOFT_WHITE))
-    def readable(candidate):
-        return max(color_contrast(candidate, ink) for ink in inks) >= 4.6
-    if readable(color):
-        return color.name()
-    candidates = []
-    for target in (36 / 255, 244 / 255):
-        low, high = 0, 1
-        for _ in range(14):
-            amount = (low + high) / 2
-            candidate = QColor(QColor.fromHslF(hue, saturation, lightness + (target - lightness) * amount).name())
-            if readable(candidate):
-                high = amount
-            else:
-                low = amount
-        candidate = QColor.fromHslF(hue, saturation, lightness + (target - lightness) * high)
-        candidates.append((abs(candidate.lightnessF() - lightness), candidate.name()))
-    return min(candidates)[1]
 
 
 def timeline_colors(background, accent, rail=None):

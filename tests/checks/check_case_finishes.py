@@ -11,7 +11,6 @@ from PySide6.QtWidgets import QApplication
 from case_finish import finish_for_album, paint_case_finish, reflection_gradient, sleeve_rect
 from main import cd_case_pixmap, load_app_font
 from themes import ChunkyBrand
-from case_shell import case_variant
 from case_geometry import CASE_WIDTH, CASE_HEIGHT
 from pathlib import Path
 from main import NowPlayingCover
@@ -121,7 +120,6 @@ painter = QPainter(sheet)
 painter.setRenderHint(QPainter.SmoothPixmapTransform)
 cover = BytesIO()
 Image.new('RGB', (200, 200), '#28445b').save(cover, format='PNG')
-assert {case_variant(key) for key in keys} == set(range(4))
 shell_pixels = set()
 for index in range(8):
     base = cd_case_pixmap(cover.getvalue(), '', case_key=keys[index])

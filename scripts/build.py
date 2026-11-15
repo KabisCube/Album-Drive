@@ -18,7 +18,7 @@ def copy_license_bundle(root, release):
         raise ValueError('License directory must stay inside the release folder')
     if target.is_dir():
         shutil.rmtree(target)
-    shutil.copytree(root / 'licenses', target)
+    shutil.copytree(root / 'docs' / 'licenses', target)
     shutil.copy2(root / 'LICENSE', target / 'AlbumDrive-GPL-3.0.txt')
     runtime = target / 'runtime'
     runtime.mkdir(exist_ok=True)

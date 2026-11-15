@@ -1,10 +1,9 @@
 """A closed CD case with a paper track list sliding out from behind it."""
 
 from io import BytesIO
-import colorsys
 from PIL import Image
 from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRectF, Qt, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform
+from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QLabel, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QVBoxLayout, QWidget
 from responsive import running_on_android, wrap_freely
 from themes import NUMERIC_DEFAULTS, button_paint_rect, control_face, control_offset, control_shadow, control_shadow_body, corner_radius, paint_control, shadow_color, ui_depth
@@ -60,115 +59,12 @@ def artwork_palette(artwork, colors=8, minimum=.025):
         return ()
 
 
-def artwork_color_range(artwork, minimum=.01):
-    """Real colors on a cover with their share of it, grouped by hue and lightness.
-
-    Unlike the prominence palette this samples exact pixels instead of blending them down,
-    where fine line art mixes with its surroundings and colors like a salmon fill disappear."""
-    if not artwork:
-        return ()
-    try:
-        with Image.open(BytesIO(artwork)) as image:
-            rgba = image.convert('RGBA').resize((128, 128), Image.Resampling.NEAREST)
-            data = rgba.get_flattened_data() if hasattr(rgba, 'get_flattened_data') else rgba.getdata()
-            pixels = [pixel[:3] for pixel in data if pixel[3] >= 128]
-        groups = {}
-        for rgb in pixels:
-            hue, lightness, _ = colorsys.rgb_to_hls(*(channel / 255 for channel in rgb))
-            family = -1 if max(rgb) - min(rgb) < 26 else int(hue * 12)
-            groups.setdefault((family, int(lightness * 5)), []).append(rgb)
-        colors = []
-        for group in groups.values():
-            if len(group) >= len(pixels) * minimum:
-                color = QColor(*(round(sum(rgb[channel] for rgb in group) / len(group)) for channel in range(3)))
-                colors.append((color, len(group) / len(pixels)))
-        return tuple(sorted(colors, key=lambda entry: entry[1], reverse=True))
-    except (OSError, ValueError, Image.DecompressionBombError):
-        return ()
-
-
-def artwork_muted_hues(artwork, minimum=.01, low=12, high=26):
-    """Faintly tinted areas, like a grey-blue sky, that the color range counts as plain grey."""
-    if not artwork:
-        return ()
-    try:
-        with Image.open(BytesIO(artwork)) as image:
-            rgba = image.convert('RGBA').resize((128, 128), Image.Resampling.NEAREST)
-            data = rgba.get_flattened_data() if hasattr(rgba, 'get_flattened_data') else rgba.getdata()
-            pixels = [pixel[:3] for pixel in data if pixel[3] >= 128]
-        groups = {}
-        for rgb in pixels:
-            if low <= max(rgb) - min(rgb) < high:
-                hue, _, _ = colorsys.rgb_to_hls(*(channel / 255 for channel in rgb))
-                groups.setdefault(int(hue * 12) % 12, []).append(rgb)
-        colors = []
-        for group in groups.values():
-            if len(group) >= len(pixels) * minimum:
-                strongest = sorted(group, key=lambda rgb: max(rgb) - min(rgb), reverse=True)[:max(1, len(group) // 2)]
-                color = QColor(*(round(sum(rgb[channel] for rgb in strongest) / len(strongest)) for channel in range(3)))
-                colors.append((color, len(group) / len(pixels)))
-        return tuple(sorted(colors, key=lambda entry: entry[1], reverse=True))
-    except (OSError, ValueError, Image.DecompressionBombError):
-        return ()
-
-
-def artwork_accent_palette(artwork):
-    if not artwork:
-        return ()
-    try:
-        with Image.open(BytesIO(artwork)) as image:
-            image.thumbnail((128, 128))
-            rgba = image.convert('RGBA')
-            data = rgba.get_flattened_data() if hasattr(rgba, 'get_flattened_data') else rgba.getdata()
-            pixels = [pixel[:3] for pixel in data if pixel[3] >= 128]
-        groups = {}
-        for rgb in pixels:
-            high, low = max(rgb), min(rgb)
-            if high - low < 51 or not 61 <= high + low <= 449:
-                continue
-            hue, saturation, _ = colorsys.rgb_to_hsv(*(channel / 255 for channel in rgb))
-            if saturation >= .5:
-                groups.setdefault(int(hue * 36) % 36, []).append(rgb)
-        colors = []
-        for group in sorted(groups.values(), key=len, reverse=True):
-            if len(group) < max(8, len(pixels) * .003):
-                continue
-            strongest = sorted(group, key=lambda rgb: max(rgb) - min(rgb), reverse=True)[:max(1, len(group) // 3)]
-            colors.append(QColor(*(round(sum(rgb[channel] for rgb in strongest) / len(strongest)) for channel in range(3))))
-        return tuple(colors)
-    except (OSError, ValueError, Image.DecompressionBombError):
-        return ()
-
-
-def artwork_background(artwork):
-    palette = artwork_palette(artwork)
-    return palette[0] if palette else None
-
-
 def readable_paper_text(background, preferred, palette=()):
     if palette:
         return artwork_text_color((background,), palette)
     if color_contrast(background, preferred) >= 4.5:
         return preferred
     return artwork_text_color((background,), (preferred,))
-
-
-def artwork_scrollbar_colors(background, palette):
-    accent = next((color for color in palette if color_contrast(background, color) >= 3), None)
-    if accent is None:
-        # Single-color/subtle covers need a contrasting shade of their main hue.
-        target = max((QColor('white'), QColor('black')),
-                     key=lambda color: color_contrast(background, color))
-        for step in range(1, 21):
-            amount = step / 20
-            accent = QColor(*(round(first * (1 - amount) + second * amount) for first, second in
-                              zip(background.getRgb()[:3], target.getRgb()[:3])))
-            if color_contrast(background, accent) >= 3:
-                break
-    candidates = (*palette, accent.lighter(150), accent.darker(150), QColor('white'), QColor('black'))
-    fill = next((color for color in candidates if color_contrast(background, color) >= 3
-                 and color_contrast(accent, color) >= 1.25), accent)
-    return accent, fill
 
 
 class TrackNumberDelegate(QStyledItemDelegate):

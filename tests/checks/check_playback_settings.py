@@ -3,7 +3,6 @@
 import os
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
-from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import time
@@ -11,12 +10,11 @@ from unittest.mock import patch
 
 from PIL import Image
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QPalette
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from app_theme import artwork_theme_colors
 from color_rules import disabled_text_color
 from main import PlayerWindow
 from themes import THEME_FADE_MS

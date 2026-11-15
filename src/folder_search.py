@@ -4,7 +4,7 @@ import math
 import os
 
 from PySide6.QtCore import QDir, QObject, QPersistentModelIndex, QEasingCurve, QElapsedTimer, QPointF, QRectF, QThread, QTimer, Qt, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFontMetricsF, QGuiApplication, QPainter, QPainterPath, QPalette, QPen, QRegion
+from PySide6.QtGui import QColor, QFontMetricsF, QGuiApplication, QPainter, QPainterPath, QRegion
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 from button_sounds import play_button_sound

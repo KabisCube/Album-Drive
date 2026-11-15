@@ -11,7 +11,6 @@ from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 from app_theme import artwork_theme_colors, simplify_theme_colors
-from open_case import color_contrast
 from themes import PRIMARY_COLOR_KEYS, COLOR_SETTINGS
 from theme_settings import ThemeSettingsDialog, custom_color_settings, default_color_themes, saved_color_themes
 

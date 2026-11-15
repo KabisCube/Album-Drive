@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionSlider
 from main import PlayerWindow
-from themes import THEME_FADE_MS
+from themes import THEME_FADE_MS, WELL_SHADE, PANEL_SHADE
 from test_library import make_wave
 
 app = QApplication([])
@@ -57,12 +57,13 @@ with tempfile.TemporaryDirectory() as directory:
                    for y in range(folder_rect.top(), folder_rect.bottom())), 'Folder text disappeared during theme fade'
         background = QColor(app.property('themeBackground'))
         assert app.property('brandLineColor') == background.darker(110).name()
-        assert browser.pixelColor(browser.width() - 3, browser.height() - 3).name() == background.darker(110).name()
+        assert browser.pixelColor(browser.width() - 3, browser.height() - 3).name() == background.darker(WELL_SHADE).name()
         option = QStyleOptionSlider()
         bar.initStyleOption(option)
         handle = bar.style().subControlRect(QStyle.CC_ScrollBar, option, QStyle.SC_ScrollBarSlider, bar)
         knob = bar.grab().toImage().pixelColor(handle.center()).name()
-        assert knob == app.property('themeAccent'), (knob, app.property('themeAccent'))
+        expected = window.album_table.property('paperButtonColor') or app.property('themeAccent')
+        assert knob == expected, (knob, expected)
         backdrop = window.library_pages.grab().toImage()
         color = backdrop.pixelColor(backdrop.width() - 3, backdrop.height() - 3).name()
         assert color == background.name(), ('backdrop', color, background.name())
@@ -80,12 +81,13 @@ with tempfile.TemporaryDirectory() as directory:
         check_surfaces()
         if elapsed == 2000:
             choice = window.sort_albums
+            choice.setEnabled(True)  # The header dims while an album is open; only the popup colors matter here.
             choice.showPopup()
             app.processEvents()
             animation.setCurrentTime(2100)
             app.processEvents()
             point = choice.view().viewport().mapTo(choice.popup, QPoint(2, 10))
-            assert choice.popup.grab().toImage().pixelColor(point).name() == app.property('buttonFill')
+            assert choice.popup.grab().toImage().pixelColor(point).name() == QColor(app.property('themeBackground')).darker(PANEL_SHADE).name()
             choice.hidePopup()
     # An interrupted fade starts from the colors already on screen.
     settings.setValue('theme_background_color', '#203070')

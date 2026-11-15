@@ -33,7 +33,6 @@ HUE_GAP = 1 / 24
 DISTINCT = 32
 INVENTED_DISTINCT = 16
 MINIMUM_SHARE = .001
-BACKGROUND_SHARE = .005
 DOMINANT_SHARE = .4
 MEMBER_SHARE = .1
 DOMINANT_FAMILY_LIGHTNESS = .35
@@ -52,10 +51,6 @@ ROLES = ('themeBackground', 'textColor', 'themeHighlight', 'themeAccent', 'theme
 TEXT_KEYS = ('textColor', 'secondaryTextColor', 'folderArrowColor', 'headingTextColor', 'selectedTextColor',
              'timelineTextColor', 'paperTextColor')
 INK_KEYS = ('themeBackgroundAccent', 'buttonTextColor', 'buttonIconColor', 'disabledTextColor')
-
-
-def button_text_color_for_palette(colors):
-    return QColor(colors.get('themeBackgroundAccent') or colors['buttonTextColor']).name()
 
 
 def simplify_theme_colors(colors):
@@ -227,15 +222,19 @@ def pick_text(cover, background):
         return lambda color: color_contrast(background, color) >= minimum
     def calm(color):
         return chroma(color) <= CALM_CHROMA
+
+    def muted(color):
+        return chroma(color) <= 2 * CALM_CHROMA
     tests = (lambda color: usable(color) and calm(color) and reads(PREFERRED_TEXT_CONTRAST)(color),
              lambda color: usable(color) and calm(color) and reads(TEXT_CONTRAST)(color),
              lambda color: calm(color) and reads(TEXT_CONTRAST)(clamped(color)),
-             lambda color: usable(color) and reads(TEXT_CONTRAST)(color),
-             lambda color: reads(TEXT_CONTRAST)(clamped(color)))
-    for test in tests:
+             lambda color: usable(color) and muted(color) and reads(TEXT_CONTRAST)(color),
+             lambda color: muted(color) and reads(TEXT_CONTRAST)(clamped(color)))
+    for index, test in enumerate(tests):
         found = [color for color, _ in cover if test(color)]
         if found:
-            return clamped(found[0])
+            # Without a calm color, the calmest readable one; vivid colors are left for the accent.
+            return clamped(found[0] if index < 3 else min(found, key=chroma))
     hue, saturation, _, _ = background.getHslF()
     darker = background.lightnessF() >= .5
     levels = [step / 100 for step in (range(50, -1, -1) if darker else range(50, 101))]
@@ -248,7 +247,7 @@ def pick_accent(cover, background, text):
     picked = (background, text)
     fits = [(color, share) for color, share in cover if usable(color) and apart(color, picked)]
     if fits:
-        return max(fits, key=lambda entry: (new_hue(entry[0], picked), chroma(entry[0]) * entry[1] ** .5))[0]
+        return max(fits, key=lambda entry: (new_hue(entry[0], picked), chroma(entry[0]) ** 2 * entry[1] ** .25))[0]
     return next((color for color in (mixed(background, text, amount) for amount in BUTTON_MIX)
                  if apart(color, picked, INVENTED_DISTINCT)),
                 mixed(background, text, .5))

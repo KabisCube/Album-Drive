@@ -83,11 +83,11 @@ assert check_fit() == initial
 small.resize(100, 40)
 QTest.qWait(20)
 assert check_fit() <= initial
+# Tabs keep room below for the thickest buttons, so faces sit above the bar's middle; they must stay inside it.
 for thickness in (0, 100, 300):
     app.setProperty('uiThickness', thickness)
-    outer = tabs.tab_face_rect(0)
-    face = control_face(outer, widget=tabs)
-    assert abs(face.center().y() + ui_depth() / 2 - tabs.height() / 2) < .1
+    face = control_face(tabs.tab_face_rect(0), widget=tabs)
+    assert face.top() >= 0 and face.bottom() + ui_depth() <= tabs.height()
 window.close()
 QTest.qWait(10)
 print('PASS: shared smallest text size, padded ink bounds, label/size changes, stable Reset and centered tabs')

@@ -6,19 +6,19 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
-from case_shell import artwork_tray_color, shell_pixmap
+from case_shell import artwork_tray_color, shell_image
 from main import cd_case_pixmap
 from library import cover_thumbnail
 from test_case_trays import cover
 
 
 app = QApplication([])
-shell = shell_pixmap().toImage()
+shell = shell_image()
 assert shell.size().width() == 601 and shell.size().height() == 525
 assert shell.pixelColor(0, 0).alpha() == 0
 for x, y in ((300, 5), (300, 520), (595, 260)):
     assert shell.pixelColor(x, y).alpha() == 255
-assert shell_pixmap() is shell_pixmap()
+assert shell_image() is shell_image()
 sheet = QPixmap(1120, 260)
 sheet.fill(QColor('#393939'))
 painter = QPainter(sheet)

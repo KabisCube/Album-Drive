@@ -15,7 +15,7 @@ from button_sounds import play_button_sound
 from snap_scroll import SnapPager, SpringScroll
 from responsive import running_on_android
 from font_support import font_family_css
-from color_rules import artwork_text_color, disabled_text_color
+from color_rules import disabled_text_color
 from shiboken6 import isValid
 
 
@@ -1649,7 +1649,6 @@ class ThemedComboBox(QComboBox):
             self.popup_closed_by_click.invalidate()
             return
         play_button_sound()
-        app = QApplication.instance()
         view = self.view()
         if self.popup is None:
             self.popup = QFrame(self, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
@@ -1794,7 +1793,6 @@ class ThemedComboBox(QComboBox):
                 self.setFocus(Qt.PopupFocusReason)
                 return True
         if watched is self.popup and event.type() == QEvent.Paint:
-            app = QApplication.instance()
             painter = QPainter(watched)
             painter.setCompositionMode(QPainter.CompositionMode_Source)
             painter.fillRect(watched.rect(), Qt.transparent)

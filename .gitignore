@@ -17,9 +17,7 @@ Thumbs.db
 Desktop.ini
 
 # Local verify runners
-verify.bat
+tools/verify.bat
 scripts/verify.py
 scripts/verify_linux.sh
 
-# Development screenshots (F7)
-screenshots/

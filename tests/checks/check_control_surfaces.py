@@ -8,7 +8,6 @@ from PySide6.QtCore import QRectF, QSettings, Qt
 from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QScrollBar, QStyle, QStyleOptionSlider, QWidget
-from color_rules import emphasized_text
 from live_scrollbars import install_live_scrollbars
 from theme_settings import SECTION_GAP, SETTING_INDENT, ThemeSettingsDialog
 from themes import BUTTON_SHADOW, CONTROL_HEADROOM, ChunkyBrand, ChunkyCheckBox, ThemedButton, ThemeSlider, button_paint_rect, button_scale, chunky_style, control_face, control_shadow, text_style
@@ -40,9 +39,7 @@ with tempfile.TemporaryDirectory() as directory:
         assert [heading.text() for heading in headings[:2]] == ['Music library', 'Playback']
         title = dialog.library_label
         assert title.x() - headings[0].x() == SETTING_INDENT
-        category_color = emphasized_text(text, background, .2)
-        title_color = QColor(text)
-        assert (category_color.lightnessF() > title_color.lightnessF()) == (QColor(background).lightnessF() < .5)
+        category_color = QColor(text)
         heading_image = headings[0].grab().toImage()
         assert any(heading_image.pixelColor(x, y).name() == category_color.name()
                    for y in range(heading_image.height()) for x in range(heading_image.width()))

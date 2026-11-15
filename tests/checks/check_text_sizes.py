@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory() as directory:
             for row in range(general.rowCount())
             if general.itemAt(row, QFormLayout.FieldRole) is not None and general.itemAt(row, QFormLayout.FieldRole).widget() is not None]
     assert keys.index('corner_roundnessRow') < keys.index('button_sizeRow')
-    assert keys.index('ui_thicknessRow') == keys.index('button_sizeRow') + 1
+    assert keys.index('ui_thicknessRow') == keys.index('corner_roundnessRow') + 1, keys
     assert keys.index('button_font_sizeRow') == keys.index('button_icon_sizeRow') + 1
     assert dialog.numbers['button_font_size'].maximum() == 125
     assert dialog.numbers['button_size'].label.text() == '44 px'
@@ -62,6 +62,8 @@ with tempfile.TemporaryDirectory() as directory:
     dialog.show()
     QTest.qWait(30)
     assert not any(button.isVisible() for button in dialog.tabs.tabBar().findChildren(QToolButton))
+    # The dialog's bottom buttons stretch to its width once its layout settles.
+    QTest.qWait(300)
     controls = (window.play, window.previous, window.next, window.settings_button,
                 window.sort_albums, dialog.action_buttons[-1], dialog.library_button)
     original_sizes = [control.size() for control in controls]
@@ -73,17 +75,17 @@ with tempfile.TemporaryDirectory() as directory:
         dialog.numbers['button_icon_size'].setValue(icon_size)
         dialog.apply()
         QTest.qWait(30)
-        assert [control.size() for control in controls] == original_sizes
+        assert [control.size() for control in controls] == original_sizes, [(c.accessibleName() or c.objectName(), c.size(), o) for c, o in zip(controls, original_sizes) if c.size() != o]
         assert [control.sizeHint() for control in controls] == original_hints
         assert [dialog.tabs.tabBar().tabSizeHint(i) for i in range(dialog.tabs.count())] == original_tabs
     dialog.numbers['button_font_size'].setValue(100)
     dialog.numbers['button_icon_size'].setValue(NUMERIC_DEFAULTS['button_icon_size'])
     dialog.apply()
     for key in NUMERIC_DEFAULTS:
-        if key.endswith('_font_size') and not key.startswith(('now_playing_', 'timeline_')):
+        if key.endswith('_font_size') and not key.startswith(('now_playing_', 'timeline_', 'heading_')):
             assert key in dialog.numbers, key
     sections = [label.text() for label in dialog.findChildren(QLabel, 'settingsSection')]
-    assert {'Music library', 'Saved themes', 'Buttons', 'Playback', 'Tracks', 'Grid', 'Folders'} <= set(sections)
+    assert {'Music library', 'Theme', 'Buttons', 'Playback', 'Tracks', 'Grid', 'Folders'} <= set(sections), sections
     Path('build').mkdir(exist_ok=True)
     for index, name in enumerate(('general', 'style', 'audio', 'file-browser', 'album-list', 'track-list')):
         dialog.tabs.setCurrentIndex(index)
@@ -102,8 +104,6 @@ with tempfile.TemporaryDirectory() as directory:
                         (dialog.library_label, 'main_font_size'), (dialog.action_buttons[-1], 'button_font_size'),
                         (window.album_table, 'track_list_font_size')):
         assert widget.font().pixelSize() == sizes.get(key, NUMERIC_DEFAULTS[key]), (key, widget.font().pixelSize())
-    heading = next(label for label in window.findChildren(QLabel, 'heading'))
-    assert heading.font().pixelSize() == sizes['heading_font_size']
     section = dialog.findChildren(QLabel, 'settingsSection')[0]
     assert section.font().pixelSize() == sizes['settings_heading_font_size']
     assert window.seek.timestamp_path().boundingRect().height() > 0
