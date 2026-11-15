@@ -1,6 +1,6 @@
 <p align="center">
-	<img src=".github/images/preview1.png" alt="Album Drive preview landscape" height="550">
-	<img src=".github/images/preview2.png" alt="Album Drive preview portrait" height="550">
+	<img src=".github/images/preview1.png" alt="Album Drive preview landscape" height="400">
+	<img src=".github/images/preview2.png" alt="Album Drive preview portrait" height="400">
 </p>
 
 Album Drive is a simple and cute local music player that uses your folder structure instead of metadata to organize your music. It supports music folders and audio CDs in a CD/DVD drive.
