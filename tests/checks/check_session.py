@@ -1,4 +1,4 @@
-from color_rules import slider_rail, timeline_colors
+from color_rules import timeline_colors
 """Offscreen checks for session restoration and timeline theme colors."""
 
 import os
@@ -92,7 +92,7 @@ with tempfile.TemporaryDirectory() as directory:
     image = restored.seek.grab().toImage()
     middle = image.height() // 2
     assert image.pixelColor(40, middle).name() == fill.name()
-    assert image.pixelColor(image.width() - 40, middle).name() == slider_rail(app.property('themeBackground')).name()
+    assert image.pixelColor(image.width() - 40, middle).name() == QColor(app.property('themeBackgroundAccent')).name()
     option = QStyleOptionSlider()
     restored.seek.initStyleOption(option)
     handle = restored.seek.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, restored.seek)
@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory() as directory:
         bounds = restored.seek.timestamp_path().boundingRect()
         return image.pixelColor(round(bounds.left() - 4), round(bounds.center().y())).name()
 
-    background_color = slider_rail(app.property('themeBackground')).name()
+    background_color = QColor(app.property('themeBackgroundAccent')).name()
     assert timestamp_padding_color() == background_color
     bounds = restored.seek.timestamp_path().boundingRect().toAlignedRect()
     assert any(image.pixelColor(x, y).name() == unfilled_text.name()
@@ -128,7 +128,7 @@ with tempfile.TemporaryDirectory() as directory:
     QTest.mouseRelease(restored.seek, Qt.LeftButton, pos=QPoint(0, middle))
     assert restored.seek.value() == restored.player.position() == 0
     image = restored.seek.grab().toImage()
-    assert image.pixelColor(80, middle).name() == slider_rail(app.property('themeBackground')).name()
+    assert image.pixelColor(80, middle).name() == QColor(app.property('themeBackgroundAccent')).name()
     QTest.mouseClick(restored.seek, Qt.LeftButton, pos=QPoint(restored.seek.width() - 1, middle))
     assert restored.seek.value() == restored.player.position() == 6000
     restored.player.setPosition(1000)

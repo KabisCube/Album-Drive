@@ -12,7 +12,6 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 
 from color_picker import ColorPickerDialog
-from color_rules import comfortable_surface
 from main import PlayerWindow
 from theme_settings import ThemeSettingsDialog
 
@@ -67,11 +66,11 @@ with tempfile.TemporaryDirectory() as directory:
     initial = settings.value('theme_accent_color')
     QTimer.singleShot(30, accept_color)
     parent.choose_color(button, 'Main accent')
-    assert button.color() == comfortable_surface('#be5632')
+    assert button.color() == QColor('#be5632')
     assert settings.value('theme_accent_color') == initial
     QTimer.singleShot(30, lambda: app.activeModalWidget().reject())
     parent.choose_color(button, 'Main accent')
-    assert button.color() == comfortable_surface('#be5632')
+    assert button.color() == QColor('#be5632')
     parent.reject()
     window.close()
 

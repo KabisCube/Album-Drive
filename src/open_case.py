@@ -618,6 +618,8 @@ class AlbumPresentation(QWidget):
             round(face.left() + inset), round(face.top() + (border + TITLE_BAND_GAP if titled else inset)),
             round(self.booklet.width() - face.right() + border + TRACK_SCROLLBAR_GAP),
             round(self.booklet.height() - face.bottom() + border))
+        # The table hugs the right edge for its scrollbar; the title keeps an equal gap so it centers on the paper.
+        self.album_title.setContentsMargins(0, 0, round(inset - border - TRACK_SCROLLBAR_GAP), 0)
         # The track list slides out from behind the case, which is drawn over it, so it is never cut off.
         self.booklet.clearMask()
         self.front.update()

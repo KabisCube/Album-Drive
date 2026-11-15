@@ -15,7 +15,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QSplitterHandle
 
 from app_theme import artwork_theme_colors
-from color_rules import disabled_text_color, settings_title_color
+from color_rules import disabled_text_color
 from main import PlayerWindow
 from themes import THEME_FADE_MS
 from open_case import color_contrast
@@ -122,7 +122,7 @@ with tempfile.TemporaryDirectory() as directory:
             animation.setCurrentTime(2200)
             title = settings_dialog.option_labels[settings_dialog.colors['theme_text_color']]
             disabled = title.palette().color(QPalette.Disabled, QPalette.WindowText)
-            expected = disabled_text_color(settings_title_color(app.property('textColor'), app.property('themeBackground')))
+            expected = disabled_text_color(app.property('textColor'))
             assert disabled.getRgb() == expected.getRgb()
             assert settings_dialog.palette().window().color() == QColor(app.property('themeBackground'))
             settings_dialog.reject()

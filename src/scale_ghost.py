@@ -4,7 +4,7 @@ import time
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QPainter, QPixmap, QRegion
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QStackedWidget, QWidget
+from PySide6.QtWidgets import QAbstractScrollArea, QGraphicsOpacityEffect, QStackedWidget, QWidget
 
 from snap_scroll import SpringScroll
 
@@ -61,6 +61,24 @@ class ScaleGhost(QWidget):
         painter.drawPixmap(QRectF(center - size, center + size), self.pixmap, self.source)
 
 
+def ghost_host(widget):
+    """The nearest scroll viewport holding the control, so its ghost is clipped like the control, else the window."""
+    window = widget.window()
+    parent = widget.parentWidget()
+    while parent is not None and parent is not window:
+        area = parent.parentWidget()
+        if isinstance(area, QAbstractScrollArea) and area.viewport() is parent:
+            return parent
+        parent = parent.parentWidget()
+    return window
+
+
+def ghost_rect(widget, host):
+    """Where the control sits in its host, or None when it is scrolled out of view."""
+    rect = QRect(widget.mapTo(host, QPoint()), widget.size())
+    return rect if rect.intersects(host.rect()) else None
+
+
 def snapshot(widget):
     """The control alone on a transparent background, so it never drags a box of window colour over its neighbours."""
     ratio = widget.devicePixelRatioF()
@@ -94,7 +112,10 @@ def ghost_on_hide(widget):
         return
     if not getattr(hidden, 'own_appear_animation', False):
         hidden._hidden_by_layout = True
-    ScaleGhost(window, snapshot(hidden), QRect(hidden.mapTo(window, QPoint()), hidden.size()))
+    host = ghost_host(hidden)
+    rect = ghost_rect(hidden, host)
+    if rect is not None:
+        ScaleGhost(host, snapshot(hidden), rect)
 
 
 def grow_on_show(widget):
@@ -152,8 +173,11 @@ def grow_widget(widget, parent=None, rect=None):
     if veiled is None:
         return
     effect, restore = veiled
-    parent = parent or widget.window()
-    rect = rect or QRect(widget.mapTo(parent, QPoint()), widget.size())
+    parent = parent or ghost_host(widget)
+    rect = rect or ghost_rect(widget, parent)
+    if rect is None:
+        lift_veil(widget)
+        return
     effect.setOpacity(1 if restore is None else restore)
     pixmap = snapshot(widget)
     effect.setOpacity(0)
@@ -182,5 +206,8 @@ def hide_with_shrink(widget):
         return
     window = widget.window()
     if window.isVisible() and widget.isVisible() and widget.width() > 0:
-        ScaleGhost(window, snapshot(widget), QRect(widget.mapTo(window, QPoint()), widget.size()))
+        host = ghost_host(widget)
+        rect = ghost_rect(widget, host)
+        if rect is not None:
+            ScaleGhost(host, snapshot(widget), rect)
     widget.hide()

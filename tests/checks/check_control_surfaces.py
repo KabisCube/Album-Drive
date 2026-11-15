@@ -8,7 +8,7 @@ from PySide6.QtCore import QRectF, QSettings, Qt
 from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QScrollBar, QStyle, QStyleOptionSlider, QWidget
-from color_rules import emphasized_text, settings_title_color, slider_rail
+from color_rules import emphasized_text
 from live_scrollbars import install_live_scrollbars
 from theme_settings import SECTION_GAP, SETTING_INDENT, ThemeSettingsDialog
 from themes import BUTTON_SHADOW, CONTROL_HEADROOM, ChunkyBrand, ChunkyCheckBox, ThemedButton, ThemeSlider, button_paint_rect, button_scale, chunky_style, control_face, control_shadow, text_style
@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory() as directory:
         title = dialog.library_label
         assert title.x() - headings[0].x() == SETTING_INDENT
         category_color = emphasized_text(text, background, .2)
-        title_color = settings_title_color(text, background)
+        title_color = QColor(text)
         assert (category_color.lightnessF() > title_color.lightnessF()) == (QColor(background).lightnessF() < .5)
         heading_image = headings[0].grab().toImage()
         assert any(heading_image.pixelColor(x, y).name() == category_color.name()
@@ -95,7 +95,7 @@ for thickness in (0, 100, 300):
     handle = bar.style().subControlRect(QStyle.CC_ScrollBar, option, QStyle.SC_ScrollBarSlider, bar)
     face = control_face(QRectF(handle), widget=bar)
     image = bar.grab().toImage()
-    assert image.pixelColor(handle.center().x(), round(face.top()) - 2) == slider_rail('#393939')
+    assert image.pixelColor(handle.center().x(), round(face.top()) - 2) == QColor(QApplication.instance().property('themeBackgroundAccent') or QApplication.instance().property('themeAccent'))
     shade = image.pixelColor(round(face.left()) - 1, handle.center().y())
     assert (shade.lightness() < QColor('#393939').lightness()) == bool(thickness)
 paper = QWidget()
@@ -107,7 +107,7 @@ paper.show()
 bar.show()
 QTest.qWait(20)
 image = bar.grab().toImage()
-assert image.pixelColor(24, 35) == slider_rail('#f2efdf')
+assert image.pixelColor(24, 35) == QColor(QApplication.instance().property('themeBackgroundAccent') or QApplication.instance().property('themeAccent'))
 assert image.pixelColor(2, 10).name() == '#f2efdf'
 bar.close()
 paper.close()

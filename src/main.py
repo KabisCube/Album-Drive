@@ -55,7 +55,7 @@ from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
 from color_rules import timeline_colors
 from settings_store import create_app_settings, library_cache_path, write_theme_files
 from themes import DEFAULT_THEME_IDS, THEME_FADE_MAX_SECONDS, ARTWORK_THEME_DEFAULT, ARTWORK_THEME_MODE_DEFAULT, UI_FONT_DEFAULT, CONTROL_HEADROOM, BUTTON_SHADOW, ThemedMenu, ThemeSaveIcon, button_scale, migrate_button_size
-from app_theme import artwork_theme_colors, simplify_theme_colors, soften_theme_colors, button_text_color_for_palette
+from app_theme import artwork_theme_colors, simplify_theme_colors
 from button_sounds import prepare_button_sounds, play_button_sound
 from case_sounds import prepare_case_sounds, play_case_sound
 from audio_devices import selected_output
@@ -1058,7 +1058,7 @@ class FolderBrowser(QTreeView):
         if not has_children and not selected:
             return
         app = QApplication.instance()
-        color = app.property('folderArrowColor') or '#d0dce2'
+        color = app.property('textColor') or '#d0dce2'
         arrow = transport_icon('play', color)
         painter.save()
         bounds = QRectF(rect)
@@ -1880,7 +1880,7 @@ class PlayerWindow(QMainWindow):
         QApplication.instance().setProperty('artworkTheme', bool(colors) if artwork_active is None else artwork_active)
         QApplication.instance().setProperty('customColorTheme', self.settings.value('selected_color_theme', '') not in ('', *DEFAULT_THEME_IDS))
         if colors:
-            colors = soften_theme_colors(colors)
+            colors = dict(colors)
             if colors.get('themeBackground') and (artwork_active or (artwork_active is None and 'brandLineColor' not in colors)):
                 colors['brandLineColor'] = QColor(colors['themeBackground']).darker(110).name()
             for prop, color in colors.items():
@@ -2153,11 +2153,6 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
             canonical = MERGED_COLOR_SETTINGS.get(key, key)
             color = QColor(base[canonical])
             colors[prop] = color.name() if color.isValid() else default
-        if selected is not None and selected.get('preserve_palette') is True:
-            colors = soften_theme_colors(colors)
-            foreground = button_text_color_for_palette(colors)
-            colors.update({prop: foreground for prop in ('buttonTextColor', 'buttonIconColor', 'disabledTextColor')})
-            return colors
         return simplify_theme_colors(colors)
 
     def theme_from_now_playing(self):
@@ -3852,6 +3847,10 @@ if __name__ == '__main__':
         sys.exit(run_smoke(app, PlayerWindow))
     else:
         window = PlayerWindow()
+        from app_paths import FROZEN
+        if not FROZEN and not running_on_android():
+            from dev_screenshot import install_dev_screenshot
+            install_dev_screenshot(window)
         window.show()
         QTimer.singleShot(0, window.show_first_run_setup)
         sys.exit(app.exec())

@@ -15,7 +15,7 @@ from button_sounds import play_button_sound
 from snap_scroll import SnapPager, SpringScroll
 from responsive import running_on_android
 from font_support import font_family_css
-from color_rules import artwork_text_color, disabled_text_color, settings_title_color, slider_rail
+from color_rules import artwork_text_color, disabled_text_color
 from shiboken6 import isValid
 
 
@@ -167,7 +167,6 @@ def text_style():
     app = QApplication.instance()
     colors = {prop: app.property(prop) or default for _, _, _, prop, default in COLOR_SETTINGS}
     disabled_text = disabled_text_color(colors['textColor'])
-    disabled_title = disabled_text_color(settings_title_color(colors['textColor'], colors['themeBackground']))
     sizes = {key: int(app.property(''.join([key.split('_')[0]] + [word.title() for word in key.split('_')[1:]])) or default)
              for key, default in NUMERIC_DEFAULTS.items() if key.endswith('_font_size')}
     scale = button_scale()
@@ -215,7 +214,7 @@ QDialog#themeSettings QAbstractScrollArea::corner { background: transparent; bor
 QTreeView::item:selected, QListWidget::item:selected, QTableWidget::item:selected,
 QMenu::item:selected, QMenuBar::item:selected { color: SELECTED; }
 QHeaderView::section, QMenu, QMenuBar, QToolTip { color: TEXT; }
-'''.replace('LABELDIM', f'rgba{disabled_text.getRgb()}').replace('OPTIONDIM', f'rgba{disabled_title.getRgb()}').replace('SECONDARY', colors['secondaryTextColor']).replace('SELECTED', colors['selectedTextColor']).replace(
+'''.replace('LABELDIM', f'rgba{disabled_text.getRgb()}').replace('OPTIONDIM', f'rgba{disabled_text.getRgb()}').replace('SECONDARY', colors['secondaryTextColor']).replace('SELECTED', colors['selectedTextColor']).replace(
         'HEADING', colors['headingTextColor']).replace('BRAND', colors['brandTextColor']).replace(
         'BUTTON', colors['buttonTextColor']).replace('DISABLED', colors['disabledTextColor']).replace(
         'HIGHLIGHTCONTENT', colors['themeAccent']).replace('SELECTIONBG', colors['themeHighlight']).replace(
@@ -1036,8 +1035,7 @@ QSlider::handle:horizontal { width: 48px; height: 36px; margin: -20px 0 -8px 0; 
         clip.addRoundedRect(groove, radius, radius)
         painter.save()
         painter.setClipPath(clip, Qt.IntersectClip)
-        rail = QColor(app.property('themeBackgroundAccent') or
-                      slider_rail(app.property('themeBackground') or BUILDING_GRAY))
+        rail = QColor(app.property('themeBackgroundAccent') or '#cfe10e')
         accent = QColor(app.property('themeAccent') or GRASS_GREEN)
         painter.fillRect(groove, rail if self.isEnabled() else disabled_text_color(rail))
         fill = QRectF(groove)

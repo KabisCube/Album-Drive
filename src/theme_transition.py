@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QLabel, QLineEd
 from shiboken6 import isValid
 
 from themes import FIELD_SHADE, PANEL_SHADE, accent_shade, corner_radius
-from color_rules import disabled_text_color, settings_title_color
+from color_rules import disabled_text_color
 
 
 TEXT_FIELDS = (QLineEdit, QPlainTextEdit)
@@ -127,9 +127,8 @@ class ThemeTransition(QObject):
                 prop = 'headingTextColor' if widget.objectName() == 'heading' else 'secondaryTextColor'
                 special.setColor(QPalette.WindowText, QColor(app.property(prop)))
             elif isinstance(widget, QLabel) and widget.property('settingsOptionTitle'):
-                title = settings_title_color(text, background)
-                special.setColor(QPalette.WindowText, title)
-                special.setColor(QPalette.Disabled, QPalette.WindowText, disabled_text_color(title))
+                special.setColor(QPalette.WindowText, text)
+                special.setColor(QPalette.Disabled, QPalette.WindowText, disabled_text_color(text))
             widget.setPalette(special)
             # The folder search field keeps the Background accent color it sets on itself.
             if self.window.live_theme and isinstance(widget, TEXT_FIELDS) and widget.objectName() != 'folderSearchField':

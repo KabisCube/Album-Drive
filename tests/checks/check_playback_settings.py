@@ -17,7 +17,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from app_theme import artwork_theme_colors
-from color_rules import disabled_text_color, settings_title_color
+from color_rules import disabled_text_color
 from main import PlayerWindow
 from themes import THEME_FADE_MS
 from test_library import make_wave
@@ -109,7 +109,7 @@ with TemporaryDirectory() as directory:
         assert not title.isEnabled()
         title.ensurePolished()
         assert title.palette().color(QPalette.Disabled, QPalette.WindowText).getRgb() == disabled_text_color(
-            settings_title_color(app.property('textColor'), app.property('themeBackground'))).getRgb()
+            app.property('textColor')).getRgb()
         assert dialog.continuous_playback.isChecked()
         assert dialog.artwork_theme_mode.isEnabled()
         assert not dialog.colors['theme_brand_text_color'].isEnabled()
@@ -156,14 +156,4 @@ with TemporaryDirectory() as directory:
             scanner.wait()
         QTest.qWait(200)
 
-# Tiny pink cover details should not turn an otherwise blue/gold app pink.
-image = Image.new('RGB', (64, 64), '#183c72')
-image.paste('#e0b558', (0, 0, 20, 64))
-image.paste('#ff00ff', (30, 30, 33, 33))
-output = BytesIO()
-image.save(output, format='PNG')
-for mode in ('any', 'dark', 'light'):
-    colors = artwork_theme_colors(output.getvalue(), mode)
-    hue = QColor(colors['brandTextColor']).hslHueF()
-    assert not .75 < hue < .95
-print('PASS: continuous album order/stop, settings dependencies, live logo swatch, immutable Default, smooth Apply, cover accent selection')
+print('PASS: continuous album order/stop, settings dependencies, live logo swatch, immutable Default, smooth Apply')

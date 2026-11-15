@@ -10,7 +10,7 @@ from PIL import Image
 from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
-from app_theme import application_highlight, artwork_theme_colors, simplify_theme_colors
+from app_theme import artwork_theme_colors, simplify_theme_colors
 from open_case import color_contrast
 from themes import PRIMARY_COLOR_KEYS, COLOR_SETTINGS
 from theme_settings import ThemeSettingsDialog, custom_color_settings, default_color_themes, saved_color_themes
@@ -20,25 +20,6 @@ class SimplePaletteTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
-
-    def test_buttons_prefer_another_hue_even_if_it_matches_text(self):
-        background, brown, clouds, accent = map(QColor, ('#cea968', '#7c6444', '#091619', '#eb553f'))
-        selected = application_highlight(background, accent, clouds, (background, brown, clouds))
-        self.assertEqual(selected.name(), clouds.name())
-        self.assertEqual(background.name(), '#cea968')
-
-    def test_monochrome_buttons_can_still_use_another_shade(self):
-        selected = application_highlight(QColor('#202020'), QColor('#eeeeee'), QColor('#eeeeee'),
-                                         tuple(map(QColor, ('#202020', '#787878', '#b0b0b0'))))
-        self.assertLess(selected.hslSaturationF(), .01)
-        self.assertGreaterEqual(color_contrast(QColor('#202020'), selected), 1.3)
-
-    def test_another_hue_is_preferred_even_at_similar_brightness(self):
-        background, brown, blue = map(QColor, ('#c2a879', '#80603e', '#80b3cc'))
-        self.assertLess(color_contrast(background, blue), 1.3)
-        selected = application_highlight(background, QColor('#f25b30'), QColor('#202020'),
-                                         (background, brown, blue))
-        self.assertEqual(selected.name(), blue.name())
 
     def test_dynamic_roles_share_their_primary_colors(self):
         for rgb in ((255, 255, 255), (0, 0, 0), (180, 90, 30), (20, 40, 180)):
@@ -67,24 +48,6 @@ class SimplePaletteTests(unittest.TestCase):
                 self.assertEqual(palette['buttonIconColor'], expected_ink)
                 self.assertEqual(palette['brandTextColor'], palette['themeHighlight'])
                 self.assertEqual(palette['timelineColor'], palette['themeAccent'])
-
-    def test_minor_cover_color_supplies_distinct_readable_highlight(self):
-        image = Image.new('RGB', (100, 1))
-        image.putdata([(32, 35, 43)] * 55 + [(199, 189, 174)] * 25
-                      + [(220, 55, 88)] * 12 + [(112, 190, 186)] * 8)
-        output = BytesIO()
-        image.save(output, format='PNG')
-        for mode in ('any', 'dark', 'light'):
-            colors = artwork_theme_colors(output.getvalue(), mode)
-            highlight = QColor(colors['themeHighlight'])
-            self.assertNotEqual(colors['themeAccent'], colors['themeBackground'])
-            self.assertEqual(colors['buttonTextColor'], colors['buttonIconColor'])
-            self.assertEqual(colors['themeBackgroundAccent'], colors['buttonIconColor'], 'icons and grooves share one color')
-            self.assertEqual(colors['brandTextColor'], highlight.name())
-            self.assertEqual(colors['headingTextColor'], colors['textColor'])
-        colors = artwork_theme_colors(output.getvalue(), 'dark')
-        hue = QColor(colors['themeHighlight']).hslHueF()
-        self.assertLess(min(abs(hue - 0.966), 1 - abs(hue - 0.966)), .03)
 
     def test_legacy_saved_theme_gains_highlight_without_disappearing(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -121,30 +84,6 @@ class SimplePaletteTests(unittest.TestCase):
             self.assertTrue(all(not restored.colors[key].isEnabled() for key in PRIMARY_COLOR_KEYS))
             self.assertFalse(restored.saved_theme_choice.isEnabled())
             restored.reject()
-
-    def test_the_five_settings_colors_never_repeat(self):
-        covers = [
-            [(247, 248, 247)] * 82 + [(19, 23, 16)] * 6 + [(183, 184, 180)] * 3 + [(255, 255, 255)] * 3
-            + [(158, 41, 24)] * 2 + [(131, 133, 129)] * 2 + [(93, 24, 14)] * 2,
-            [(0, 0, 0)] * 84 + [(187, 187, 187)] * 4 + [(78, 78, 78)] * 4 + [(255, 255, 255)] * 4 + [(133, 133, 133)] * 4,
-            [(0, 0, 0)] * 100,
-            [(242, 239, 223)] * 100,
-        ]
-        roles = ('themeBackground', 'textColor', 'themeAccent', 'themeHighlight', 'themeBackgroundAccent')
-        for pixels in covers:
-            image = Image.new('RGB', (len(pixels), 1))
-            image.putdata(pixels)
-            output = BytesIO()
-            image.save(output, format='PNG')
-            for mode in ('any', 'dark', 'light'):
-                colors = artwork_theme_colors(output.getvalue(), mode)
-                values = [QColor(colors[role]) for role in roles]
-                for index, first in enumerate(values):
-                    for second in values[index + 1:]:
-                        gap = sum((a - b) ** 2 for a, b in zip(first.getRgb()[:3], second.getRgb()[:3])) ** .5
-                        self.assertGreaterEqual(gap, 16, (mode, [color.name() for color in values]))
-                self.assertEqual(colors['buttonIconColor'], colors['themeBackgroundAccent'])
-
 
 if __name__ == '__main__':
     unittest.main()

@@ -17,7 +17,7 @@ from color_rules import disabled_text_color
 from themes import MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS, THEME_FADE_MAX_SECONDS
 from responsive import NARROW_WIDTH, SHORT_HEIGHT, ScreenFit, running_on_android
 from themes import PRIMARY_COLOR_KEYS, CONTROL_HEADROOM, BUTTON_SHADOW, MAX_FONT_SIZE, FONT_SCALE_KEYS, button_scale, button_text_sizing, local_control_theme, migrate_button_size, migrate_font_settings
-from app_theme import simplify_color_settings, soften_theme_colors
+from app_theme import simplify_color_settings
 from first_run import FIXED_THEMES, system_theme_choice
 from themes import DEFAULT_THEME_IDS
 from scroll_shadows import paint_scroll_background
@@ -1254,12 +1254,6 @@ class ThemeSettingsDialog(QDialog):
         self.queue_preview()
 
     def sync_color_roles(self):
-        selected = next((preset for preset in self.presets if preset['id'] == self.active_color_choice), None)
-        if selected is not None and selected.get('preserve_palette') is True:
-            colors = soften_theme_colors({prop: self.colors[key].color().name() for _, _, key, prop, _ in COLOR_SETTINGS})
-            for _, _, key, prop, _ in COLOR_SETTINGS:
-                self.colors[key].set_color(colors[prop])
-            return
         colors = simplify_color_settings({key: button.color().name() for key, button in self.colors.items()})
         for key, button in self.colors.items():
             button.set_color(colors[key])

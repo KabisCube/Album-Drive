@@ -4,7 +4,6 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QApplication, QAbstractScrollArea, QScrollBar, QStyle, QStyleOptionSlider
 
 from themes import CONTROL_HEADROOM, GROOVE_SHADE, PANEL_SHADE, control_face, groove_radius, paint_control
-from color_rules import slider_rail
 from responsive import running_on_android
 from scroll_shadows import install_scroll_shadows
 
@@ -74,7 +73,7 @@ class LiveScrollbars(QObject):
             after = QRectF(before)
             before.setRight(face.center().x())
             after.setLeft(face.center().x())
-        painter.setBrush(paper_rail_accent or rail_accent or slider_rail(surface))
+        painter.setBrush(paper_rail_accent or rail_accent or accent)
         painter.drawRoundedRect(before, groove_radius(before), groove_radius(before))
         painter.setBrush(accent.darker(GROOVE_SHADE))
         painter.drawRoundedRect(after, groove_radius(after), groove_radius(after))

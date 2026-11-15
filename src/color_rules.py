@@ -14,11 +14,6 @@ def emphasized_text(text, background, amount=.14):
     return color
 
 
-def settings_title_color(text, background):
-    return QColor(*(round(first * .88 + second * .12) for first, second in
-                    zip(QColor(text).getRgb()[:3], QColor(background).getRgb()[:3])))
-
-
 def disabled_text_color(value):
     return QColor(value).darker(120)
 
@@ -121,31 +116,10 @@ def _comfortable_surface(value):
     return min(candidates)[1]
 
 
-def slider_rail(value):
-    return QColor(_slider_rail(QColor(value).name()))
-
-
 def timeline_colors(background, accent, rail=None):
     background = QColor(background)
     filled = QColor(accent)
-    unfilled = QColor(rail) if rail else slider_rail(background)
+    unfilled = QColor(rail) if rail else QColor(background).darker(130)
     filled_text = unfilled
     unfilled_text = filled
     return unfilled, filled, filled_text, unfilled_text
-
-
-@lru_cache(maxsize=256)
-def _slider_rail(value):
-    background = QColor(value)
-    hue, saturation, lightness, _ = background.getHslF()
-    target = max((.04, .96), key=lambda level: color_contrast(
-        background, QColor.fromHslF(hue, saturation, level)))
-    low, high = 0, 1
-    for _ in range(14):
-        amount = (low + high) / 2
-        color = QColor(QColor.fromHslF(hue, saturation, lightness + (target - lightness) * amount).name())
-        if color_contrast(background, color) >= 2.25:
-            high = amount
-        else:
-            low = amount
-    return QColor.fromHslF(hue, saturation, lightness + (target - lightness) * high).name()
