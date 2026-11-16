@@ -68,8 +68,8 @@ set "ANDROID_SERIAL="
 set "UNAUTHORIZED="
 "%ADB%" start-server >nul 2>&1
 for /f "skip=1 tokens=1,2" %%a in ('"%ADB%" devices') do (
-    if "%%b"=="device" if not defined ANDROID_SERIAL set "ANDROID_SERIAL=%%a"
-    if "%%b"=="unauthorized" set "UNAUTHORIZED=1"
+	if "%%b"=="device" if not defined ANDROID_SERIAL set "ANDROID_SERIAL=%%a"
+	if "%%b"=="unauthorized" set "UNAUTHORIZED=1"
 )
 exit /b 0
 

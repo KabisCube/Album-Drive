@@ -25,8 +25,8 @@ pixmap.fill(QColor('#fe0102'))
 other = QPixmap(240, 192)
 other.fill(QColor('#0102fe'))
 for row in range(12):
-    grid.addItem(QListWidgetItem(QIcon(pixmap if row == 3 else other), ''))
-    grid.item(row).setData(Qt.UserRole, row)
+	grid.addItem(QListWidgetItem(QIcon(pixmap if row == 3 else other), ''))
+	grid.item(row).setData(Qt.UserRole, row)
 grid.set_hover_options(0, 0, hover_lift=0)
 grid.show()
 QTest.qWait(40)
@@ -36,12 +36,12 @@ grid.set_hover_options(360, 0, hover_lift=40)
 QTest.qWait(40)
 assert grid.hover_rotation == 45
 for cleaning, limit in ((False, 45), (True, 90)):
-    grid.set_cleaning(cleaning)
-    grid.set_hover(-1)
-    with patch('album_grid.random.uniform', return_value=0) as rotation:
-        grid.set_hover(0)
-        rotation.assert_called_once_with(-limit, limit)
-    assert grid.hover_rotation == 45
+	grid.set_cleaning(cleaning)
+	grid.set_hover(-1)
+	with patch('album_grid.random.uniform', return_value=0) as rotation:
+		grid.set_hover(0)
+		rotation.assert_called_once_with(-limit, limit)
+	assert grid.hover_rotation == 45
 grid.set_cleaning(False)
 grid.set_hover(-1)
 assert grid.row_pitch() == pitch
@@ -81,7 +81,7 @@ QTest.qWait(220)
 assert abs(grid.tilts[0] - 45) < .01
 image = grid.viewport().grab().toImage()
 assert any(image.pixelColor(x, y).name() == '#fe0102'
-           for y in range(1, grid.iconSize().height() // 10) for x in range(image.width()))
+		for y in range(1, grid.iconSize().height() // 10) for x in range(image.width()))
 assert all(image.pixelColor(x, 0).name() != '#fe0102' for x in range(image.width()))
 assert grid.row_pitch() == pitch
 grid.set_cleaning(False)

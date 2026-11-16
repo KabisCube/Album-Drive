@@ -12,21 +12,21 @@ device = QTest.createTouchDevice()
 
 
 def touch(widget, *steps):
-    for step in steps:
-        sequence = QTest.touchEvent(widget.window(), device)
-        for action, finger, point in step:
-            getattr(sequence, action)(finger, widget.mapTo(widget.window(), point), widget.window())
-        sequence.commit()
-        app.processEvents()
+	for step in steps:
+		sequence = QTest.touchEvent(widget.window(), device)
+		for action, finger, point in step:
+			getattr(sequence, action)(finger, widget.mapTo(widget.window(), point), widget.window())
+		sequence.commit()
+		app.processEvents()
 
 
 def swipe(widget, start, end):
-    points = [start + (end - start) * (step / 8) for step in range(1, 9)]
-    touch(widget, [('press', 0, start)])
-    for point in points:
-        QTest.qWait(16)
-        touch(widget, [('move', 0, point)])
-    touch(widget, [('release', 0, end)])
+	points = [start + (end - start) * (step / 8) for step in range(1, 9)]
+	touch(widget, [('press', 0, start)])
+	for point in points:
+		QTest.qWait(16)
+		touch(widget, [('move', 0, point)])
+	touch(widget, [('release', 0, end)])
 
 
 rows = QListWidget()
@@ -38,7 +38,7 @@ rows.setContextMenuPolicy(Qt.CustomContextMenu)
 rows.customContextMenuRequested.connect(menus.append)
 scales, pinch_ended = [], []
 add_touch(rows.viewport(), scrolls=True, on_pinch=lambda scale, started: scales.append((round(scale, 2), started)),
-          on_pinch_end=lambda: pinch_ended.append(True))
+		on_pinch_end=lambda: pinch_ended.append(True))
 rows.show()
 QTest.qWait(50)
 viewport = rows.viewport()
@@ -61,9 +61,9 @@ touch(viewport, [('release', 0, QPoint(100, 40))])
 assert not clicked, 'lifting after a long press must not click'
 
 touch(viewport, [('press', 0, QPoint(100, 100)), ('press', 1, QPoint(200, 100))],
-      [('move', 0, QPoint(50, 100)), ('move', 1, QPoint(250, 100))],
-      [('move', 0, QPoint(0, 100)), ('move', 1, QPoint(300, 100))],
-      [('release', 0, QPoint(0, 100)), ('release', 1, QPoint(300, 100))])
+	[('move', 0, QPoint(50, 100)), ('move', 1, QPoint(250, 100))],
+	[('move', 0, QPoint(0, 100)), ('move', 1, QPoint(300, 100))],
+	[('release', 0, QPoint(0, 100)), ('release', 1, QPoint(300, 100))])
 assert scales[0] == (1.0, True) and scales[-1][0] >= 1.5 and pinch_ended == [True], scales
 assert not clicked
 

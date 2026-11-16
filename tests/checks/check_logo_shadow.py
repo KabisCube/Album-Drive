@@ -13,18 +13,18 @@ app = QApplication([])
 font = QFont()
 font.setPixelSize(27)
 for ratio in (1, 1.25, 2):
-    for depth in (0, 4, 12):
-        for x, y in ((20, 40), (20.375, 40.625)):
-            cached = lettering_shadow_pixmap(font.toString(), 'Album Drive', depth, 320, 100, ratio, x, y)
-            reference = QPixmap(ceil(320 * ratio), ceil(100 * ratio))
-            reference.setDevicePixelRatio(ratio)
-            reference.fill(Qt.transparent)
-            painter = QPainter(reference)
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.fillPath(lettering_shadow(font.toString(), 'Album Drive', depth).translated(x, y),
-                             QColor(0, 0, 0, 65))
-            painter.end()
-            assert cached.toImage() == reference.toImage(), (ratio, depth, x, y)
+	for depth in (0, 4, 12):
+		for x, y in ((20, 40), (20.375, 40.625)):
+			cached = lettering_shadow_pixmap(font.toString(), 'Album Drive', depth, 320, 100, ratio, x, y)
+			reference = QPixmap(ceil(320 * ratio), ceil(100 * ratio))
+			reference.setDevicePixelRatio(ratio)
+			reference.fill(Qt.transparent)
+			painter = QPainter(reference)
+			painter.setRenderHint(QPainter.Antialiasing)
+			painter.fillPath(lettering_shadow(font.toString(), 'Album Drive', depth).translated(x, y),
+							QColor(0, 0, 0, 65))
+			painter.end()
+			assert cached.toImage() == reference.toImage(), (ratio, depth, x, y)
 
 brand = ChunkyBrand('Album Drive')
 brand.setFont(font)
@@ -35,9 +35,9 @@ app.processEvents()
 brand.grab()
 before = lettering_shadow_pixmap.cache_info()
 for color in ('#203040', '#709080', '#d0b090'):
-    app.setProperty('brandLineColor', color)
-    app.setProperty('brandTextColor', color)
-    brand.grab()
+	app.setProperty('brandLineColor', color)
+	app.setProperty('brandTextColor', color)
+	brand.grab()
 after = lettering_shadow_pixmap.cache_info()
 assert after.misses == before.misses
 assert after.hits >= before.hits + 3
@@ -61,7 +61,7 @@ painter.drawRoundedRect(stripe, radius, radius)
 path = QPainterPath()
 path.addText(0, 0, brand.font(), brand.text())
 position = QPointF(brand.width() / 2 - path.boundingRect().center().x(),
-                  stripe.center().y() + LOGO_BACKGROUND_TRIM / 2 - path.boundingRect().center().y() + LOGO_VERTICAL_OFFSET)
+				stripe.center().y() + LOGO_BACKGROUND_TRIM / 2 - path.boundingRect().center().y() + LOGO_VERTICAL_OFFSET)
 painter.setBrush(QColor('#77dc12'))
 painter.drawPath(path.translated(position))
 painter.end()

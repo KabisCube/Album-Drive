@@ -22,46 +22,46 @@ tabs = QTabWidget()
 bar = ChunkyTabBar(tabs)
 tabs.setTabBar(bar)
 for title in ('General', 'Style', 'Audio', 'File browser', 'Album list', 'Track list'):
-    tabs.addTab(QWidget(), title)
+	tabs.addTab(QWidget(), title)
 tabs.resize(460, 220)
 tabs.show()
 app.processEvents()
 
 def settle():
-    while bar.pager.spring.moving or bar.scroll_left.animating or bar.scroll_right.animating:
-        QTest.qWait(16)
-    for index in range(bar.count()):
-        rect, viewport = bar.tabRect(index), bar.tab_viewport()
-        assert viewport.contains(rect) or not viewport.intersects(rect), (index, rect, viewport)
-    assert any(bar.tab_viewport().contains(bar.tabRect(index)) for index in range(bar.count()))
+	while bar.pager.spring.moving or bar.scroll_left.animating or bar.scroll_right.animating:
+		QTest.qWait(16)
+	for index in range(bar.count()):
+		rect, viewport = bar.tabRect(index), bar.tab_viewport()
+		assert viewport.contains(rect) or not viewport.intersects(rect), (index, rect, viewport)
+	assert any(bar.tab_viewport().contains(bar.tabRect(index)) for index in range(bar.count()))
 
 
 def check_gutters():
-    image = bar.grab().toImage()
-    for button in (bar.scroll_left, bar.scroll_right):
-        if not button.isVisible():
-            continue
-        outer = button_paint_rect(button).translated(0, -CONTROL_HEADROOM / 2)
-        body = control_face(outer, widget=button).united(control_face(outer, pressed=True, widget=button))
-        shadow = control_shadow()
-        body = body.adjusted(shadow.x() - 1, -1, 1, shadow.y() + 1)
-        for y in range(button.height()):
-            for x in range(button.width()):
-                if not body.contains(x, y):
-                    assert image.pixelColor(button.x() + x, y).name() == '#393939', (button.accessibleName(), x, y)
+	image = bar.grab().toImage()
+	for button in (bar.scroll_left, bar.scroll_right):
+		if not button.isVisible():
+			continue
+		outer = button_paint_rect(button).translated(0, -CONTROL_HEADROOM / 2)
+		body = control_face(outer, widget=button).united(control_face(outer, pressed=True, widget=button))
+		shadow = control_shadow()
+		body = body.adjusted(shadow.x() - 1, -1, 1, shadow.y() + 1)
+		for y in range(button.height()):
+			for x in range(button.width()):
+				if not body.contains(x, y):
+					assert image.pixelColor(button.x() + x, y).name() == '#393939', (button.accessibleName(), x, y)
 
 bottoms = []
 size = bar.size()
 for thickness in (0, 100, 300):
-    app.setProperty('uiThickness', thickness)
-    image = bar.grab().toImage()
-    face = control_face(bar.tab_face_rect(0), widget=bar)
-    accent = QColor(app.property('themeAccent') or '#888888')
-    x = round(face.center().x())
-    bottoms.append(max(y for y in range(image.height())
-                       if image.pixelColor(x, y).name() in (accent.name(), accent.darker(125).name())))
-    assert bar.size() == size
-    check_gutters()
+	app.setProperty('uiThickness', thickness)
+	image = bar.grab().toImage()
+	face = control_face(bar.tab_face_rect(0), widget=bar)
+	accent = QColor(app.property('themeAccent') or '#888888')
+	x = round(face.center().x())
+	bottoms.append(max(y for y in range(image.height())
+					if image.pixelColor(x, y).name() in (accent.name(), accent.darker(125).name())))
+	assert bar.size() == size
+	check_gutters()
 assert len(set(bottoms)) == 1, bottoms
 app.setProperty('uiThickness', 100)
 
@@ -73,7 +73,7 @@ native = bar.findChildren(QToolButton)
 assert native
 tabs.setUsesScrollButtons(True)
 for button in native:
-    button.show()
+	button.show()
 app.processEvents()
 assert not bar.usesScrollButtons()
 assert not any(button.isVisible() for button in native)
@@ -90,11 +90,11 @@ image = bar.grab().toImage()
 assert image.pixelColor(bar.scroll_button_width() - 1, bar.height() // 2).name() == '#393939'
 assert image.pixelColor(bar.width() - bar.scroll_button_width(), bar.height() // 2).name() == '#393939'
 for _ in range(30):
-    if not bar.scroll_right.isVisible():
-        break
-    QTest.mouseClick(bar.scroll_right, Qt.LeftButton)
-    settle()
-    check_gutters()
+	if not bar.scroll_right.isVisible():
+		break
+	QTest.mouseClick(bar.scroll_right, Qt.LeftButton)
+	settle()
+	check_gutters()
 assert not bar.scroll_right.isVisible()
 assert bar.scroll_left.isVisible()
 assert bar.tab_viewport().contains(bar.tabRect(bar.count() - 1))
@@ -103,23 +103,23 @@ QTest.mouseClick(bar, Qt.LeftButton, pos=bar.tabRect(target).center())
 assert tabs.currentIndex() == target
 bar.setFocus()
 for _ in range(bar.count() - 1):
-    QTest.keyClick(bar, Qt.Key_Left)
-    settle()
-    assert bar.tab_viewport().contains(bar.tabRect(bar.currentIndex()))
+	QTest.keyClick(bar, Qt.Key_Left)
+	settle()
+	assert bar.tab_viewport().contains(bar.tabRect(bar.currentIndex()))
 assert tabs.currentIndex() == 0
 assert not bar.scroll_left.isVisible()
 assert bar.scroll_right.isVisible()
 for _ in range(30):
-    if not bar.scroll_right.isVisible():
-        break
-    QTest.mouseClick(bar.scroll_right, Qt.LeftButton)
-    settle()
+	if not bar.scroll_right.isVisible():
+		break
+	QTest.mouseClick(bar.scroll_right, Qt.LeftButton)
+	settle()
 for _ in range(30):
-    if not bar.scroll_left.isVisible():
-        break
-    QTest.mouseClick(bar.scroll_left, Qt.LeftButton)
-    settle()
-    check_gutters()
+	if not bar.scroll_left.isVisible():
+		break
+	QTest.mouseClick(bar.scroll_left, Qt.LeftButton)
+	settle()
+	check_gutters()
 assert bar.scroll_offset == 0
 assert not bar.scroll_left.isVisible()
 tabs.resize(2000, 220)
@@ -142,8 +142,8 @@ app.processEvents()
 ghosts = bar.findChildren(ScaleGhost)
 assert ghosts
 for ghost in ghosts:
-    image = ghost.pixmap.toImage()
-    assert any(image.pixelColor(x, image.height() // 2).name() != '#393939' for x in range(image.width())), ghost.geometry()
+	image = ghost.pixmap.toImage()
+	assert any(image.pixelColor(x, image.height() // 2).name() != '#393939' for x in range(image.width())), ghost.geometry()
 settle()
 QTest.qWait(700)
 assert not bar.findChildren(ScaleGhost)

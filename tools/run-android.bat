@@ -37,8 +37,8 @@ if errorlevel 1 goto install_failed
 rem Android only allows this per-app override on debug builds, set from a computer.
 "%ADB%" shell am compat reset-all %PACKAGE% >nul 2>&1
 if not "%RENDER_SCALE%"=="100" (
-    "%ADB%" shell am compat enable DOWNSCALED %PACKAGE% >nul 2>&1
-    "%ADB%" shell am compat enable DOWNSCALE_%RENDER_SCALE% %PACKAGE% >nul 2>&1
+	"%ADB%" shell am compat enable DOWNSCALED %PACKAGE% >nul 2>&1
+	"%ADB%" shell am compat enable DOWNSCALE_%RENDER_SCALE% %PACKAGE% >nul 2>&1
 )
 "%ADB%" shell monkey -p %PACKAGE% -c android.intent.category.LAUNCHER 1 >nul 2>&1
 if errorlevel 1 goto launch_failed
@@ -72,8 +72,8 @@ set "ANDROID_SERIAL="
 set "UNAUTHORIZED="
 "%ADB%" start-server >nul 2>&1
 for /f "skip=1 tokens=1,2" %%a in ('"%ADB%" devices') do (
-    if "%%b"=="device" if not defined ANDROID_SERIAL set "ANDROID_SERIAL=%%a"
-    if "%%b"=="unauthorized" set "UNAUTHORIZED=1"
+	if "%%b"=="device" if not defined ANDROID_SERIAL set "ANDROID_SERIAL=%%a"
+	if "%%b"=="unauthorized" set "UNAUTHORIZED=1"
 )
 exit /b 0
 

@@ -6,9 +6,9 @@ if exist "%PYTHON%" goto dependencies
 
 py -3 -c "import sys" >nul 2>&1
 if errorlevel 1 (
-    python -m venv .venv-windows
+	python -m venv .venv-windows
 ) else (
-    py -3 -m venv .venv-windows
+	py -3 -m venv .venv-windows
 )
 if errorlevel 1 goto failed
 

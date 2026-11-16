@@ -43,22 +43,22 @@ QTest.qWait(30)
 controls = (large, small, choice, reset, tabs)
 
 def check_fit():
-    size = button_text_sizing().pixel_size
-    assert 1 < size <= 30
-    for widget in controls:
-        assert button_text_font(widget).pixelSize() == size
-        for rect, texts in widget.button_text_regions():
-            for text in texts:
-                bounds = button_text_bounds(widget.font().toString(), text, size)
-                assert bounds.width() <= rect.width() and bounds.height() <= rect.height(), (text, size, bounds, rect)
-    for button in (large, small):
-        rect = button.button_text_regions()[0][0]
-        image = button.grab().toImage()
-        points = [(x, y) for y in range(image.height()) for x in range(image.width())
-                  if image.pixelColor(x, y).alpha() == 255 and image.pixelColor(x, y).name() == '#000000']
-        assert points
-        assert all(rect.adjusted(-1, -1, 1, 1).contains(x, y) for x, y in points)
-    return size
+	size = button_text_sizing().pixel_size
+	assert 1 < size <= 30
+	for widget in controls:
+		assert button_text_font(widget).pixelSize() == size
+		for rect, texts in widget.button_text_regions():
+			for text in texts:
+				bounds = button_text_bounds(widget.font().toString(), text, size)
+				assert bounds.width() <= rect.width() and bounds.height() <= rect.height(), (text, size, bounds, rect)
+	for button in (large, small):
+		rect = button.button_text_regions()[0][0]
+		image = button.grab().toImage()
+		points = [(x, y) for y in range(image.height()) for x in range(image.width())
+				if image.pixelColor(x, y).alpha() == 255 and image.pixelColor(x, y).name() == '#000000']
+		assert points
+		assert all(rect.adjusted(-1, -1, 1, 1).contains(x, y) for x, y in points)
+	return size
 
 initial = check_fit()
 assert initial < 30
@@ -85,9 +85,9 @@ QTest.qWait(20)
 assert check_fit() <= initial
 # Tabs keep room below for the thickest buttons, so faces sit above the bar's middle; they must stay inside it.
 for thickness in (0, 100, 300):
-    app.setProperty('uiThickness', thickness)
-    face = control_face(tabs.tab_face_rect(0), widget=tabs)
-    assert face.top() >= 0 and face.bottom() + ui_depth() <= tabs.height()
+	app.setProperty('uiThickness', thickness)
+	face = control_face(tabs.tab_face_rect(0), widget=tabs)
+	assert face.top() >= 0 and face.bottom() + ui_depth() <= tabs.height()
 window.close()
 QTest.qWait(10)
 print('PASS: shared smallest text size, padded ink bounds, label/size changes, stable Reset and centered tabs')

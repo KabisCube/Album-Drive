@@ -31,73 +31,73 @@ browser = QTreeView()
 browser.setObjectName('fileBrowser')
 model = QStandardItemModel(browser)
 for number in range(80):
-    model.appendRow(QStandardItem(f'Folder {number}'))
+	model.appendRow(QStandardItem(f'Folder {number}'))
 browser.setModel(model)
 browser.setHeaderHidden(True)
 areas.append(browser)
 for area in areas:
-    area.resize(360, 240)
-    area.show()
-    QTest.qWait(20)
-    shadows = area.scroll_edge_shadows
-    top, bottom = shadows.fades
-    bar = area.verticalScrollBar()
-    assert bar.maximum() > 0
-    assert top.isHidden() and not bottom.isHidden()
-    bar.setValue(bar.maximum() // 2)
-    assert top.opacity == 0
-    top.animation.pause()
-    if area is scroll:
-        shades = []
-        for fraction in (0, .25, .5, 1):
-            top.animation.setCurrentTime(round(top.animation.duration() * fraction))
-            frame = area.grab().toImage()
-            shades.append(frame.pixelColor(top.geometry().center().x(), top.geometry().top()).lightness())
-        assert all(first > second for first, second in zip(shades, shades[1:])), shades
-    top.animation.setCurrentTime(top.animation.duration() // 2)
-    assert 0 < top.opacity < 1
-    assert abs(top.opacity - .5) < .01
-    intermediate = top.opacity
-    bar.setValue(bar.value() + 1)
-    assert top.opacity == intermediate
-    top.animation.setCurrentTime(top.animation.duration())
-    assert top.opacity == 1
-    app.processEvents()
-    assert not top.isHidden() and not bottom.isHidden()
-    geometry = [fade.geometry() for fade in shadows.fades]
-    for fade in shadows.fades:
-        assert fade.testAttribute(Qt.WA_TransparentForMouseEvents)
-        assert fade.width() == area.viewport().width()
-        fade.grab()
-        image = fade._image
-        edge = image.height() - 1 if fade.bottom else 0
-        assert image.pixelColor(0, edge).alpha() == 0
-        assert image.pixelColor(image.width() - 1, edge).alpha() == 0
-        assert image.pixelColor(image.width() // 2, edge).alpha() > 0
-    if area is table:
-        actual = top._image.pixelColor(top.width() // 2, 0)
-        expected = QColor('#e7c977').darker(125)
-        assert all(abs(a - b) <= 2 for a, b in zip(actual.getRgb()[:3], expected.getRgb()[:3]))
-    bar.setValue(bar.value() + 1)
-    assert [fade.geometry() for fade in shadows.fades] == geometry
-    area.hide()
-    assert top.opacity == 0
-    area.show()
-    assert top.opacity == 0
-    assert top.animation.state() == top.animation.State.Running
-    area.resize(420, 280)
-    app.processEvents()
-    assert top.width() == area.viewport().width()
-    bar.setValue(bar.maximum())
-    # The bottom shadow fades out before it hides.
-    assert not top.isHidden() and top.requested_visible and not bottom.requested_visible
-    bar.setRange(0, 0)
-    for fade in (top, bottom):
-        if fade.animation.state() == fade.animation.State.Running:
-            fade.animation.setCurrentTime(fade.animation.duration())
-    assert top.isHidden() and bottom.isHidden()
-    assert top.opacity == 0 and bottom.opacity == 0
-    area.close()
+	area.resize(360, 240)
+	area.show()
+	QTest.qWait(20)
+	shadows = area.scroll_edge_shadows
+	top, bottom = shadows.fades
+	bar = area.verticalScrollBar()
+	assert bar.maximum() > 0
+	assert top.isHidden() and not bottom.isHidden()
+	bar.setValue(bar.maximum() // 2)
+	assert top.opacity == 0
+	top.animation.pause()
+	if area is scroll:
+		shades = []
+		for fraction in (0, .25, .5, 1):
+			top.animation.setCurrentTime(round(top.animation.duration() * fraction))
+			frame = area.grab().toImage()
+			shades.append(frame.pixelColor(top.geometry().center().x(), top.geometry().top()).lightness())
+		assert all(first > second for first, second in zip(shades, shades[1:])), shades
+	top.animation.setCurrentTime(top.animation.duration() // 2)
+	assert 0 < top.opacity < 1
+	assert abs(top.opacity - .5) < .01
+	intermediate = top.opacity
+	bar.setValue(bar.value() + 1)
+	assert top.opacity == intermediate
+	top.animation.setCurrentTime(top.animation.duration())
+	assert top.opacity == 1
+	app.processEvents()
+	assert not top.isHidden() and not bottom.isHidden()
+	geometry = [fade.geometry() for fade in shadows.fades]
+	for fade in shadows.fades:
+		assert fade.testAttribute(Qt.WA_TransparentForMouseEvents)
+		assert fade.width() == area.viewport().width()
+		fade.grab()
+		image = fade._image
+		edge = image.height() - 1 if fade.bottom else 0
+		assert image.pixelColor(0, edge).alpha() == 0
+		assert image.pixelColor(image.width() - 1, edge).alpha() == 0
+		assert image.pixelColor(image.width() // 2, edge).alpha() > 0
+	if area is table:
+		actual = top._image.pixelColor(top.width() // 2, 0)
+		expected = QColor('#e7c977').darker(125)
+		assert all(abs(a - b) <= 2 for a, b in zip(actual.getRgb()[:3], expected.getRgb()[:3]))
+	bar.setValue(bar.value() + 1)
+	assert [fade.geometry() for fade in shadows.fades] == geometry
+	area.hide()
+	assert top.opacity == 0
+	area.show()
+	assert top.opacity == 0
+	assert top.animation.state() == top.animation.State.Running
+	area.resize(420, 280)
+	app.processEvents()
+	assert top.width() == area.viewport().width()
+	bar.setValue(bar.maximum())
+	# The bottom shadow fades out before it hides.
+	assert not top.isHidden() and top.requested_visible and not bottom.requested_visible
+	bar.setRange(0, 0)
+	for fade in (top, bottom):
+		if fade.animation.state() == fade.animation.State.Running:
+			fade.animation.setCurrentTime(fade.animation.duration())
+	assert top.isHidden() and bottom.isHidden()
+	assert top.opacity == 0 and bottom.opacity == 0
+	area.close()
 grid = AlbumGrid()
 grid.setObjectName('albumGrid')
 grid.show()

@@ -18,48 +18,48 @@ from themes import THEME_FADE_MS
 app = QApplication([])
 app.setStyle('Fusion')
 with tempfile.TemporaryDirectory() as directory:
-    root = Path(directory)
-    (root / 'Music').mkdir()
-    settings = QSettings(str(root / 'settings.ini'), QSettings.IniFormat)
-    settings.setValue('folder', str(root / 'Music'))
-    settings.setValue('artwork_theme_enabled', False)
-    window = PlayerWindow(settings)
-    window.show()
-    app.processEvents()
-    window.seek.setRange(0, 100000)
-    window.seek.setValue(50000)
+	root = Path(directory)
+	(root / 'Music').mkdir()
+	settings = QSettings(str(root / 'settings.ini'), QSettings.IniFormat)
+	settings.setValue('folder', str(root / 'Music'))
+	settings.setValue('artwork_theme_enabled', False)
+	window = PlayerWindow(settings)
+	window.show()
+	app.processEvents()
+	window.seek.setRange(0, 100000)
+	window.seek.setValue(50000)
 
-    for background in ('#d0b090', '#203070', '#503020'):
-        start = window.seek.colors()
-        settings.setValue('theme_background_color', background)
-        cover = root / 'cover.png'
-        Image.new('RGB', (64, 64), background).save(cover)
-        colors = artwork_theme_colors(cover.read_bytes()) if background != '#d0b090' else None
-        with patch.object(window, 'now_playing_theme_colors', return_value=colors):
-            window.theme_from_now_playing()
-        animation = window.theme_fade
-        animation.pause()
-        assert window.seek.colors() == start
-        target = timeline_colors(window.theme_target['themeBackground'], window.theme_target['themeAccent'],
-                                 window.theme_target['themeBackgroundAccent'])
-        end = THEME_FADE_MS // 2 if background == '#203070' else THEME_FADE_MS
-        previous = start
-        for elapsed in range(0, end + 1, 40):
-            animation.setCurrentTime(elapsed)
-            expected = tuple(QColor(*(round(a + (b - a) * elapsed / THEME_FADE_MS) for a, b in
-                                      zip(first.getRgb()[:3], second.getRgb()[:3])))
-                             for first, second in zip(start, target))
-            actual = window.seek.colors()
-            assert actual == expected, (background, elapsed)
-            image = window.seek.grab().toImage()
-            assert image.pixelColor(60, image.height() // 2) == expected[1]
-            assert image.pixelColor(image.width() - 60, image.height() // 2) == expected[0]
-            previous = actual
-        if end == THEME_FADE_MS:
-            assert window.seek.fade_colors is None
-    window.close()
-    for scanner in list(window.scanners):
-        scanner.requestInterruption()
-        scanner.wait()
-    app.processEvents()
+	for background in ('#d0b090', '#203070', '#503020'):
+		start = window.seek.colors()
+		settings.setValue('theme_background_color', background)
+		cover = root / 'cover.png'
+		Image.new('RGB', (64, 64), background).save(cover)
+		colors = artwork_theme_colors(cover.read_bytes()) if background != '#d0b090' else None
+		with patch.object(window, 'now_playing_theme_colors', return_value=colors):
+			window.theme_from_now_playing()
+		animation = window.theme_fade
+		animation.pause()
+		assert window.seek.colors() == start
+		target = timeline_colors(window.theme_target['themeBackground'], window.theme_target['themeAccent'],
+								window.theme_target['themeBackgroundAccent'])
+		end = THEME_FADE_MS // 2 if background == '#203070' else THEME_FADE_MS
+		previous = start
+		for elapsed in range(0, end + 1, 40):
+			animation.setCurrentTime(elapsed)
+			expected = tuple(QColor(*(round(a + (b - a) * elapsed / THEME_FADE_MS) for a, b in
+									zip(first.getRgb()[:3], second.getRgb()[:3])))
+							for first, second in zip(start, target))
+			actual = window.seek.colors()
+			assert actual == expected, (background, elapsed)
+			image = window.seek.grab().toImage()
+			assert image.pixelColor(60, image.height() // 2) == expected[1]
+			assert image.pixelColor(image.width() - 60, image.height() // 2) == expected[0]
+			previous = actual
+		if end == THEME_FADE_MS:
+			assert window.seek.fade_colors is None
+	window.close()
+	for scanner in list(window.scanners):
+		scanner.requestInterruption()
+		scanner.wait()
+	app.processEvents()
 print('PASS: smooth timeline surface and text colors, endpoints and interrupted fades')

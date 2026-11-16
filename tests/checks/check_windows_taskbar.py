@@ -33,14 +33,14 @@ toolbar.update()
 args = toolbar.call.call_args.args
 assert args[0] == 16 and args[3][1].tooltip == 'Play' and args[3][2].flags == 1
 for index, button in enumerate((window.previous, window.play, window.next)):
-    callback = Mock()
-    button.clicked.connect(callback)
-    message = wt.MSG()
-    message.hWnd = toolbar.hwnd
-    message.message = 0x111
-    message.wParam = (0x1800 << 16) | (0x6a00 + index)
-    assert toolbar.nativeEventFilter(None, ct.addressof(message)) == (True, 0)
-    assert callback.call_count == (1 if button.isEnabled() else 0)
+	callback = Mock()
+	button.clicked.connect(callback)
+	message = wt.MSG()
+	message.hWnd = toolbar.hwnd
+	message.message = 0x111
+	message.wParam = (0x1800 << 16) | (0x6a00 + index)
+	assert toolbar.nativeEventFilter(None, ct.addressof(message)) == (True, 0)
+	assert callback.call_count == (1 if button.isEnabled() else 0)
 message.hWnd = 1234
 assert toolbar.nativeEventFilter(None, ct.addressof(message)) == (False, 0)
 message.hWnd = toolbar.hwnd

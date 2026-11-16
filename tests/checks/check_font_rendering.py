@@ -19,8 +19,8 @@ assert raw.isValid() and raw.familyName() == 'Album Round'
 assert all(raw.fontTable(tag) for tag in ('fpgm', 'prep', 'cvt ', 'gasp'))
 assert all(raw.supportsCharacter(ord(char)) for char in '0123456789SherpaÅÄÖåäö')
 for char in 'haT':
-    outline = raw.pathForGlyph(raw.glyphIndexesForString(char)[0])
-    assert any(outline.elementAt(index).isCurveTo() for index in range(outline.elementCount()))
+	outline = raw.pathForGlyph(raw.glyphIndexesForString(char)[0])
+	assert any(outline.elementAt(index).isCurveTo() for index in range(outline.elementCount()))
 
 table = QTableWidget(1, 1)
 table.setProperty('paperBackgroundColor', '#ffffff')
@@ -32,24 +32,24 @@ font = QFont('Album Round')
 font.setBold(True)
 configure_font_rendering(font)
 for ratio in (1, 1.5, 2):
-    for size in (12, 16, 32, 64):
-        font.setPixelSize(size)
-        option.font = font
-        for number in ('1', '9', '10', '99', '123'):
-            table.setItem(0, 0, QTableWidgetItem(number))
-            image = QImage(round(72 * ratio), round(54 * ratio), QImage.Format.Format_RGB32)
-            image.setDevicePixelRatio(ratio)
-            image.fill(Qt.GlobalColor.white)
-            painter = QPainter(image)
-            delegate.paint(painter, option, table.model().index(0, 0))
-            painter.end()
-            pixels = [(x / ratio, y / ratio) for y in range(image.height()) for x in range(image.width())
-                      if image.pixelColor(x, y).red() < 180]
-            assert pixels, (size, number, ratio)
-            assert min(x for x, y in pixels) >= 10, (size, number, ratio)
-            assert max(x for x, y in pixels) <= option.rect.width() - 9, (size, number, ratio)
-            assert min(y for x, y in pixels) >= 1, (size, number, ratio)
-            assert max(y for x, y in pixels) <= option.rect.height() - 2, (size, number, ratio)
+	for size in (12, 16, 32, 64):
+		font.setPixelSize(size)
+		option.font = font
+		for number in ('1', '9', '10', '99', '123'):
+			table.setItem(0, 0, QTableWidgetItem(number))
+			image = QImage(round(72 * ratio), round(54 * ratio), QImage.Format.Format_RGB32)
+			image.setDevicePixelRatio(ratio)
+			image.fill(Qt.GlobalColor.white)
+			painter = QPainter(image)
+			delegate.paint(painter, option, table.model().index(0, 0))
+			painter.end()
+			pixels = [(x / ratio, y / ratio) for y in range(image.height()) for x in range(image.width())
+					if image.pixelColor(x, y).red() < 180]
+			assert pixels, (size, number, ratio)
+			assert min(x for x, y in pixels) >= 10, (size, number, ratio)
+			assert max(x for x, y in pixels) <= option.rect.width() - 9, (size, number, ratio)
+			assert min(y for x, y in pixels) >= 1, (size, number, ratio)
+			assert max(y for x, y in pixels) <= option.rect.height() - 2, (size, number, ratio)
 
 table.item(0, 0).setData(PLAYING_ROLE, True)
 option.state |= QStyle.StateFlag.State_Selected

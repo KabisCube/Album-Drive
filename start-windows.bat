@@ -31,5 +31,5 @@ exit /b 1
 
 :python_missing
 echo No usable Python was found. See README.md for Windows setup instructions.
-    pause
-    exit /b 1
+	pause
+	exit /b 1

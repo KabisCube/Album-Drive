@@ -18,15 +18,15 @@ app.setStyleSheet('QWidget { background: #f4f4f4; color: #ff00ff; font-size: 20p
 install_scroll_shadows(app)
 areas = []
 for page_type in (QWidget, SettingsPage):
-    page = page_type()
-    form = QFormLayout(page)
-    form.setContentsMargins(30, 0, 30, 0)
-    for index in range(40):
-        form.addRow(QLabel('MMMMMMMM'), QPushButton('Button'))
-    area = QScrollArea()
-    area.setWidget(page)
-    area.setWidgetResizable(True)
-    areas.append(area)
+	page = page_type()
+	form = QFormLayout(page)
+	form.setContentsMargins(30, 0, 30, 0)
+	for index in range(40):
+		form.addRow(QLabel('MMMMMMMM'), QPushButton('Button'))
+	area = QScrollArea()
+	area.setWidget(page)
+	area.setWidgetResizable(True)
+	areas.append(area)
 items = QListWidget()
 items.addItems(['MMMMMMMM'] * 40)
 areas.append(items)
@@ -40,41 +40,41 @@ table.horizontalHeader().hide()
 table.verticalHeader().hide()
 table.setShowGrid(False)
 for row in range(40):
-    table.setItem(row, 0, QTableWidgetItem(str(row + 1)))
-    table.setItem(row, 1, QTableWidgetItem('MMMMMMMM'))
+	table.setItem(row, 0, QTableWidgetItem(str(row + 1)))
+	table.setItem(row, 1, QTableWidgetItem('MMMMMMMM'))
 areas.append(table)
 for area in areas:
-    area.setFocusPolicy(Qt.NoFocus)
-    area.resize(360, 240)
-    area.show()
-    app.processEvents()
-    if hasattr(area, 'clearSelection'):
-        area.clearSelection()
-    area.verticalScrollBar().setValue(0)
-    fades = area.scroll_edge_shadows.fades
-    fades[0].reveal(True)
-    for fade in fades:
-        fade.animation.stop()
-        fade.set_opacity(0)
-    plain = area.viewport().grab().toImage()
-    for fade in fades:
-        fade.set_opacity(1)
-    faded = area.viewport().grab().toImage()
-    colors = {'#ff00ff'}
-    if isinstance(area, QScrollArea):
-        colors.add('#ff8000')
-    for color in colors:
-        pixels = [(x, y) for y in range(24) for x in range(plain.width())
-                  if plain.pixelColor(x, y).name() == color]
-        assert pixels, (type(area), color)
-        assert all(faded.pixelColor(x, y) == plain.pixelColor(x, y) for x, y in pixels), (type(area), color)
-    assert any(plain.pixelColor(x, y) != faded.pixelColor(x, y)
-               for y in range(24) for x in range(plain.width())), type(area)
-    if area is table:
-        for column in range(2):
-            start = table.columnViewportPosition(column)
-            end = start + table.columnWidth(column)
-            assert any(plain.pixelColor(x, y) != faded.pixelColor(x, y)
-                       for y in range(24) for x in range(start, min(end, plain.width()))), column
-    area.close()
+	area.setFocusPolicy(Qt.NoFocus)
+	area.resize(360, 240)
+	area.show()
+	app.processEvents()
+	if hasattr(area, 'clearSelection'):
+		area.clearSelection()
+	area.verticalScrollBar().setValue(0)
+	fades = area.scroll_edge_shadows.fades
+	fades[0].reveal(True)
+	for fade in fades:
+		fade.animation.stop()
+		fade.set_opacity(0)
+	plain = area.viewport().grab().toImage()
+	for fade in fades:
+		fade.set_opacity(1)
+	faded = area.viewport().grab().toImage()
+	colors = {'#ff00ff'}
+	if isinstance(area, QScrollArea):
+		colors.add('#ff8000')
+	for color in colors:
+		pixels = [(x, y) for y in range(24) for x in range(plain.width())
+				if plain.pixelColor(x, y).name() == color]
+		assert pixels, (type(area), color)
+		assert all(faded.pixelColor(x, y) == plain.pixelColor(x, y) for x, y in pixels), (type(area), color)
+	assert any(plain.pixelColor(x, y) != faded.pixelColor(x, y)
+			for y in range(24) for x in range(plain.width())), type(area)
+	if area is table:
+		for column in range(2):
+			start = table.columnViewportPosition(column)
+			end = start + table.columnWidth(column)
+			assert any(plain.pixelColor(x, y) != faded.pixelColor(x, y)
+					for y in range(24) for x in range(start, min(end, plain.width()))), column
+	area.close()
 print('PASS: halftone stays behind text and buttons in scroll pages, settings pages, lists and track tables')

@@ -27,19 +27,19 @@ dialog = ThemeSettingsDialog(settings, window)
 dialog.show()
 stacked_widths = []
 for master in (16, 25):
-    dialog.numbers['main_font_size'].setValue(master)
-    QTest.qWait(50)
-    for width in range(560, 1100, 40):
-        dialog.resize(width, 640)
-        for index in range(dialog.tabs.count()):
-            dialog.tabs.setCurrentIndex(index)
-            QTest.qWait(30)
-            area = dialog.tabs.currentWidget()
-            assert not area.horizontalScrollBar().isVisible(), (master, width, dialog.tabs.tabText(index))
-            assert area.widget().width() <= area.viewport().width(), (master, width, area.widget().width(), area.viewport().width())
-        wrapped = next(iter(dialog.forms.values())).rowWrapPolicy() == QFormLayout.WrapAllRows
-        if wrapped and width >= 640:
-            stacked_widths.append((master, width))
+	dialog.numbers['main_font_size'].setValue(master)
+	QTest.qWait(50)
+	for width in range(560, 1100, 40):
+		dialog.resize(width, 640)
+		for index in range(dialog.tabs.count()):
+			dialog.tabs.setCurrentIndex(index)
+			QTest.qWait(30)
+			area = dialog.tabs.currentWidget()
+			assert not area.horizontalScrollBar().isVisible(), (master, width, dialog.tabs.tabText(index))
+			assert area.widget().width() <= area.viewport().width(), (master, width, area.widget().width(), area.viewport().width())
+		wrapped = next(iter(dialog.forms.values())).rowWrapPolicy() == QFormLayout.WrapAllRows
+		if wrapped and width >= 640:
+			stacked_widths.append((master, width))
 dialog.resize(1040, 680)
 QTest.qWait(50)
 assert next(iter(dialog.forms.values())).rowWrapPolicy() == QFormLayout.DontWrapRows

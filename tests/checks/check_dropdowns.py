@@ -27,48 +27,48 @@ app.processEvents()
 
 
 def settle_popup():
-    while choice.drop.moving:
-        QTest.qWait(16)
-    app.processEvents()
+	while choice.drop.moving:
+		QTest.qWait(16)
+	app.processEvents()
 
 
 def press_outside_popup(point):
-    global_point = QPointF(choice.mapToGlobal(point))
-    local = QPointF(choice.popup.mapFromGlobal(global_point.toPoint()))
-    QApplication.sendEvent(choice.popup, QMouseEvent(QEvent.MouseButtonPress, local, global_point, Qt.LeftButton,
-                                                     Qt.LeftButton, Qt.NoModifier))
-    if choice.popup.isVisible():
-        choice.popup.hide()
+	global_point = QPointF(choice.mapToGlobal(point))
+	local = QPointF(choice.popup.mapFromGlobal(global_point.toPoint()))
+	QApplication.sendEvent(choice.popup, QMouseEvent(QEvent.MouseButtonPress, local, global_point, Qt.LeftButton,
+													Qt.LeftButton, Qt.NoModifier))
+	if choice.popup.isVisible():
+		choice.popup.hide()
 
 
 for thickness in (0, 100, 300):
-    app.setProperty('uiThickness', thickness)
-    choice.setCurrentIndex(2)
-    QTest.mouseClick(choice, Qt.LeftButton)
-    settle_popup()
-    app.processEvents()
-    assert choice.popup.isVisible()
-    own_face = control_face(button_paint_rect(choice), widget=choice)
-    popup_face = control_face(button_paint_rect(choice.popup), widget=choice.popup)
-    gap = choice.popup.y() + popup_face.top() - choice.mapToGlobal(QPoint(0, round(own_face.bottom()))).y()
-    assert abs(gap - ui_depth()) <= 1, (gap, ui_depth())  # Starts below the button's raised underside.
-    view = choice.view()
-    assert view.visualRect(choice.model().index(0, 0)).top() >= 0
-    target = view.visualRect(choice.model().index(1, 0)).center()
-    QTest.mouseMove(view.viewport(), target)
-    app.processEvents()
-    row = view.visualRect(choice.model().index(1, 0))
-    origin = view.viewport().mapTo(choice.popup, row.topLeft())
-    preview = choice.popup.grab().toImage()
-    assert preview.pixelColor(preview.width() // 2, round(control_face(button_paint_rect(choice.popup), widget=choice.popup).top() + 2)).name() == QColor('#393939').darker(110).name()
-    # Hover leaves the menu surface plain, with a three-pixel text underline.
-    assert preview.pixelColor(origin.x() + 2, origin.y() + row.height() // 2).name() == QColor('#393939').darker(110).name()
-    line_y = min(row.bottom() - 3, row.center().y() + view.fontMetrics().height() / 2 + 1)
-    point = view.viewport().mapTo(choice.popup, QPoint(row.left() + 11, round(line_y)))
-    assert preview.pixelColor(point).name() == '#888888'
-    QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=target)
-    assert choice.currentIndex() == 1
-    assert not choice.popup.isVisible()
+	app.setProperty('uiThickness', thickness)
+	choice.setCurrentIndex(2)
+	QTest.mouseClick(choice, Qt.LeftButton)
+	settle_popup()
+	app.processEvents()
+	assert choice.popup.isVisible()
+	own_face = control_face(button_paint_rect(choice), widget=choice)
+	popup_face = control_face(button_paint_rect(choice.popup), widget=choice.popup)
+	gap = choice.popup.y() + popup_face.top() - choice.mapToGlobal(QPoint(0, round(own_face.bottom()))).y()
+	assert abs(gap - ui_depth()) <= 1, (gap, ui_depth())  # Starts below the button's raised underside.
+	view = choice.view()
+	assert view.visualRect(choice.model().index(0, 0)).top() >= 0
+	target = view.visualRect(choice.model().index(1, 0)).center()
+	QTest.mouseMove(view.viewport(), target)
+	app.processEvents()
+	row = view.visualRect(choice.model().index(1, 0))
+	origin = view.viewport().mapTo(choice.popup, row.topLeft())
+	preview = choice.popup.grab().toImage()
+	assert preview.pixelColor(preview.width() // 2, round(control_face(button_paint_rect(choice.popup), widget=choice.popup).top() + 2)).name() == QColor('#393939').darker(110).name()
+	# Hover leaves the menu surface plain, with a three-pixel text underline.
+	assert preview.pixelColor(origin.x() + 2, origin.y() + row.height() // 2).name() == QColor('#393939').darker(110).name()
+	line_y = min(row.bottom() - 3, row.center().y() + view.fontMetrics().height() / 2 + 1)
+	point = view.viewport().mapTo(choice.popup, QPoint(row.left() + 11, round(line_y)))
+	assert preview.pixelColor(point).name() == '#888888'
+	QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=target)
+	assert choice.currentIndex() == 1
+	assert not choice.popup.isVisible()
 app.setProperty('themeBackground', '#b3c4d5')
 choice.showPopup()
 settle_popup()
@@ -109,13 +109,13 @@ assert choice.view().viewport().height() >= 10 * choice.view().sizeHintForRow(0)
 QTest.keyClick(choice.view(), Qt.Key_Escape)
 assert not choice.popup.isVisible()
 with tempfile.TemporaryDirectory() as folder:
-    settings = QSettings(str(Path(folder) / 'settings.ini'), QSettings.IniFormat)
-    dialog = ThemeSettingsDialog(settings)
-    dialog.artwork_theme.setChecked(True)
-    assert not dialog.saved_theme_choice.isEnabled()
-    dialog.artwork_theme.setChecked(False)
-    assert dialog.saved_theme_choice.isEnabled()
-    dialog.reject()
+	settings = QSettings(str(Path(folder) / 'settings.ini'), QSettings.IniFormat)
+	dialog = ThemeSettingsDialog(settings)
+	dialog.artwork_theme.setChecked(True)
+	assert not dialog.saved_theme_choice.isEnabled()
+	dialog.artwork_theme.setChecked(False)
+	assert dialog.saved_theme_choice.isEnabled()
+	dialog.reject()
 window.move(screen.left() + 20, screen.top() + 40)
 app.processEvents()
 choice.showPopup()
@@ -125,8 +125,8 @@ assert choice.popup.y() < choice.popup_final.y()
 assert choice.popup.mask().boundingRect().top() + choice.popup.y() >= below
 travel = []
 while choice.drop.moving:
-    travel.append(choice.popup.y() - choice.popup_final.y())
-    QTest.qWait(8)
+	travel.append(choice.popup.y() - choice.popup_final.y())
+	QTest.qWait(8)
 assert travel and travel[0] < 0 and max(travel) > 0, travel
 assert choice.popup.pos() == choice.popup_final.topLeft()
 assert choice.popup.mask().boundingRect().top() + choice.popup.y() == choice.popup_edge
@@ -134,21 +134,21 @@ from themes import control_silhouette
 outline = control_silhouette(choice, button_paint_rect(choice))
 corner = choice.mapToGlobal(QPoint()) - choice.popup.pos()
 covered = [point for point in (QPoint(round(outline.boundingRect().center().x()), round(outline.boundingRect().bottom()) - 1),)
-           if outline.contains(point)]
+		if outline.contains(point)]
 assert covered
 for point in covered:
-    assert not choice.popup.mask().contains(point + corner), point
+	assert not choice.popup.mask().contains(point + corner), point
 for _ in range(3):
-    press_outside_popup(choice.rect().center())
-    app.processEvents()
-    assert not choice.popup.isVisible()
-    QTest.mouseClick(choice, Qt.LeftButton)
-    app.processEvents()
-    assert not choice.popup.isVisible()
-    QTest.qWait(450)
-    QTest.mouseClick(choice, Qt.LeftButton)
-    settle_popup()
-    assert choice.popup.isVisible()
+	press_outside_popup(choice.rect().center())
+	app.processEvents()
+	assert not choice.popup.isVisible()
+	QTest.mouseClick(choice, Qt.LeftButton)
+	app.processEvents()
+	assert not choice.popup.isVisible()
+	QTest.qWait(450)
+	QTest.mouseClick(choice, Qt.LeftButton)
+	settle_popup()
+	assert choice.popup.isVisible()
 press_outside_popup(QPoint(choice.width() + 200, -200))
 app.processEvents()
 assert not choice.popup.isVisible()

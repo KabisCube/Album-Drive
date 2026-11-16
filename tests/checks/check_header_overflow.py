@@ -14,58 +14,58 @@ app.setProperty('buttonSoundVolume', 0)
 header = OverflowControls(QLabel('24 albums'))
 buttons = []
 for label in ('Album size', 'Sort albums', 'Save theme', 'Refresh', 'Settings'):
-    button = ThemedButton(label)
-    button.setFixedSize(140, 70)
-    header.controls.addWidget(button)
-    buttons.append(button)
+	button = ThemedButton(label)
+	button.setFixedSize(140, 70)
+	header.controls.addWidget(button)
+	buttons.append(button)
 header.show()
 app.processEvents()
 
 
 def settle():
-    while header.pager.spring.moving or header.scroll_left.animating or header.scroll_right.animating:
-        QTest.qWait(16)
-    viewport = header.viewport.rect()
-    shown = 0
-    for button in buttons:
-        if button.isHidden():
-            continue
-        rect = button.geometry().translated(header.content.pos())
-        assert viewport.contains(rect) or not viewport.intersects(rect), (button.text(), rect, viewport)
-        shown += viewport.contains(rect)
-    assert shown >= 1
+	while header.pager.spring.moving or header.scroll_left.animating or header.scroll_right.animating:
+		QTest.qWait(16)
+	viewport = header.viewport.rect()
+	shown = 0
+	for button in buttons:
+		if button.isHidden():
+			continue
+		rect = button.geometry().translated(header.content.pos())
+		assert viewport.contains(rect) or not viewport.intersects(rect), (button.text(), rect, viewport)
+		shown += viewport.contains(rect)
+	assert shown >= 1
 
 
 natural = header.controls.sizeHint().width()
 for width in (natural + 200, natural + 1, natural - 1, 300):
-    header.resize(width, 80)
-    app.processEvents()
-    header.refresh()
-    assert header.count.isVisible() == (width >= natural + header.count.sizeHint().width() + header.controls.spacing())
-    assert header.scroll_right.isVisible() == (width < natural)
-    assert not header.scroll_left.isVisible()
-    for first, second in zip(buttons, buttons[1:]):
-        assert first.geometry().right() < second.geometry().left()
-    if width < natural:
-        settle()
-        QTest.mouseClick(header.scroll_right, Qt.LeftButton)
-        assert header.scroll_offset > 0
-        settle()
-        for _ in range(20):
-            header.scroll(1)
-            settle()
-        assert header.scroll_offset == header.maximum_scroll
-        assert not header.scroll_right.isVisible()
-        assert header.scroll_left.isVisible()
-        header.setFocus(Qt.OtherFocusReason)
-        buttons[0].setFocus(Qt.TabFocusReason)
-        app.processEvents()
-        assert header.scroll_offset == 0
-        buttons[-1].setFocus(Qt.TabFocusReason)
-        app.processEvents()
-        assert header.scroll_offset == header.maximum_scroll
-        header.scroll_offset = 0
-        header.refresh()
+	header.resize(width, 80)
+	app.processEvents()
+	header.refresh()
+	assert header.count.isVisible() == (width >= natural + header.count.sizeHint().width() + header.controls.spacing())
+	assert header.scroll_right.isVisible() == (width < natural)
+	assert not header.scroll_left.isVisible()
+	for first, second in zip(buttons, buttons[1:]):
+		assert first.geometry().right() < second.geometry().left()
+	if width < natural:
+		settle()
+		QTest.mouseClick(header.scroll_right, Qt.LeftButton)
+		assert header.scroll_offset > 0
+		settle()
+		for _ in range(20):
+			header.scroll(1)
+			settle()
+		assert header.scroll_offset == header.maximum_scroll
+		assert not header.scroll_right.isVisible()
+		assert header.scroll_left.isVisible()
+		header.setFocus(Qt.OtherFocusReason)
+		buttons[0].setFocus(Qt.TabFocusReason)
+		app.processEvents()
+		assert header.scroll_offset == 0
+		buttons[-1].setFocus(Qt.TabFocusReason)
+		app.processEvents()
+		assert header.scroll_offset == header.maximum_scroll
+		header.scroll_offset = 0
+		header.refresh()
 header.resize(natural + 200, 80)
 app.processEvents()
 header.refresh()
@@ -81,8 +81,8 @@ assert not any(ghost.geometry().intersects(rect) for ghost in ghosts for rect in
 assert header.scroll_right.isVisible() and header.scroll_right.grow.value < 1
 peak = 0
 while header.scroll_right.animating:
-    peak = max(peak, header.scroll_right.grow.value)
-    QTest.qWait(10)
+	peak = max(peak, header.scroll_right.grow.value)
+	QTest.qWait(10)
 assert 1 < peak < 1.2, peak
 QTest.qWait(100)
 assert not header.findChildren(ScaleGhost)
@@ -118,13 +118,13 @@ assert header.viewport.rect().contains(buttons[-1].geometry().translated(header.
 header.scroll(-1)
 assert header.pager.end == len(buttons)
 for width in (260, 200, 420, 240):
-    header.resize(width, 80)
-    app.processEvents()
-    header.refresh()
-    settle()
-    last = buttons[-1].geometry().translated(header.content.pos() + header.viewport.pos())
-    assert header.rect().contains(last), (width, last)
-    assert header.pager.end == len(buttons) and not header.scroll_left.isVisible() and not header.scroll_right.isVisible()
+	header.resize(width, 80)
+	app.processEvents()
+	header.refresh()
+	settle()
+	last = buttons[-1].geometry().translated(header.content.pos() + header.viewport.pos())
+	assert header.rect().contains(last), (width, last)
+	assert header.pager.end == len(buttons) and not header.scroll_left.isVisible() and not header.scroll_right.isVisible()
 header.resize(300, 80)
 app.processEvents()
 header.refresh()

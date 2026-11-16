@@ -24,142 +24,142 @@ import org.json.JSONObject;
 
 /** Carries playback state from Python to PlaybackService, and button presses back, over a local socket. */
 final class MediaBridge {
-    private static final Handler main = new Handler(Looper.getMainLooper());
-    private static Handler writer;
-    private static Activity activity;
-    private static Context context;
-    private static OutputStream client;
-    private static JSONObject latest;
-    private static boolean listening;
+	private static final Handler main = new Handler(Looper.getMainLooper());
+	private static Handler writer;
+	private static Activity activity;
+	private static Context context;
+	private static OutputStream client;
+	private static JSONObject latest;
+	private static boolean listening;
 
-    private MediaBridge() {
-    }
+	private MediaBridge() {
+	}
 
-    static void start(Activity owner) {
-        activity = owner;
-        context = owner.getApplicationContext();
-        if (listening) {
-            return;
-        }
-        listening = true;
-        HandlerThread thread = new HandlerThread("AlbumDriveMediaWriter");
-        thread.start();
-        writer = new Handler(thread.getLooper());
-        Thread listener = new Thread(MediaBridge::listen);
-        listener.setDaemon(true);
-        listener.start();
-    }
+	static void start(Activity owner) {
+		activity = owner;
+		context = owner.getApplicationContext();
+		if (listening) {
+			return;
+		}
+		listening = true;
+		HandlerThread thread = new HandlerThread("AlbumDriveMediaWriter");
+		thread.start();
+		writer = new Handler(thread.getLooper());
+		Thread listener = new Thread(MediaBridge::listen);
+		listener.setDaemon(true);
+		listener.start();
+	}
 
-    static JSONObject latest() {
-        return latest;
-    }
+	static JSONObject latest() {
+		return latest;
+	}
 
-    static void send(String command) {
-        writer.post(() -> {
-            try {
-                if (client != null) {
-                    client.write((command + "\n").getBytes(StandardCharsets.UTF_8));
-                    client.flush();
-                }
-            } catch (IOException disconnected) {
-                client = null;
-            }
-        });
-    }
+	static void send(String command) {
+		writer.post(() -> {
+			try {
+				if (client != null) {
+					client.write((command + "\n").getBytes(StandardCharsets.UTF_8));
+					client.flush();
+				}
+			} catch (IOException disconnected) {
+				client = null;
+			}
+		});
+	}
 
-    private static void listen() {
-        try (LocalServerSocket server = new LocalServerSocket("albumdrive-media")) {
-            while (true) {
-                try (LocalSocket connection = server.accept()) {
-                    client = connection.getOutputStream();
-                    BufferedReader lines = new BufferedReader(
-                            new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
-                    String line;
-                    while ((line = lines.readLine()) != null) {
-                        String update = line;
-                        main.post(() -> receive(update));
-                    }
-                } catch (IOException disconnected) {
-                    continue;
-                } finally {
-                    client = null;
-                }
-            }
-        } catch (IOException unavailable) {
-            return;
-        }
-    }
+	private static void listen() {
+		try (LocalServerSocket server = new LocalServerSocket("albumdrive-media")) {
+			while (true) {
+				try (LocalSocket connection = server.accept()) {
+					client = connection.getOutputStream();
+					BufferedReader lines = new BufferedReader(
+							new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
+					String line;
+					while ((line = lines.readLine()) != null) {
+						String update = line;
+						main.post(() -> receive(update));
+					}
+				} catch (IOException disconnected) {
+					continue;
+				} finally {
+					client = null;
+				}
+			}
+		} catch (IOException unavailable) {
+			return;
+		}
+	}
 
-    private static void receive(String update) {
-        JSONObject state;
-        try {
-            state = new JSONObject(update);
-        } catch (JSONException malformed) {
-            return;
-        }
-        if (state.has("systemBars")) {
-            paintSystemBars(state.optString("systemBars"));
-            return;
-        }
-        boolean stopped = "stopped".equals(state.optString("state"));
-        latest = stopped ? null : state;
-        PlaybackService service = PlaybackService.instance;
-        if (stopped) {
-            context.stopService(new Intent(context, PlaybackService.class));
-        } else if (service != null) {
-            service.update(state);
-        } else {
-            askForNotifications();
-            try {
-                context.startForegroundService(new Intent(context, PlaybackService.class));
-            } catch (IllegalStateException notAllowedFromBackground) {
-                latest = state;
-            }
-        }
-    }
+	private static void receive(String update) {
+		JSONObject state;
+		try {
+			state = new JSONObject(update);
+		} catch (JSONException malformed) {
+			return;
+		}
+		if (state.has("systemBars")) {
+			paintSystemBars(state.optString("systemBars"));
+			return;
+		}
+		boolean stopped = "stopped".equals(state.optString("state"));
+		latest = stopped ? null : state;
+		PlaybackService service = PlaybackService.instance;
+		if (stopped) {
+			context.stopService(new Intent(context, PlaybackService.class));
+		} else if (service != null) {
+			service.update(state);
+		} else {
+			askForNotifications();
+			try {
+				context.startForegroundService(new Intent(context, PlaybackService.class));
+			} catch (IllegalStateException notAllowedFromBackground) {
+				latest = state;
+			}
+		}
+	}
 
-    /** Edge-to-edge Android shows the window background through transparent system bars, so match the theme. */
-    private static void paintSystemBars(String name) {
-        int color;
-        try {
-            color = Color.parseColor(name);
-        } catch (IllegalArgumentException malformed) {
-            return;
-        }
-        boolean light = (0.299 * Color.red(color) + 0.587 * Color.green(color) + 0.114 * Color.blue(color)) > 150;
-        main.post(() -> {
-            if (activity == null) {
-                return;
-            }
-            Window window = activity.getWindow();
-            window.getDecorView().setBackgroundColor(color);
-            if (Build.VERSION.SDK_INT < 35) {
-                window.setStatusBarColor(color);
-                window.setNavigationBarColor(color);
-            }
-            if (Build.VERSION.SDK_INT >= 29) {
-                window.setNavigationBarContrastEnforced(false);
-                window.setStatusBarContrastEnforced(false);
-            }
-            if (Build.VERSION.SDK_INT >= 30) {
-                WindowInsetsController bars = window.getInsetsController();
-                if (bars != null) {
-                    int appearance = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                            | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
-                    bars.setSystemBarsAppearance(light ? appearance : 0, appearance);
-                }
-            }
-        });
-    }
+	/** Edge-to-edge Android shows the window background through transparent system bars, so match the theme. */
+	private static void paintSystemBars(String name) {
+		int color;
+		try {
+			color = Color.parseColor(name);
+		} catch (IllegalArgumentException malformed) {
+			return;
+		}
+		boolean light = (0.299 * Color.red(color) + 0.587 * Color.green(color) + 0.114 * Color.blue(color)) > 150;
+		main.post(() -> {
+			if (activity == null) {
+				return;
+			}
+			Window window = activity.getWindow();
+			window.getDecorView().setBackgroundColor(color);
+			if (Build.VERSION.SDK_INT < 35) {
+				window.setStatusBarColor(color);
+				window.setNavigationBarColor(color);
+			}
+			if (Build.VERSION.SDK_INT >= 29) {
+				window.setNavigationBarContrastEnforced(false);
+				window.setStatusBarContrastEnforced(false);
+			}
+			if (Build.VERSION.SDK_INT >= 30) {
+				WindowInsetsController bars = window.getInsetsController();
+				if (bars != null) {
+					int appearance = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+							| WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+					bars.setSystemBarsAppearance(light ? appearance : 0, appearance);
+				}
+			}
+		});
+	}
 
-    private static void askForNotifications() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
-                || activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                == PackageManager.PERMISSION_GRANTED
-                || activity.getPreferences(Context.MODE_PRIVATE).getBoolean("notificationsRequested", false)) {
-            return;
-        }
-        activity.getPreferences(Context.MODE_PRIVATE).edit().putBoolean("notificationsRequested", true).apply();
-        activity.requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1008);
-    }
+	private static void askForNotifications() {
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+				|| activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+				== PackageManager.PERMISSION_GRANTED
+				|| activity.getPreferences(Context.MODE_PRIVATE).getBoolean("notificationsRequested", false)) {
+			return;
+		}
+		activity.getPreferences(Context.MODE_PRIVATE).edit().putBoolean("notificationsRequested", true).apply();
+		activity.requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1008);
+	}
 }

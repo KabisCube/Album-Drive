@@ -21,138 +21,138 @@ ALBUM_TITLE_FONT_BOOST = 2
 
 
 def lerp_rect(start, end, amount):
-    return QRectF(*(first + (second - first) * amount for first, second in zip(start.getRect(), end.getRect())))
+	return QRectF(*(first + (second - first) * amount for first, second in zip(start.getRect(), end.getRect())))
 
 
 def artwork_palette(artwork, colors=8, minimum=.025):
-    """Extract cover colors by prominence, excluding transparent pixels."""
-    if not artwork:
-        return ()
-    try:
-        with Image.open(BytesIO(artwork)) as image:
-            image.thumbnail((64, 64))
-            rgba = image.convert('RGBA')
-            data = rgba.get_flattened_data() if hasattr(rgba, 'get_flattened_data') else rgba.getdata()
-            pixels = [pixel[:3] for pixel in data if pixel[3] >= 128]
-        if not pixels:
-            return ()
-        sample = Image.new('RGB', (len(pixels), 1))
-        sample.putdata(pixels)
-        palette_image = sample.quantize(colors=colors, method=Image.Quantize.MEDIANCUT)
-        palette = palette_image.getpalette()
-        # Near-identical shades otherwise occupy most slots on photographic
-        # covers; tiny lettering/noise can then become the only accent choice.
-        groups = []
-        for count, index in sorted(palette_image.getcolors(), reverse=True):
-            rgb = palette[index * 3:index * 3 + 3]
-            group = next((entry for entry in groups
-                          if sum((a - b) ** 2 for a, b in zip(entry[1], rgb)) < 32 ** 2), None)
-            if group is None:
-                groups.append([count, rgb])
-            else:
-                total = group[0] + count
-                group[1] = [round((a * group[0] + b * count) / total) for a, b in zip(group[1], rgb)]
-                group[0] = total
-        return tuple(QColor(*rgb) for count, rgb in sorted(groups, key=lambda entry: entry[0], reverse=True)
-                     if count >= len(pixels) * minimum)
-    except (OSError, ValueError, Image.DecompressionBombError):
-        return ()
+	"""Extract cover colors by prominence, excluding transparent pixels."""
+	if not artwork:
+		return ()
+	try:
+		with Image.open(BytesIO(artwork)) as image:
+			image.thumbnail((64, 64))
+			rgba = image.convert('RGBA')
+			data = rgba.get_flattened_data() if hasattr(rgba, 'get_flattened_data') else rgba.getdata()
+			pixels = [pixel[:3] for pixel in data if pixel[3] >= 128]
+		if not pixels:
+			return ()
+		sample = Image.new('RGB', (len(pixels), 1))
+		sample.putdata(pixels)
+		palette_image = sample.quantize(colors=colors, method=Image.Quantize.MEDIANCUT)
+		palette = palette_image.getpalette()
+		# Near-identical shades otherwise occupy most slots on photographic
+		# covers; tiny lettering/noise can then become the only accent choice.
+		groups = []
+		for count, index in sorted(palette_image.getcolors(), reverse=True):
+			rgb = palette[index * 3:index * 3 + 3]
+			group = next((entry for entry in groups
+						if sum((a - b) ** 2 for a, b in zip(entry[1], rgb)) < 32 ** 2), None)
+			if group is None:
+				groups.append([count, rgb])
+			else:
+				total = group[0] + count
+				group[1] = [round((a * group[0] + b * count) / total) for a, b in zip(group[1], rgb)]
+				group[0] = total
+		return tuple(QColor(*rgb) for count, rgb in sorted(groups, key=lambda entry: entry[0], reverse=True)
+					if count >= len(pixels) * minimum)
+	except (OSError, ValueError, Image.DecompressionBombError):
+		return ()
 
 
 def readable_paper_text(background, preferred, palette=()):
-    if palette:
-        return artwork_text_color((background,), palette)
-    if color_contrast(background, preferred) >= 4.5:
-        return preferred
-    return artwork_text_color((background,), (preferred,))
+	if palette:
+		return artwork_text_color((background,), palette)
+	if color_contrast(background, preferred) >= 4.5:
+		return preferred
+	return artwork_text_color((background,), (preferred,))
 
 
 class TrackNumberDelegate(QStyledItemDelegate):
-    def paint(self, painter, option, index):
-        painter.save()
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setRenderHint(QPainter.TextAntialiasing)
-        table = self.parent()
-        color = QColor(table.property('paperForegroundColor') or
-                       QApplication.instance().property('paperTextColor') or '#24383f')
-        center = QRectF(option.rect).center()
-        text = str(index.data(Qt.DisplayRole) or '')
-        font = QFont(option.font)
-        bounds = QFontMetricsF(font).tightBoundingRect(text)
-        width, height = max(1, option.rect.width() - 24), max(1, option.rect.height() - 6)
-        size = QFontInfo(font).pixelSize()
-        while size > 1 and (bounds.width() > width or bounds.height() > height):
-            factor = min(width / max(1, bounds.width()), height / max(1, bounds.height()))
-            size = max(1, min(size - 1, int(size * factor)))
-            font.setPixelSize(size)
-            bounds = QFontMetricsF(font).tightBoundingRect(text)
-        ratio = painter.device().devicePixelRatioF()
-        origin = QPointF(round((option.rect.left() + 12 - bounds.left()) * ratio) / ratio,
-                         round((center.y() - bounds.center().y()) * ratio) / ratio)
-        center = bounds.translated(origin).center()
-        painter.setFont(font)
-        if option.state & QStyle.State_Selected:
-            painter.setPen(QPen(color, 3))
-            painter.setBrush(Qt.NoBrush)
-            content_height = max(44, QFontMetricsF(option.font).height() + 12)
-            radius = min(content_height / 2 - 3, option.rect.height() / 2 - 3,
-                         center.x() - option.rect.left() - 2,
-                         option.rect.right() - center.x() - 2)
-            painter.drawEllipse(center, radius, radius)
-        painter.setPen(color)
-        if index.data(PLAYING_ROLE):
-            triangle = QPainterPath()
-            triangle.moveTo(center.x() - 3, center.y() - 5)
-            triangle.lineTo(center.x() + 5, center.y())
-            triangle.lineTo(center.x() - 3, center.y() + 5)
-            triangle.closeSubpath()
-            painter.setBrush(color)
-            painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            painter.drawPath(triangle)
-        else:
-            painter.setPen(color)
-            painter.drawText(origin, text)
-        painter.restore()
+	def paint(self, painter, option, index):
+		painter.save()
+		painter.setRenderHint(QPainter.Antialiasing)
+		painter.setRenderHint(QPainter.TextAntialiasing)
+		table = self.parent()
+		color = QColor(table.property('paperForegroundColor') or
+					QApplication.instance().property('paperTextColor') or '#24383f')
+		center = QRectF(option.rect).center()
+		text = str(index.data(Qt.DisplayRole) or '')
+		font = QFont(option.font)
+		bounds = QFontMetricsF(font).tightBoundingRect(text)
+		width, height = max(1, option.rect.width() - 24), max(1, option.rect.height() - 6)
+		size = QFontInfo(font).pixelSize()
+		while size > 1 and (bounds.width() > width or bounds.height() > height):
+			factor = min(width / max(1, bounds.width()), height / max(1, bounds.height()))
+			size = max(1, min(size - 1, int(size * factor)))
+			font.setPixelSize(size)
+			bounds = QFontMetricsF(font).tightBoundingRect(text)
+		ratio = painter.device().devicePixelRatioF()
+		origin = QPointF(round((option.rect.left() + 12 - bounds.left()) * ratio) / ratio,
+						round((center.y() - bounds.center().y()) * ratio) / ratio)
+		center = bounds.translated(origin).center()
+		painter.setFont(font)
+		if option.state & QStyle.State_Selected:
+			painter.setPen(QPen(color, 3))
+			painter.setBrush(Qt.NoBrush)
+			content_height = max(44, QFontMetricsF(option.font).height() + 12)
+			radius = min(content_height / 2 - 3, option.rect.height() / 2 - 3,
+						center.x() - option.rect.left() - 2,
+						option.rect.right() - center.x() - 2)
+			painter.drawEllipse(center, radius, radius)
+		painter.setPen(color)
+		if index.data(PLAYING_ROLE):
+			triangle = QPainterPath()
+			triangle.moveTo(center.x() - 3, center.y() - 5)
+			triangle.lineTo(center.x() + 5, center.y())
+			triangle.lineTo(center.x() - 3, center.y() + 5)
+			triangle.closeSubpath()
+			painter.setBrush(color)
+			painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+			painter.drawPath(triangle)
+		else:
+			painter.setPen(color)
+			painter.drawText(origin, text)
+		painter.restore()
 
 
 class TrackTitleDelegate(QStyledItemDelegate):
-    def paint(self, painter, option, index):
-        plain = QStyleOptionViewItem(option)
-        plain.state &= ~(QStyle.State_Selected | QStyle.State_HasFocus | QStyle.State_MouseOver)
-        super().paint(painter, plain, index)
+	def paint(self, painter, option, index):
+		plain = QStyleOptionViewItem(option)
+		plain.state &= ~(QStyle.State_Selected | QStyle.State_HasFocus | QStyle.State_MouseOver)
+		super().paint(painter, plain, index)
 
 
 class CaseFront(QWidget):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.pixmap = QPixmap()
-        self.sheen_key = ''
-        self.lighting_source = None
-        self.casts_shadow = True
-        self.setStyleSheet('background: transparent;')
+	def __init__(self, parent):
+		super().__init__(parent)
+		self.pixmap = QPixmap()
+		self.sheen_key = ''
+		self.lighting_source = None
+		self.casts_shadow = True
+		self.setStyleSheet('background: transparent;')
 
-    def image_rect(self):
-        return fitted_case_rect(self.rect())
+	def image_rect(self):
+		return fitted_case_rect(self.rect())
 
-    def visible_face(self):
-        return visible_case_face(QRectF(self.rect()))
+	def visible_face(self):
+		return visible_case_face(QRectF(self.rect()))
 
-    def paintEvent(self, event):
-        if self.pixmap.isNull():
-            return
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        target = self.image_rect()
-        lighting = None
-        if self.lighting_source is not None and isValid(self.lighting_source):
-            origin = self.mapFromGlobal(self.lighting_source.mapToGlobal(QPoint()))
-            lighting = QRectF(self.lighting_source.rect()).translated(origin)
-        paint_cd_case(painter, self, target, self.pixmap, self.sheen_key, visible=lighting, shadow=self.casts_shadow)
+	def paintEvent(self, event):
+		if self.pixmap.isNull():
+			return
+		painter = QPainter(self)
+		painter.setRenderHint(QPainter.SmoothPixmapTransform)
+		target = self.image_rect()
+		lighting = None
+		if self.lighting_source is not None and isValid(self.lighting_source):
+			origin = self.mapFromGlobal(self.lighting_source.mapToGlobal(QPoint()))
+			lighting = QRectF(self.lighting_source.rect()).translated(origin)
+		paint_cd_case(painter, self, target, self.pixmap, self.sheen_key, visible=lighting, shadow=self.casts_shadow)
 
 
 def visible_case_face(rect):
-    """Where the case face is drawn: its depth lifts it CASE_DEPTH above the fitted rect, so the thickness ends at its bottom."""
-    return fitted_case_rect(rect).translated(0, -CASE_DEPTH)
+	"""Where the case face is drawn: its depth lifts it CASE_DEPTH above the fitted rect, so the thickness ends at its bottom."""
+	return fitted_case_rect(rect).translated(0, -CASE_DEPTH)
 
 
 TRACK_LIST_GAP = 12
@@ -165,68 +165,68 @@ TRACK_SCROLLBAR_GAP = 1
 
 
 def track_list_border():
-    return 8 if running_on_android() else 13
+	return 8 if running_on_android() else 13
 
 
 class TrackListBackground(QWidget):
-    def face(self):
-        return control_face(button_paint_rect(self), widget=self)
+	def face(self):
+		return control_face(button_paint_rect(self), widget=self)
 
-    def shadow(self, shadow_offset):
-        rect = button_paint_rect(self)
-        face = self.face()
-        offset = control_offset(self, rect, ui_depth())
-        radius = corner_radius(12, face.width(), face.height())
-        return control_shadow_body(face.width(), face.height(), radius, offset.x(), offset.y(),
-                                   shadow_offset.x(), shadow_offset.y()).translated(face.topLeft())
+	def shadow(self, shadow_offset):
+		rect = button_paint_rect(self)
+		face = self.face()
+		offset = control_offset(self, rect, ui_depth())
+		radius = corner_radius(12, face.width(), face.height())
+		return control_shadow_body(face.width(), face.height(), radius, offset.x(), offset.y(),
+								shadow_offset.x(), shadow_offset.y()).translated(face.topLeft())
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        background = QColor(self.property('paperBackgroundColor') or '#f2efdf')
-        # The border and thickness use the panel shade the file browser would have in the opened album's theme.
-        background_of_theme = self.property('paperThemeBackground') or QApplication.instance().property('themeBackground')
-        border = QColor(background_of_theme or '#393939').darker(110)
-        face = paint_control(painter, self, button_paint_rect(self), border, shadow=False)
-        width = track_list_border()
-        outer = corner_radius(12, face.width(), face.height())
-        radius = max(outer - width, outer * .5)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(background)
-        paper = face.adjusted(width, width, -width, -width)
-        title = self.findChild(QLabel, 'bookletAlbumTitle')
-        if title is not None and not title.isHidden():
-            # The album name sits on the border, centered in its own band above the paper.
-            band = title.geometry()
-            paper.setTop(band.bottom() + 1 + band.top() - face.top())
-        painter.drawRoundedRect(paper, radius, radius)
+	def paintEvent(self, event):
+		painter = QPainter(self)
+		painter.setRenderHint(QPainter.Antialiasing)
+		background = QColor(self.property('paperBackgroundColor') or '#f2efdf')
+		# The border and thickness use the panel shade the file browser would have in the opened album's theme.
+		background_of_theme = self.property('paperThemeBackground') or QApplication.instance().property('themeBackground')
+		border = QColor(background_of_theme or '#393939').darker(110)
+		face = paint_control(painter, self, button_paint_rect(self), border, shadow=False)
+		width = track_list_border()
+		outer = corner_radius(12, face.width(), face.height())
+		radius = max(outer - width, outer * .5)
+		painter.setPen(Qt.NoPen)
+		painter.setBrush(background)
+		paper = face.adjusted(width, width, -width, -width)
+		title = self.findChild(QLabel, 'bookletAlbumTitle')
+		if title is not None and not title.isHidden():
+			# The album name sits on the border, centered in its own band above the paper.
+			band = title.geometry()
+			paper.setTop(band.bottom() + 1 + band.top() - face.top())
+		painter.drawRoundedRect(paper, radius, radius)
 
 
 class AlbumPresentation(QWidget):
-    dismissed = Signal()
+	dismissed = Signal()
 
-    def __init__(self):
-        super().__init__()
-        self.setObjectName('albumPresentation')
-        self.setStyleSheet('QWidget#albumPresentation { background: transparent; }')
-        self.setMinimumSize(160, 180)
-        self.progress = 1.0
-        self.paper_background = None
-        self.paper_palette = ()
-        self.artwork_text_color = None
-        self.paper_button_color = None
-        self.paper_background_accent_color = None
-        self.paper_theme_background = None
-        self.uses_global_text = True
-        self.paper_fade = QVariantAnimation(self)
-        self.paper_fade.setStartValue(0.0)
-        self.paper_fade.setEndValue(1.0)
-        self.paper_fade.valueChanged.connect(self.advance_paper_fade)
-        self.paper_fade_states = None
-        self.paper_fade_frame = 0
-        self.booklet = TrackListBackground(self)
-        self.booklet.setObjectName('booklet')
-        self.booklet_style = '''
+	def __init__(self):
+		super().__init__()
+		self.setObjectName('albumPresentation')
+		self.setStyleSheet('QWidget#albumPresentation { background: transparent; }')
+		self.setMinimumSize(160, 180)
+		self.progress = 1.0
+		self.paper_background = None
+		self.paper_palette = ()
+		self.artwork_text_color = None
+		self.paper_button_color = None
+		self.paper_background_accent_color = None
+		self.paper_theme_background = None
+		self.uses_global_text = True
+		self.paper_fade = QVariantAnimation(self)
+		self.paper_fade.setStartValue(0.0)
+		self.paper_fade.setEndValue(1.0)
+		self.paper_fade.valueChanged.connect(self.advance_paper_fade)
+		self.paper_fade_states = None
+		self.paper_fade_frame = 0
+		self.booklet = TrackListBackground(self)
+		self.booklet.setObjectName('booklet')
+		self.booklet_style = '''
             QWidget#booklet { background: transparent; border: none; }
             QWidget#booklet QTableWidget { background: #f2efdf; color: #24383f;
                 alternate-background-color: #f2efdf; border: none; }
@@ -236,287 +236,287 @@ class AlbumPresentation(QWidget):
             QWidget#booklet QScrollBar { background: #f2efdf; }
             QWidget#booklet QAbstractScrollArea::corner { background: #f2efdf; }
         '''
-        self.update_theme()
-        layout = QVBoxLayout(self.booklet)
-        layout.setContentsMargins(16, 16, 16, 14)
-        layout.setSpacing(7)
-        self.album_title = QLabel()
-        self.album_title.setObjectName('bookletAlbumTitle')
-        self.album_title.setAlignment(Qt.AlignCenter)
-        self.album_title.setTextFormat(Qt.PlainText)
-        self.album_title.setWordWrap(True)
-        wrap_freely(self.album_title)
-        self.album_title.hide()
-        layout.addWidget(self.album_title)
-        self.table = QTableWidget(0, 2)
-        self.table.setItemDelegateForColumn(0, TrackNumberDelegate(self.table))
-        self.table.setItemDelegateForColumn(1, TrackTitleDelegate(self.table))
-        self.table.setAccessibleName('Paper album track list')
-        self.table.verticalHeader().setDefaultSectionSize(max(42, self.table.fontMetrics().height() + 10))
-        layout.addWidget(self.table, 1)
-        self.paper_opacity = QGraphicsOpacityEffect(self.booklet)
-        self.paper_opacity.setOpacity(1)
-        self.booklet.setGraphicsEffect(self.paper_opacity)
-        self.front = CaseFront(self)
-        self.front.casts_shadow = False
-        self.animation = QVariantAnimation(self)
-        self.animation.setDuration(420)
-        self.animation.setStartValue(0.0)
-        self.animation.setEndValue(1.0)
-        self.animation.setEasingCurve(QEasingCurve.OutCubic)
-        self.animation.valueChanged.connect(self.advance)
-        self.animation.finished.connect(self.finish)
-        self.portrait_mix = None
-        self.portrait_target = None
-        self.paper_face_insets = (0.0, 0.0)
-        self.paper_face_top = 0.0
-        self.paper_face_bottom = 0.0
-        self.layout_animation = QVariantAnimation(self)
-        self.layout_animation.setDuration(350)
-        self.layout_animation.setEasingCurve(QEasingCurve.InOutCubic)
-        self.layout_animation.valueChanged.connect(self.advance_layout)
-        self.update_theme()
+		self.update_theme()
+		layout = QVBoxLayout(self.booklet)
+		layout.setContentsMargins(16, 16, 16, 14)
+		layout.setSpacing(7)
+		self.album_title = QLabel()
+		self.album_title.setObjectName('bookletAlbumTitle')
+		self.album_title.setAlignment(Qt.AlignCenter)
+		self.album_title.setTextFormat(Qt.PlainText)
+		self.album_title.setWordWrap(True)
+		wrap_freely(self.album_title)
+		self.album_title.hide()
+		layout.addWidget(self.album_title)
+		self.table = QTableWidget(0, 2)
+		self.table.setItemDelegateForColumn(0, TrackNumberDelegate(self.table))
+		self.table.setItemDelegateForColumn(1, TrackTitleDelegate(self.table))
+		self.table.setAccessibleName('Paper album track list')
+		self.table.verticalHeader().setDefaultSectionSize(max(42, self.table.fontMetrics().height() + 10))
+		layout.addWidget(self.table, 1)
+		self.paper_opacity = QGraphicsOpacityEffect(self.booklet)
+		self.paper_opacity.setOpacity(1)
+		self.booklet.setGraphicsEffect(self.paper_opacity)
+		self.front = CaseFront(self)
+		self.front.casts_shadow = False
+		self.animation = QVariantAnimation(self)
+		self.animation.setDuration(420)
+		self.animation.setStartValue(0.0)
+		self.animation.setEndValue(1.0)
+		self.animation.setEasingCurve(QEasingCurve.OutCubic)
+		self.animation.valueChanged.connect(self.advance)
+		self.animation.finished.connect(self.finish)
+		self.portrait_mix = None
+		self.portrait_target = None
+		self.paper_face_insets = (0.0, 0.0)
+		self.paper_face_top = 0.0
+		self.paper_face_bottom = 0.0
+		self.layout_animation = QVariantAnimation(self)
+		self.layout_animation.setDuration(350)
+		self.layout_animation.setEasingCurve(QEasingCurve.InOutCubic)
+		self.layout_animation.valueChanged.connect(self.advance_layout)
+		self.update_theme()
 
-    def reveal(self, front):
-        self.animation.stop()
-        self.front.pixmap = front
-        self.advance(0.0)
-        self.front.raise_()
-        self.animation.start()
+	def reveal(self, front):
+		self.animation.stop()
+		self.front.pixmap = front
+		self.advance(0.0)
+		self.front.raise_()
+		self.animation.start()
 
-    def advance(self, progress):
-        self.progress = float(progress)
-        self.paper_opacity.setOpacity(min(1.0, self.progress * 4))
-        self.arrange()
+	def advance(self, progress):
+		self.progress = float(progress)
+		self.paper_opacity.setOpacity(min(1.0, self.progress * 4))
+		self.arrange()
 
-    def finish(self):
-        self.advance(1.0)
+	def finish(self):
+		self.advance(1.0)
 
-    def advance_layout(self, amount):
-        self.portrait_mix = float(amount)
-        self.arrange()
+	def advance_layout(self, amount):
+		self.portrait_mix = float(amount)
+		self.arrange()
 
-    def set_album_title(self, title):
-        self.album_title.setText(title)
-        self.album_title.setVisible(bool(title))
-        self.arrange()
+	def set_album_title(self, title):
+		self.album_title.setText(title)
+		self.album_title.setVisible(bool(title))
+		self.arrange()
 
-    def set_artwork(self, artwork, theme_colors=None, fade_ms=0):
-        self.paper_fade.stop()
-        start = self.paper_state()
-        self.paper_palette = tuple(comfortable_color(color) for color in artwork_palette(artwork))
-        paper = theme_colors.get('paperBackgroundColor') if theme_colors else None
-        text_color = (theme_colors.get('paperTextColor') or theme_colors.get('textColor')) if theme_colors else None
-        color = QColor(text_color) if text_color else QColor()
-        target = {
-            'paper_background': QColor(paper) if paper else (self.paper_palette[0] if self.paper_palette else None),
-            'artwork_text_color': color if color.isValid() else None,
-            'paper_button_color': theme_colors.get('themeAccent') if theme_colors else None,
-            'paper_background_accent_color': theme_colors.get('themeBackgroundAccent') if theme_colors else None,
-            'paper_theme_background': theme_colors.get('themeBackground') if theme_colors else None,
-        }
-        if fade_ms > 0 and self.isVisible() and start['paper_background'] is not None and target['paper_background'] is not None:
-            self.paper_fade_states = start, target
-            self.paper_fade_frame = -PAPER_FADE_STEP_MS
-            self.paper_fade.setDuration(fade_ms)
-            self.paper_fade.start()
-        else:
-            self.apply_paper_state(target)
+	def set_artwork(self, artwork, theme_colors=None, fade_ms=0):
+		self.paper_fade.stop()
+		start = self.paper_state()
+		self.paper_palette = tuple(comfortable_color(color) for color in artwork_palette(artwork))
+		paper = theme_colors.get('paperBackgroundColor') if theme_colors else None
+		text_color = (theme_colors.get('paperTextColor') or theme_colors.get('textColor')) if theme_colors else None
+		color = QColor(text_color) if text_color else QColor()
+		target = {
+			'paper_background': QColor(paper) if paper else (self.paper_palette[0] if self.paper_palette else None),
+			'artwork_text_color': color if color.isValid() else None,
+			'paper_button_color': theme_colors.get('themeAccent') if theme_colors else None,
+			'paper_background_accent_color': theme_colors.get('themeBackgroundAccent') if theme_colors else None,
+			'paper_theme_background': theme_colors.get('themeBackground') if theme_colors else None,
+		}
+		if fade_ms > 0 and self.isVisible() and start['paper_background'] is not None and target['paper_background'] is not None:
+			self.paper_fade_states = start, target
+			self.paper_fade_frame = -PAPER_FADE_STEP_MS
+			self.paper_fade.setDuration(fade_ms)
+			self.paper_fade.start()
+		else:
+			self.apply_paper_state(target)
 
-    def paper_state(self):
-        return {key: getattr(self, key) for key in ('paper_background', 'artwork_text_color', 'paper_button_color',
-                                                    'paper_background_accent_color', 'paper_theme_background')}
+	def paper_state(self):
+		return {key: getattr(self, key) for key in ('paper_background', 'artwork_text_color', 'paper_button_color',
+													'paper_background_accent_color', 'paper_theme_background')}
 
-    def apply_paper_state(self, state):
-        for key, value in state.items():
-            setattr(self, key, value)
-        self.uses_global_text = self.artwork_text_color is None and self.paper_background is None
-        self.update_theme()
+	def apply_paper_state(self, state):
+		for key, value in state.items():
+			setattr(self, key, value)
+		self.uses_global_text = self.artwork_text_color is None and self.paper_background is None
+		self.update_theme()
 
-    def advance_paper_fade(self, amount):
-        amount = float(amount)
-        elapsed = self.paper_fade.currentTime()
-        if amount < 1 and elapsed - self.paper_fade_frame < PAPER_FADE_STEP_MS:
-            return
-        self.paper_fade_frame = elapsed
-        start, target = self.paper_fade_states
-        state = {}
-        for key, end in target.items():
-            begin = start[key]
-            first, second = QColor(begin) if begin else QColor(), QColor(end) if end else QColor()
-            if amount < 1 and first.isValid() and second.isValid():
-                mixed = QColor(*(round(a + (b - a) * amount) for a, b in zip(first.getRgb()[:3], second.getRgb()[:3])))
-                state[key] = mixed if isinstance(end, QColor) else mixed.name()
-            else:
-                state[key] = end if amount >= 1 or not begin else begin
-        self.apply_paper_state(state)
+	def advance_paper_fade(self, amount):
+		amount = float(amount)
+		elapsed = self.paper_fade.currentTime()
+		if amount < 1 and elapsed - self.paper_fade_frame < PAPER_FADE_STEP_MS:
+			return
+		self.paper_fade_frame = elapsed
+		start, target = self.paper_fade_states
+		state = {}
+		for key, end in target.items():
+			begin = start[key]
+			first, second = QColor(begin) if begin else QColor(), QColor(end) if end else QColor()
+			if amount < 1 and first.isValid() and second.isValid():
+				mixed = QColor(*(round(a + (b - a) * amount) for a, b in zip(first.getRgb()[:3], second.getRgb()[:3])))
+				state[key] = mixed if isinstance(end, QColor) else mixed.name()
+			else:
+				state[key] = end if amount >= 1 or not begin else begin
+		self.apply_paper_state(state)
 
-    def update_theme(self):
-        app = QApplication.instance()
-        families = font_family_css(str(app.property('trackListFamily') or app.font().family()))
-        background = self.paper_background or QColor('#f2efdf')
-        preferred = self.artwork_text_color or QColor(app.property('paperTextColor') or '#24383f')
-        foreground = (preferred if self.artwork_text_color is not None or self.paper_background is None
-                      else readable_paper_text(background, preferred, self.paper_palette))
-        style = self.booklet_style.replace('#f2efdf', background.name()).replace('#24383f', foreground.name())
-        if self.paper_background is not None:
-            style = style.replace('#dedfd2', background.name())
-        size = app.property('trackListFontSize') or NUMERIC_DEFAULTS['track_list_font_size']
-        style += f'QTableWidget {{ font-family: {families}; font-size: {size}px; font-weight: normal; font-style: normal; }}'
-        style += (f'QLabel#bookletAlbumTitle {{ font-family: {families}; font-size: {size + ALBUM_TITLE_FONT_BOOST}px; '
-                  f'font-weight: normal; font-style: normal; color: {foreground.name()}; background: transparent; }}')
-        self.booklet.setStyleSheet(style)
-        self.booklet.setProperty('paperBackgroundColor', background.name())
-        self.booklet.setProperty('paperThemeBackground', self.paper_theme_background)
-        self.booklet.update()
-        if hasattr(self, 'table'):
-            self.table.setProperty('paperBackgroundColor', background.name())
-            self.table.setProperty('paperForegroundColor', foreground.name())
-            self.table.setProperty('paperButtonColor', self.paper_button_color)
-            self.table.setProperty('paperBackgroundAccentColor', self.paper_background_accent_color)
-            self.table.viewport().update()
-            self.table.verticalScrollBar().update()
-            self.table.horizontalScrollBar().update()
-            row_height = max(44, self.table.fontMetrics().height() + 12)
-            spacing = app.property('trackListVerticalSpacing') or 0
-            metrics = QFontMetricsF(self.table.font())
-            minimum = max(20, int(metrics.tightBoundingRect('AgjÉ0123456789').height()) + 8)
-            self.table.verticalHeader().setMinimumSectionSize(minimum)
-            self.table.verticalHeader().setDefaultSectionSize(max(minimum, row_height + spacing))
-            # Reserve the full chosen font size for every two-digit index.
-            number_width = max(metrics.tightBoundingRect(str(number)).width() for number in range(100))
-            self.table.setColumnWidth(0, max(row_height, int(number_width + 25)))
-        if hasattr(self, 'front'):
-            self.arrange()
+	def update_theme(self):
+		app = QApplication.instance()
+		families = font_family_css(str(app.property('trackListFamily') or app.font().family()))
+		background = self.paper_background or QColor('#f2efdf')
+		preferred = self.artwork_text_color or QColor(app.property('paperTextColor') or '#24383f')
+		foreground = (preferred if self.artwork_text_color is not None or self.paper_background is None
+					else readable_paper_text(background, preferred, self.paper_palette))
+		style = self.booklet_style.replace('#f2efdf', background.name()).replace('#24383f', foreground.name())
+		if self.paper_background is not None:
+			style = style.replace('#dedfd2', background.name())
+		size = app.property('trackListFontSize') or NUMERIC_DEFAULTS['track_list_font_size']
+		style += f'QTableWidget {{ font-family: {families}; font-size: {size}px; font-weight: normal; font-style: normal; }}'
+		style += (f'QLabel#bookletAlbumTitle {{ font-family: {families}; font-size: {size + ALBUM_TITLE_FONT_BOOST}px; '
+				f'font-weight: normal; font-style: normal; color: {foreground.name()}; background: transparent; }}')
+		self.booklet.setStyleSheet(style)
+		self.booklet.setProperty('paperBackgroundColor', background.name())
+		self.booklet.setProperty('paperThemeBackground', self.paper_theme_background)
+		self.booklet.update()
+		if hasattr(self, 'table'):
+			self.table.setProperty('paperBackgroundColor', background.name())
+			self.table.setProperty('paperForegroundColor', foreground.name())
+			self.table.setProperty('paperButtonColor', self.paper_button_color)
+			self.table.setProperty('paperBackgroundAccentColor', self.paper_background_accent_color)
+			self.table.viewport().update()
+			self.table.verticalScrollBar().update()
+			self.table.horizontalScrollBar().update()
+			row_height = max(44, self.table.fontMetrics().height() + 12)
+			spacing = app.property('trackListVerticalSpacing') or 0
+			metrics = QFontMetricsF(self.table.font())
+			minimum = max(20, int(metrics.tightBoundingRect('AgjÉ0123456789').height()) + 8)
+			self.table.verticalHeader().setMinimumSectionSize(minimum)
+			self.table.verticalHeader().setDefaultSectionSize(max(minimum, row_height + spacing))
+			# Reserve the full chosen font size for every two-digit index.
+			number_width = max(metrics.tightBoundingRect(str(number)).width() for number in range(100))
+			self.table.setColumnWidth(0, max(row_height, int(number_width + 25)))
+		if hasattr(self, 'front'):
+			self.arrange()
 
-    def hideEvent(self, event):
-        if self.paper_fade.state() == QVariantAnimation.Running:
-            self.paper_fade.stop()
-            self.apply_paper_state(self.paper_fade_states[1])
-        self.animation.stop()
-        self.layout_animation.stop()
-        self.finish()
-        super().hideEvent(event)
+	def hideEvent(self, event):
+		if self.paper_fade.state() == QVariantAnimation.Running:
+			self.paper_fade.stop()
+			self.apply_paper_state(self.paper_fade_states[1])
+		self.animation.stop()
+		self.layout_animation.stop()
+		self.finish()
+		super().hideEvent(event)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.arrange()
+	def resizeEvent(self, event):
+		super().resizeEvent(event)
+		self.arrange()
 
-    def mouseReleaseEvent(self, event):
-        point = event.position().toPoint()
-        if event.button() == Qt.LeftButton:
-            if not (self.front.geometry().contains(point) or self.booklet.geometry().contains(point)):
-                self.dismissed.emit()
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
+	def mouseReleaseEvent(self, event):
+		point = event.position().toPoint()
+		if event.button() == Qt.LeftButton:
+			if not (self.front.geometry().contains(point) or self.booklet.geometry().contains(point)):
+				self.dismissed.emit()
+			event.accept()
+		else:
+			super().mouseReleaseEvent(event)
 
-    def layout_rects(self, portrait):
-        width = max(1, min(self.width() - 20, 1200))
-        available_height = max(1, self.height() - 16)
-        scale = .94 + .06 * self.progress
-        if portrait:
-            case_width = min(width - 12, available_height * .52 * CASE_WIDTH / CASE_HEIGHT, 640)
-            case_height = case_width * CASE_HEIGHT / CASE_WIDTH
-            left = (self.width() - case_width) / 2
-            top = 8
-            # Line the track list's front face up with the case face above it, one gap below the case's thickness.
-            case_face = visible_case_face(QRectF(left, top - 4 * self.progress, case_width, case_height))
-            paper_left = case_face.left() - self.paper_face_insets[0]
-            paper_width = case_face.width() + sum(self.paper_face_insets)
-            finish = case_face.bottom() + CASE_DEPTH + TRACK_LIST_GAP - self.paper_face_top
-            paper_height = max(1, top + available_height - 4 - finish)
-            front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
-            front_rect.moveCenter(QRectF(left, top, case_width, case_height).center())
-            start = finish - paper_height - 28
-            paper_y = start + (finish - start) * self.progress
-            paper_rect = QRectF(paper_left, paper_y, paper_width, paper_height)
-        else:
-            case_width = min(width * .55, available_height * CASE_WIDTH / CASE_HEIGHT, 640)
-            case_height = case_width * CASE_HEIGHT / CASE_WIDTH
-            paper_width = min(width - case_width + 8, case_width * .9)
-            left = (self.width() - case_width - paper_width + 8) / 2
-            # The track list spans the full height of the case face beside it.
-            case_top = 8 + (available_height - case_height) / 2
-            case_face = visible_case_face(QRectF(left, case_top - 4 * self.progress, case_width, case_height))
-            top = case_face.top() - self.paper_face_top
-            paper_height = case_face.height() + self.paper_face_top + self.paper_face_bottom
-            front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
-            front_rect.moveCenter(QRectF(left, case_top, case_width, case_height).center())
-            finish = case_face.right() + TRACK_LIST_GAP - self.paper_face_insets[0]
-            start = finish - paper_width - 16
-            paper_x = start + (finish - start) * self.progress
-            paper_rect = QRectF(paper_x, top, paper_width, paper_height)
-        front_rect.translate(0, 6 * (1 - self.progress) - 4 * self.progress)
-        extent = paper_rect.height() if portrait else paper_rect.width()
-        # Hide the paper only where it is still tucked under the visible case, not under the case's margins.
-        case_face = visible_case_face(front_rect)
-        edge = (case_face.bottom() + CASE_DEPTH - paper_rect.y() if portrait else case_face.right() - paper_rect.x())
-        cut = max(0, min(extent, edge))
-        visible = (QRectF(0, cut, paper_width, paper_height - cut) if portrait else
-                   QRectF(cut, 0, paper_width - cut, paper_height))
-        return front_rect, paper_rect, visible
+	def layout_rects(self, portrait):
+		width = max(1, min(self.width() - 20, 1200))
+		available_height = max(1, self.height() - 16)
+		scale = .94 + .06 * self.progress
+		if portrait:
+			case_width = min(width - 12, available_height * .52 * CASE_WIDTH / CASE_HEIGHT, 640)
+			case_height = case_width * CASE_HEIGHT / CASE_WIDTH
+			left = (self.width() - case_width) / 2
+			top = 8
+			# Line the track list's front face up with the case face above it, one gap below the case's thickness.
+			case_face = visible_case_face(QRectF(left, top - 4 * self.progress, case_width, case_height))
+			paper_left = case_face.left() - self.paper_face_insets[0]
+			paper_width = case_face.width() + sum(self.paper_face_insets)
+			finish = case_face.bottom() + CASE_DEPTH + TRACK_LIST_GAP - self.paper_face_top
+			paper_height = max(1, top + available_height - 4 - finish)
+			front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
+			front_rect.moveCenter(QRectF(left, top, case_width, case_height).center())
+			start = finish - paper_height - 28
+			paper_y = start + (finish - start) * self.progress
+			paper_rect = QRectF(paper_left, paper_y, paper_width, paper_height)
+		else:
+			case_width = min(width * .55, available_height * CASE_WIDTH / CASE_HEIGHT, 640)
+			case_height = case_width * CASE_HEIGHT / CASE_WIDTH
+			paper_width = min(width - case_width + 8, case_width * .9)
+			left = (self.width() - case_width - paper_width + 8) / 2
+			# The track list spans the full height of the case face beside it.
+			case_top = 8 + (available_height - case_height) / 2
+			case_face = visible_case_face(QRectF(left, case_top - 4 * self.progress, case_width, case_height))
+			top = case_face.top() - self.paper_face_top
+			paper_height = case_face.height() + self.paper_face_top + self.paper_face_bottom
+			front_rect = QRectF(0, 0, case_width * scale, case_height * scale)
+			front_rect.moveCenter(QRectF(left, case_top, case_width, case_height).center())
+			finish = case_face.right() + TRACK_LIST_GAP - self.paper_face_insets[0]
+			start = finish - paper_width - 16
+			paper_x = start + (finish - start) * self.progress
+			paper_rect = QRectF(paper_x, top, paper_width, paper_height)
+		front_rect.translate(0, 6 * (1 - self.progress) - 4 * self.progress)
+		extent = paper_rect.height() if portrait else paper_rect.width()
+		# Hide the paper only where it is still tucked under the visible case, not under the case's margins.
+		case_face = visible_case_face(front_rect)
+		edge = (case_face.bottom() + CASE_DEPTH - paper_rect.y() if portrait else case_face.right() - paper_rect.x())
+		cut = max(0, min(extent, edge))
+		visible = (QRectF(0, cut, paper_width, paper_height - cut) if portrait else
+				QRectF(cut, 0, paper_width - cut, paper_height))
+		return front_rect, paper_rect, visible
 
-    def visible_faces(self):
-        """The case face and the track list face, in this widget's coordinates."""
-        case = self.front.visible_face().translated(self.front.pos())
-        paper = control_face(button_paint_rect(self.booklet), widget=self.booklet).translated(self.booklet.pos())
-        return case, paper
+	def visible_faces(self):
+		"""The case face and the track list face, in this widget's coordinates."""
+		case = self.front.visible_face().translated(self.front.pos())
+		paper = control_face(button_paint_rect(self.booklet), widget=self.booklet).translated(self.booklet.pos())
+		return case, paper
 
-    def paintEvent(self, event):
-        # The open case and track list float high, so their shadows fall farther away than the controls' do.
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(Qt.NoPen)
-        color = shadow_color()
-        case = QPainterPath()
-        if not self.front.pixmap.isNull():
-            case = case_shadow(self.front, self.front.image_rect(), control_shadow(CASE_SHADOW_DEPTH)).translated(
-                QPointF(self.front.pos()) + FLOATING_SHADOW)
-            painter.fillPath(case, color)
-        if self.booklet.isVisible():
-            # One shadow: where the two overlap it is not darkened twice.
-            paper = self.booklet.shadow(control_shadow()).translated(QPointF(self.booklet.pos()) + FLOATING_SHADOW)
-            painter.setOpacity(self.paper_opacity.opacity())
-            painter.fillPath(paper.subtracted(case), color)
+	def paintEvent(self, event):
+		# The open case and track list float high, so their shadows fall farther away than the controls' do.
+		painter = QPainter(self)
+		painter.setRenderHint(QPainter.Antialiasing)
+		painter.setPen(Qt.NoPen)
+		color = shadow_color()
+		case = QPainterPath()
+		if not self.front.pixmap.isNull():
+			case = case_shadow(self.front, self.front.image_rect(), control_shadow(CASE_SHADOW_DEPTH)).translated(
+				QPointF(self.front.pos()) + FLOATING_SHADOW)
+			painter.fillPath(case, color)
+		if self.booklet.isVisible():
+			# One shadow: where the two overlap it is not darkened twice.
+			paper = self.booklet.shadow(control_shadow()).translated(QPointF(self.booklet.pos()) + FLOATING_SHADOW)
+			painter.setOpacity(self.paper_opacity.opacity())
+			painter.fillPath(paper.subtracted(case), color)
 
-    def arrange(self):
-        window = self.window().frameGeometry()
-        target = float(window.width() < window.height() * PORTRAIT_ASPECT_RATIO)
-        if self.portrait_mix is None or not self.isVisible():
-            self.layout_animation.stop()
-            self.portrait_mix = self.portrait_target = target
-        elif target != self.portrait_target:
-            self.portrait_target = target
-            self.layout_animation.stop()
-            self.layout_animation.setStartValue(self.portrait_mix)
-            self.layout_animation.setEndValue(target)
-            self.layout_animation.start()
-        if self.portrait_mix in (0, 1):
-            front_rect, paper_rect, visible = self.layout_rects(bool(self.portrait_mix))
-        else:
-            front_rect, paper_rect, visible = (lerp_rect(start, end, self.portrait_mix) for start, end in
-                                               zip(self.layout_rects(False), self.layout_rects(True)))
-        self.front.setGeometry(front_rect.toRect())
-        self.booklet.setGeometry(paper_rect.toRect())
-        self.booklet.setVisible(self.progress > 0 and not visible.isEmpty())
-        face = control_face(button_paint_rect(self.booklet), widget=self.booklet)
-        self.paper_face_insets = (face.left(), self.booklet.width() - face.right())
-        self.paper_face_top = face.top()
-        self.paper_face_bottom = self.booklet.height() - face.bottom()
-        border = track_list_border()
-        inset = 16 + border
-        titled = not self.album_title.isHidden()
-        layout = self.booklet.layout()
-        # With a title, the band above the paper is the border plus a gap on each side of the name.
-        layout.setSpacing(round(border + TITLE_BAND_GAP + TITLE_TABLE_GAP) if titled else 7)
-        layout.setContentsMargins(
-            round(face.left() + inset), round(face.top() + (border + TITLE_BAND_GAP if titled else inset)),
-            round(self.booklet.width() - face.right() + border + TRACK_SCROLLBAR_GAP),
-            round(self.booklet.height() - face.bottom() + border))
-        # The table hugs the right edge for its scrollbar; the title keeps an equal gap so it centers on the paper.
-        self.album_title.setContentsMargins(0, 0, round(inset - border - TRACK_SCROLLBAR_GAP), 0)
-        # The track list slides out from behind the case, which is drawn over it, so it is never cut off.
-        self.booklet.clearMask()
-        self.front.update()
-        self.update()
+	def arrange(self):
+		window = self.window().frameGeometry()
+		target = float(window.width() < window.height() * PORTRAIT_ASPECT_RATIO)
+		if self.portrait_mix is None or not self.isVisible():
+			self.layout_animation.stop()
+			self.portrait_mix = self.portrait_target = target
+		elif target != self.portrait_target:
+			self.portrait_target = target
+			self.layout_animation.stop()
+			self.layout_animation.setStartValue(self.portrait_mix)
+			self.layout_animation.setEndValue(target)
+			self.layout_animation.start()
+		if self.portrait_mix in (0, 1):
+			front_rect, paper_rect, visible = self.layout_rects(bool(self.portrait_mix))
+		else:
+			front_rect, paper_rect, visible = (lerp_rect(start, end, self.portrait_mix) for start, end in
+											zip(self.layout_rects(False), self.layout_rects(True)))
+		self.front.setGeometry(front_rect.toRect())
+		self.booklet.setGeometry(paper_rect.toRect())
+		self.booklet.setVisible(self.progress > 0 and not visible.isEmpty())
+		face = control_face(button_paint_rect(self.booklet), widget=self.booklet)
+		self.paper_face_insets = (face.left(), self.booklet.width() - face.right())
+		self.paper_face_top = face.top()
+		self.paper_face_bottom = self.booklet.height() - face.bottom()
+		border = track_list_border()
+		inset = 16 + border
+		titled = not self.album_title.isHidden()
+		layout = self.booklet.layout()
+		# With a title, the band above the paper is the border plus a gap on each side of the name.
+		layout.setSpacing(round(border + TITLE_BAND_GAP + TITLE_TABLE_GAP) if titled else 7)
+		layout.setContentsMargins(
+			round(face.left() + inset), round(face.top() + (border + TITLE_BAND_GAP if titled else inset)),
+			round(self.booklet.width() - face.right() + border + TRACK_SCROLLBAR_GAP),
+			round(self.booklet.height() - face.bottom() + border))
+		# The table hugs the right edge for its scrollbar; the title keeps an equal gap so it centers on the paper.
+		self.album_title.setContentsMargins(0, 0, round(inset - border - TRACK_SCROLLBAR_GAP), 0)
+		# The track list slides out from behind the case, which is drawn over it, so it is never cut off.
+		self.booklet.clearMask()
+		self.front.update()
+		self.update()

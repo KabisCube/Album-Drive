@@ -36,17 +36,17 @@ combo.activated.emit(combo.currentIndex())
 assert background.color().name() == custom
 
 for mode in ('light', 'dark'):
-    combo.setCurrentIndex(combo.findData(mode))
-    combo.activated.emit(combo.currentIndex())
-    colors = FIXED_THEMES[f'fixed_{mode}']
-    assert background.color().name() == colors['theme_background_color']
-    assert all(dialog.colors[key].color().name() == colors[key] for key in ('theme_text_color', 'theme_accent_color'))
-    assert reset.isHidden()
-    dialog.set_setting_color(background, QColor('#123456'))
-    assert not reset.isHidden() and combo.currentData() == mode
-    reset.click()
-    assert background.color().name() == colors['theme_background_color']
-    assert reset.isHidden()
+	combo.setCurrentIndex(combo.findData(mode))
+	combo.activated.emit(combo.currentIndex())
+	colors = FIXED_THEMES[f'fixed_{mode}']
+	assert background.color().name() == colors['theme_background_color']
+	assert all(dialog.colors[key].color().name() == colors[key] for key in ('theme_text_color', 'theme_accent_color'))
+	assert reset.isHidden()
+	dialog.set_setting_color(background, QColor('#123456'))
+	assert not reset.isHidden() and combo.currentData() == mode
+	reset.click()
+	assert background.color().name() == colors['theme_background_color']
+	assert reset.isHidden()
 
 saved = dialog.saved_theme_choice
 assert [saved.itemText(index) for index in range(2)] == ['Default light', 'Default dark']
