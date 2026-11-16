@@ -35,6 +35,7 @@ INVENTED_DISTINCT = 16
 MINIMUM_SHARE = .001
 DOMINANT_SHARE = .4
 MEMBER_SHARE = .1
+COLORFUL_DARK_SHARE = .05
 DOMINANT_FAMILY_LIGHTNESS = .35
 PICK_SHARE = .0015
 TEXT_CONTRAST = 4
@@ -42,6 +43,7 @@ PREFERRED_TEXT_CONTRAST = 4.5
 BUTTON_CONTRAST = 1.1
 BUTTON_ACCENT_CONTRAST = 1.25
 INK_BUTTON_CONTRAST = 1.545
+INVENTED_INK_BUTTON_CONTRAST = 1.75  # an invented button or background accent color keeps the two further apart
 INK_BACKGROUND_CONTRAST = 1.1
 INK_PANEL_CONTRAST = 1.05
 BUTTON_MIX = [step / 100 for step in range(40, 81)] + [step / 100 for step in range(39, 9, -1)]
@@ -144,11 +146,8 @@ def theme_side(cover, mode):
 
 
 def on_side(color, side, light=LIGHT_SIDE, dark=DARK_SIDE):
-    """Light or dark enough for its side, leaving room for text at the far edge of the range to read on it."""
-    level = LIGHTNESS_RANGE[0] if side == 'light' else LIGHTNESS_RANGE[1]
-    edge = QColor(QColor.fromHslF(0, 0, level).name())
-    near = color.lightnessF() >= light if side == 'light' else color.lightnessF() <= dark
-    return near and color_contrast(clamped(color), edge) >= PREFERRED_TEXT_CONTRAST
+    """Light or dark enough for its side. Readability is the later picks' job, not the background's."""
+    return color.lightnessF() >= light if side == 'light' else color.lightnessF() <= dark
 
 
 def perceived_lightness(color):
@@ -201,7 +200,13 @@ def pick_cover_background(cover, side):
             key = -1 if chroma(color) < VIVID_CHROMA else round(color.hslHueF() * 12) % 12
             groups.setdefault(key, []).append((color, share))
     if groups:
-        members = max(groups.values(), key=lambda entries: sum(share for _, share in entries))
+        def size(entries):
+            return sum(share for _, share in entries)
+        members = max(groups.values(), key=size)
+        colorful = max((entries for key, entries in groups.items() if key >= 0), key=size, default=[])
+        if side == 'dark' and size(colorful) >= COLORFUL_DARK_SHARE:
+            # Near-black is a last resort: a dark color with a real presence on the cover wins over it.
+            members = colorful
         top, top_share = members[0]
         if usable(top, bounds):
             return top
@@ -235,8 +240,19 @@ def pick_text(cover, background):
         if found:
             # Without a calm color, the calmest readable one; vivid colors are left for the accent.
             return clamped(found[0] if index < 3 else min(found, key=chroma))
+    # A cover color beyond the range that reads as it is comes only as far into the range as still reads.
+    beyond = [color for color, _ in cover if muted(color) and reads(TEXT_CONTRAST)(color)]
+    if beyond:
+        color = min(beyond, key=lambda option: (not calm(option), -color_contrast(background, option)))
+        hue, saturation, level, _ = color.getHslF()
+        target = clamped(color).lightnessF()
+        for step in range(101):
+            shade = QColor(QColor.fromHslF(max(0, hue), saturation, target + (level - target) * step / 100).name())
+            if reads(PREFERRED_TEXT_CONTRAST)(shade):
+                return shade
+        return color
     hue, saturation, _, _ = background.getHslF()
-    darker = background.lightnessF() >= .5
+    darker = relative_luminance(background) >= .18
     levels = [step / 100 for step in (range(50, -1, -1) if darker else range(50, 101))]
     shades = [QColor(QColor.fromHslF(max(0, hue), saturation, level).name()) for level in levels]
     return next((shade for shade in shades if usable(shade) and reads(TEXT_CONTRAST)(shade)),
@@ -270,8 +286,12 @@ def pick_background_accent(cover, background, text, accent, button):
     picked = (background, text, accent, button)
     panel = background.darker(PANEL_SHADE)
 
+    real_button = any(button == color for color, _ in cover)
+
     def fits(color, gap):
-        return (apart(color, picked, gap) and color_contrast(button, color) >= INK_BUTTON_CONTRAST
+        invented = gap == INVENTED_DISTINCT or not real_button
+        return (apart(color, picked, gap)
+                and color_contrast(button, color) >= (INVENTED_INK_BUTTON_CONTRAST if invented else INK_BUTTON_CONTRAST)
                 and color_contrast(background, color) >= INK_BACKGROUND_CONTRAST
                 and color_contrast(panel, color) >= INK_PANEL_CONTRAST)
     def between(color):

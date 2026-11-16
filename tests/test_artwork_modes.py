@@ -104,10 +104,16 @@ class ArtworkModeTests(unittest.TestCase):
         self.assertAlmostEqual(QColor(colors['themeBackground']).lightnessF(), LIGHTNESS_RANGE[1], delta=.01)
 
     def test_largest_color_group_on_the_side_is_the_background(self):
-        pixels = [(250, 30, 12)] * 70 + [(242, 171, 27)] * 6 + [(8, 4, 90)] * 6 + [(250, 250, 250)] * 2 + [(10, 2, 5)] * 2
+        pixels = [(251, 29, 12)] * 28 + [(245, 15, 3)] * 26 + [(242, 171, 27)] * 6 + [(8, 4, 90)] * 6 + [(250, 250, 250)] * 2 + [(10, 2, 5)] * 2
         self.assertEqual(artwork_theme_colors(cover(*pixels), 'light')['themeBackground'], '#f2ab1b')
         dark = QColor(artwork_theme_colors(cover(*pixels), 'dark')['themeBackground'])
         self.assertGreater(dark.blue(), 2 * dark.red())
+
+    def test_dominant_color_in_the_lighter_half_is_the_light_background(self):
+        pixels = [(60, 175, 238)] * 60 + [(252, 253, 252)] * 30 + [(7, 25, 36)] * 10
+        colors = artwork_theme_colors(cover(*pixels), 'light')
+        self.assertEqual(colors['themeBackground'], '#3cafee')
+        self.assertGreaterEqual(color_contrast(QColor('#3cafee'), QColor(colors['textColor'])), 4)
 
     def test_most_used_light_color_is_the_light_background(self):
         self.assertEqual(artwork_theme_colors(cover(*COVERS['beige']), 'light')['themeBackground'], '#e3d5bb')

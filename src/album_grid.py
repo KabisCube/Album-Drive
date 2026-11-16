@@ -333,13 +333,16 @@ class AlbumGrid(QListWidget):
             self._reflow_timer.start(0)
 
     def updateGeometries(self):
+        bar = self.verticalScrollBar()
+        scroll = bar.value()
+        # Qt sizes the range from its own layout first, which can be shorter than ours and cut the scroll position.
         super().updateGeometries()
         # Old positions can briefly extend outside the new width during reflow.
         # They must never pan the album canvas or create a horizontal scrollbar.
         self.horizontalScrollBar().setRange(0, 0)
         if hasattr(self, '_content_height'):
-            bar = self.verticalScrollBar()
             bar.setRange(0, max(0, self._content_height - self.viewport().height()))
+            bar.setValue(scroll)
             self.scroll_target = min(self.scroll_target, bar.maximum())
         self.update_edge_fades()
 
