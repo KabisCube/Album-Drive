@@ -7,7 +7,7 @@ p4a_revision=3762c88c56e3443efb8eba2a02a2604b680240fd
 mkdir -p "$cache/downloads"
 python3 -m pip install --target "$cache/uv" uv
 if [ ! -x "$cache/venv/bin/python" ]; then
-	PYTHONPATH="$cache/uv" python3 -m uv venv --seed --python 3.11 "$cache/venv"
+	UV_PYTHON_INSTALL_DIR="$cache/python" PYTHONPATH="$cache/uv" python3 -m uv venv --clear --seed --python 3.11 "$cache/venv"
 fi
 "$cache/venv/bin/python" -m pip install -r "$root/packaging/android/requirements-build.txt"
 if [ ! -x "$cache/sdk/cmdline-tools/latest/bin/sdkmanager" ]; then

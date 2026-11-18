@@ -91,7 +91,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-pip python3-venv build-essential git curl unzip zip ant autoconf automake libtool pkg-config cmake zlib1g-dev libffi-dev libssl-dev libltdl-dev patch ccache gettext
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: ~/.cache/album-drive-android
           key: android-${{ hashFiles('scripts/setup_android.sh', 'packaging/android/requirements-build.txt') }}
