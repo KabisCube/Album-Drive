@@ -10,6 +10,7 @@ from app_paths import ASSETS_DIR
 from PySide6.QtGui import QIcon
 
 APP_NAME = 'Album Drive'
+APP_VERSION = '0.2.6'
 
 
 def configure_app(app):
@@ -19,6 +20,7 @@ def configure_app(app):
 		ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('AlbumDrive.MusicPlayer')
 	app.setApplicationName(APP_NAME)
 	app.setApplicationDisplayName(APP_NAME)
+	app.setApplicationVersion(APP_VERSION)
 	app.setDesktopFileName('album-drive')
 	# PyInstaller preserves __file__ relative to its bundled data directory.
 	app.setWindowIcon(QIcon(str(ASSETS_DIR / 'icons' / 'album-drive.png')))

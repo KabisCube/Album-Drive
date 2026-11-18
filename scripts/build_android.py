@@ -2,6 +2,7 @@ import argparse
 from configparser import ConfigParser
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import shlex
@@ -79,7 +80,7 @@ def configure_deployment(root, stage, cache, python, sdk, ndk, source):
 	entries = {
 		'title': 'Album Drive', 'package.name': 'albumdrive', 'package.domain': 'org.albumdrive',
 		'source.dir': str(source),
-		'version': '0.1.0', 'source.include_exts': 'py,png,jpg,jpeg,webp,svg,ico,ttf,otf,wav,txt,json,ini,md',
+		'version': app_version(root), 'source.include_exts': 'py,png,jpg,jpeg,webp,svg,ico,ttf,otf,wav,txt,json,ini,md',
 		'source.exclude_dirs': 'android,deployment,.buildozer,.git',
 		'requirements': 'python3,shiboken6,PySide6,sqlite3,pillow==11.3.0,mutagen==1.47.0',
 		'orientation': 'landscape,portrait,landscape-reverse,portrait-reverse',
@@ -98,6 +99,11 @@ def configure_deployment(root, stage, cache, python, sdk, ndk, source):
 	config.set('app', 'p4a.extra_args', order_qt_libraries(config.get('app', 'p4a.extra_args')))
 	with buildozer.open('w', encoding='utf-8') as output:
 		config.write(output)
+
+
+def app_version(root):
+	identity = (root / 'src/app_identity.py').read_text(encoding='utf-8')
+	return re.search(r"^APP_VERSION = '([^']+)'", identity, re.MULTILINE).group(1)
 
 
 def release_signing():
