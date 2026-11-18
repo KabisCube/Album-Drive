@@ -160,7 +160,6 @@ PAPER_FADE_STEP_MS = 33
 
 
 TITLE_BAND_GAP = -3.4  # space above and below the album name, measured from the border thickness
-TITLE_TABLE_GAP = 8
 TRACK_SCROLLBAR_GAP = 1
 
 
@@ -509,7 +508,7 @@ class AlbumPresentation(QWidget):
 		titled = not self.album_title.isHidden()
 		layout = self.booklet.layout()
 		# With a title, the band above the paper is the border plus a gap on each side of the name.
-		layout.setSpacing(round(border + TITLE_BAND_GAP + TITLE_TABLE_GAP) if titled else 7)
+		layout.setSpacing(round(border + TITLE_BAND_GAP) if titled else 7)
 		layout.setContentsMargins(
 			round(face.left() + inset), round(face.top() + (border + TITLE_BAND_GAP if titled else inset)),
 			round(self.booklet.width() - face.right() + border + TRACK_SCROLLBAR_GAP),
