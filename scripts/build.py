@@ -66,7 +66,14 @@ def main():
 	release.mkdir(parents=True, exist_ok=True)
 	binary = 'AlbumDrive.exe' if sys.platform == 'win32' else 'AlbumDrive'
 	try:
-		shutil.copy2(native / binary, release / binary)
+		if sys.platform == 'win32':
+			shutil.copy2(native / binary, release / binary)
+		else:
+			# Linux refuses to overwrite a running executable (ETXTBSY), but a
+			# rename is allowed: the running app keeps the old inode until it exits.
+			staging = release / f'.{binary}.new'
+			shutil.copy2(native / binary, staging)
+			os.replace(staging, release / binary)
 	except PermissionError:
 		# Windows locks a running executable. Preserve that app and its themes
 		# and produce a separate, runnable update instead of interrupting it.
