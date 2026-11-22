@@ -1,7 +1,7 @@
 @echo off
 rem Builds a signed release APK. The first run creates a signing key in WSL at ~/.config/album-drive.
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 where wsl.exe >nul 2>&1
 if errorlevel 1 goto wsl_missing

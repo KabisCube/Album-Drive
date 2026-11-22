@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 set "PYTHON=.venv-windows\Scripts\python.exe"
 if exist "%PYTHON%" goto dependencies
 

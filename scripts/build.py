@@ -98,9 +98,14 @@ def main():
 			shutil.move(themes / 'settings.ini', release / 'settings.ini')
 		else:
 			(release / 'settings.ini').write_text(default_settings, encoding='utf-8')
+	contents = [release / binary, release / 'README.md', release / 'LICENSE.txt']
 	if sys.platform == 'linux':
 		os.chmod(release / 'AlbumDrive', 0o755)
-	contents = [release / binary, release / 'README.md', release / 'LICENSE.txt']
+		# install.sh adds the app to the menu with its icon; the archive keeps their executable bit.
+		for script in ('install.sh', 'uninstall.sh'):
+			shutil.copy2(root / 'packaging' / 'linux' / script, release / script)
+			os.chmod(release / script, 0o755)
+			contents.append(release / script)
 	contents.extend(sorted((release / 'licenses').rglob('*')))
 	contents.extend(sorted((release / 'fonts').rglob('*')))
 	contents = [item for item in contents if item.is_file()]

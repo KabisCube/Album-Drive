@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 where wsl.exe >nul 2>&1
 if errorlevel 1 goto wsl_missing
