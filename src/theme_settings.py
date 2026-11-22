@@ -14,12 +14,13 @@ from settings_store import read_theme_files, write_theme_files
 from color_picker import ColorPickerDialog
 from color_rules import disabled_text_color
 from themes import MERGED_NUMERIC_SETTINGS, MERGED_COLOR_SETTINGS, THEME_FADE_MAX_SECONDS
-from responsive import NARROW_WIDTH, ScreenFit, running_on_android
+from responsive import NARROW_WIDTH, ScreenFit, running_on_android, wrap_freely
 from themes import PRIMARY_COLOR_KEYS, CONTROL_HEADROOM, BUTTON_SHADOW, MAX_FONT_SIZE, FONT_SCALE_KEYS, button_scale, button_text_sizing, local_control_theme, migrate_button_size, migrate_font_settings
 from app_theme import simplify_color_settings
 from first_run import FIXED_THEMES, system_theme_choice
 from themes import DEFAULT_THEME_IDS
 from scroll_shadows import paint_scroll_background
+from ui_scale import UI_SCALE_STOPS, active_ui_scale, nearest_ui_scale, ui_scale_supported
 
 
 def custom_color_settings(settings):
@@ -101,6 +102,7 @@ def saved_color_themes(settings):
 
 
 NUMERIC_SETTINGS = (
+	('General', 'UI scale', 'ui_scale', NUMERIC_DEFAULTS['ui_scale'], UI_SCALE_STOPS[0], UI_SCALE_STOPS[-1], '×', None),
 	('Colors', 'Theme fade duration', 'theme_fade_seconds', NUMERIC_DEFAULTS['theme_fade_seconds'], 0, THEME_FADE_MAX_SECONDS, ' s', .1),
 	('Appearance', 'Button size', 'button_size', NUMERIC_DEFAULTS['button_size'], 20, 72, ' px', 1),
 	('Appearance', 'Button thickness', 'ui_thickness', NUMERIC_DEFAULTS['ui_thickness'], 0, 300, ' px', 25),
@@ -297,6 +299,26 @@ class NumericSlider(QWidget):
 
 	def setValue(self, value):
 		self.slider.setValue(round(value * self.factor))
+		self.update_label()
+
+
+class ScaleSlider(NumericSlider):
+	"""Steps through the usual monitor scales; the slider holds a stop's position, not the scale itself."""
+
+	def __init__(self):
+		super().__init__(0, 0, len(UI_SCALE_STOPS) - 1, '×', 1)
+
+	def update_label(self):
+		self.label.setText(f'{self.value():g}×')
+
+	def value(self):
+		return UI_SCALE_STOPS[self.slider.value()]
+
+	def maximum(self):
+		return UI_SCALE_STOPS[-1]
+
+	def setValue(self, value):
+		self.slider.setValue(UI_SCALE_STOPS.index(nearest_ui_scale(value)))
 		self.update_label()
 
 
@@ -677,7 +699,7 @@ class ThemeSettingsDialog(QDialog):
 	def organize_settings(self, forms):
 		"""Group related rows with quiet headings and space between sections. Yields between rows."""
 		groups = {
-			'General': ('Music library', 'Playback'),
+			'General': ('Music library', 'Display', 'Playback') if 'ui_scale' in self.numbers else ('Music library', 'Playback'),
 			'Style': ('Theme', 'Interface', 'Buttons', 'Settings window'),
 			'Audio': ('Output device', 'Button sounds', 'CD case sounds'),
 			'File browser': ('Folders', 'Album Drive logo'),
@@ -695,7 +717,10 @@ class ThemeSettingsDialog(QDialog):
 			self.ui_font_choice: ('Style', 'Interface'),
 			self.audio_output_choice: ('Audio', 'Output device'),
 		}
+		if 'ui_scale' in self.numbers:
+			special[self.scale_restart_row] = ('General', 'Display')
 		elements = {
+			'ui_scale': ('General', 'Display'),
 			'theme_fade_seconds': ('Style', 'Theme'),
 			'main_font_size': ('Style', 'Interface'), 'theme_text_color': ('Style', 'Interface'),
 			'corner_roundness': ('Style', 'Interface'), 'ui_thickness': ('Style', 'Interface'),
@@ -1219,6 +1244,10 @@ class ThemeSettingsDialog(QDialog):
 		category, label, key, default, low, high, suffix, step = definition
 		if key in MERGED_NUMERIC_SETTINGS:
 			return
+		if key == 'ui_scale':
+			if ui_scale_supported() and not running_on_android():
+				self.add_ui_scale(forms, label)
+			return
 		scalable = key in FONT_SCALE_KEYS
 		if scalable:
 			label = label.replace('size', 'scale')
@@ -1238,6 +1267,46 @@ class ThemeSettingsDialog(QDialog):
 			control.setToolTip('Adjust the default proportion relative to the main text size. 100% keeps the default size ratio.')
 		self.numbers[key] = control
 		forms[category].addRow(label, control)
+
+	def add_ui_scale(self, forms, label):
+		control = ScaleSlider()
+		control.setObjectName('ui_scale')
+		control.slider.setAccessibleName(label)
+		control.setValue(self.settings.value('ui_scale', NUMERIC_DEFAULTS['ui_scale']))
+		control.setToolTip('Make everything larger or smaller. Works on top of your display scale, and applies after a restart.')
+		self.numbers['ui_scale'] = control
+		forms['General'].addRow(label, control)
+		# Qt only scales while starting, so a new choice waits for a restart; offer one right here.
+		self.scale_restart_row = QWidget()
+		self.scale_restart_row.setObjectName('scaleRestartRow')
+		self.scale_restart_row.setProperty('settingsRow', True)  # Lets the section panel show through.
+		row = QHBoxLayout(self.scale_restart_row)
+		row.setContentsMargins(0, 0, 0, 0)
+		self.scale_restart_note = QLabel()
+		self.scale_restart_note.setWordWrap(True)
+		wrap_freely(self.scale_restart_note)  # In narrow windows the note wraps beside the button instead of widening the page.
+		row.addWidget(self.scale_restart_note, 1)
+		self.scale_restart_button = ThemedButton('Restart now')
+		self.scale_restart_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+		self.scale_restart_button.clicked.connect(self.restart_for_scale)
+		row.addWidget(self.scale_restart_button)
+		forms['General'].addRow(self.scale_restart_row)
+		self.restart_requested = False
+		control.slider.valueChanged.connect(self.update_scale_restart)
+		self.update_scale_restart()
+
+	def update_scale_restart(self, *_):
+		# The row stays in place; hiding a row would leave a gap the settings layout cannot close.
+		scale = self.numbers['ui_scale'].value()
+		pending = scale != active_ui_scale()
+		self.scale_restart_note.setText(f'Album Drive restarts to use {scale:g}×.' if pending
+										else 'Scale changes apply after a restart.')
+		self.scale_restart_button.setEnabled(pending)
+
+	def restart_for_scale(self):
+		# OK saves every setting first; the window restarts once this dialog has closed.
+		self.restart_requested = True
+		self.accept()
 
 	def choose_marker_color(self):
 		selected = ColorPickerDialog.getColor(self.marker_color.color(), self, 'Text color')
@@ -1552,7 +1621,7 @@ QLabel#settingsSection {{ font-size: {font_size('settings_heading_font_size')}px
 		self.custom_colors = dict(defaults)
 		self.show_default_theme()
 		for _, _, key, default, *_ in NUMERIC_SETTINGS:
-			if key not in MERGED_NUMERIC_SETTINGS:
+			if key not in MERGED_NUMERIC_SETTINGS and key in self.numbers:
 				self.numbers[key].setValue(100 if key in FONT_SCALE_KEYS else default)
 		self.sync_color_roles()
 

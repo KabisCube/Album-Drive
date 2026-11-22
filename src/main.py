@@ -2313,11 +2313,18 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 		def finished(result):
 			self.settings_dialog = None
 			dialog.deleteLater()
-			if self.is_android:
+			if result == QDialog.Accepted and getattr(dialog, 'restart_requested', False):
+				QTimer.singleShot(0, self.request_restart)
+			elif self.is_android:
 				self.settings_prepare_timer.start()
 		dialog.finished.connect(finished)
 		dialog.show()
 		self.refresh_live_theme()
+
+	def request_restart(self):
+		"""Close normally, saving the session; the app starts again once this run has ended."""
+		QApplication.instance().setProperty('restartRequested', True)
+		self.close()
 
 	def settings_values(self):
 		return {key: self.settings.value(key) for key in self.settings.allKeys()
@@ -3866,6 +3873,10 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
 
 if __name__ == '__main__':
+	from ui_scale import apply_ui_scale, restart_app
+	if not {'--install-desktop-entry', '--smoke-test'} & set(sys.argv):
+		# Qt reads its scale factor only while the application starts, so this must come first.
+		apply_ui_scale(create_app_settings)
 	app = QApplication(sys.argv)
 	if running_on_android():
 		# Packaged image plugins stay beside PySide6 instead of the app's native libraries.
@@ -3892,4 +3903,8 @@ if __name__ == '__main__':
 			install_dev_screenshot(window)
 		window.show()
 		QTimer.singleShot(0, window.show_first_run_setup)
-		sys.exit(app.exec())
+		code = app.exec()
+		# Restarting only now means the closing window has saved and synced every setting.
+		if app.property('restartRequested'):
+			restart_app()
+		sys.exit(code)

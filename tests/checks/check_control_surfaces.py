@@ -35,8 +35,7 @@ with tempfile.TemporaryDirectory() as directory:
 		page = dialog.tabs.widget(0).widget()
 		image = page.grab().toImage()
 		headings = page.findChildren(QLabel, 'settingsSection')
-		assert len(headings) == 2
-		assert [heading.text() for heading in headings[:2]] == ['Music library', 'Playback']
+		assert [heading.text() for heading in headings] == ['Music library', 'Display', 'Playback']
 		title = dialog.library_label
 		assert title.x() - headings[0].x() == SETTING_INDENT
 		category_color = QColor(text)

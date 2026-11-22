@@ -16,6 +16,7 @@ from snap_scroll import SnapPager, SpringScroll
 from responsive import running_on_android
 from font_support import font_family_css
 from color_rules import disabled_text_color
+from ui_scale import UI_SCALE_DEFAULT
 from shiboken6 import isValid
 
 
@@ -49,6 +50,7 @@ MARKER_COLOR_DEFAULT = '#1b2834'
 DEFAULT_THEME_IDS = ('album-drive-default', 'album-drive-default-light', 'album-drive-default-dark')
 THEME_FADE_MAX_SECONDS = 5
 NUMERIC_DEFAULTS = {
+	'ui_scale': UI_SCALE_DEFAULT,
 	'case_open_volume': 70,
 	'case_close_volume': 70,
 	'theme_fade_seconds': 2.0,
