@@ -1,7 +1,6 @@
 """Offscreen integration check using generated WAV files; no user music required."""
 import os
 import tempfile
-import time
 from pathlib import Path
 
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
@@ -20,12 +19,11 @@ from themes import ChunkyCheckBox, ThemeSlider, corner_radius
 from test_library import make_wave
 
 
-def wait_until(condition, timeout=8):
-	deadline = time.monotonic() + timeout
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(0.005)
-	assert condition(), f'Timed out: folder={window.current_folder}, albums={len(window.albums)}, workers={len(window.scanners)}, state={window.count_label.text()}'
+from waiting import wait_until as wait_for
+
+
+def wait_until(condition):
+	wait_for(condition, message=lambda: f'Timed out: folder={window.current_folder}, albums={len(window.albums)}, workers={len(window.scanners)}, state={window.count_label.text()}')
 
 
 with tempfile.TemporaryDirectory() as directory:

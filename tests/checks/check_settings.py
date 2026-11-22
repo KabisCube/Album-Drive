@@ -2,7 +2,6 @@
 
 import os
 import tempfile
-import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -44,14 +43,7 @@ def branch_image(tree, index):
 	tree.drawBranches(painter, QRect(0, 0, 28, 30), index)
 	painter.end()
 	return pixmap.toImage()
-
-
-def wait_until(condition):
-	deadline = time.monotonic() + 8
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(.005)
-	assert condition()
+from waiting import wait_until
 
 
 app = QApplication([])

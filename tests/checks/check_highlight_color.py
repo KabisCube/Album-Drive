@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import time
 from tempfile import TemporaryDirectory
 
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
@@ -14,13 +13,7 @@ from color_rules import color_contrast
 from main import PlayerWindow
 from theme_settings import ThemeSettingsDialog, capture_color_theme, saved_color_themes
 from themes import COLOR_SETTINGS, button_paint_rect, button_text_color, control_face
-
-
-def wait_until(condition):
-	deadline = time.monotonic() + 8
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-	assert condition()
+from waiting import wait_until
 
 
 def face_color(button):

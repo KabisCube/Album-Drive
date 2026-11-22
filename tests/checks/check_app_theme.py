@@ -22,14 +22,7 @@ from open_case import color_contrast
 from test_library import make_wave
 from themes import accent_assets, button_paint_rect, control_face
 from theme_settings import ThemeSettingsDialog
-
-
-def wait_until(condition):
-	deadline = time.monotonic() + 8
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(.005)
-	assert condition()
+from waiting import wait_until
 
 
 app = QApplication([])

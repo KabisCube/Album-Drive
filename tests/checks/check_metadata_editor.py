@@ -2,7 +2,6 @@ import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import time
 
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
@@ -14,14 +13,7 @@ from PySide6.QtWidgets import QApplication
 from main import PlayerWindow
 from metadata_editor import TagValueDialog
 from test_library import make_wave
-
-
-def wait_until(condition):
-	deadline = time.monotonic() + 8
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(.005)
-	assert condition()
+from waiting import wait_until
 
 
 def context_menu(view, position):

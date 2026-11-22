@@ -5,7 +5,6 @@ os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import time
 from unittest.mock import Mock, patch
 
 from PIL import Image
@@ -21,14 +20,7 @@ from main import PlayerWindow
 from test_library import make_wave
 from theme_settings import ThemeSettingsDialog
 from themes import control_face
-
-
-def wait_until(condition):
-	deadline = time.monotonic() + 8
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(.005)
-	assert condition()
+from waiting import wait_until
 
 
 app = QApplication([])

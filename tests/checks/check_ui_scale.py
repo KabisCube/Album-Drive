@@ -12,14 +12,7 @@ from PySide6.QtWidgets import QApplication
 app = QApplication([])
 
 from main import PlayerWindow
-
-
-def wait_until(condition, seconds=8):
-	for _ in range(seconds * 50):
-		if condition():
-			return
-		QTest.qWait(20)
-	assert condition()
+from waiting import wait_until
 
 
 def open_settings(window):

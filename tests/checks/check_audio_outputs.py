@@ -2,7 +2,6 @@
 
 import os
 import tempfile
-import time
 import wave
 from pathlib import Path
 from unittest.mock import patch
@@ -17,12 +16,10 @@ from PySide6.QtWidgets import QApplication
 from main import PlayerWindow
 
 
-def wait_until(condition):
-	deadline = time.monotonic() + 8
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(.005)
-	assert condition(), 'Audio output check timed out'
+from functools import partial
+import waiting
+
+wait_until = partial(waiting.wait_until, message='Audio output check timed out')
 
 
 app = QApplication([])

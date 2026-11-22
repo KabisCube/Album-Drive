@@ -42,6 +42,11 @@ class LibraryCacheTests(unittest.TestCase):
 			track = WAVE(music / 'A/1.wav')
 			track.tags.add(TIT2(encoding=3, text=['Edited title']))
 			track.save()
+			# The new title fits the tag's padding, so the size stays the same, and this edit follows the
+			# first scan within the file system's clock tick, so its times can match too. A real edit comes
+			# later, so move its modification time on, or the cache rightly sees an unchanged file.
+			info = os.stat(music / 'A/1.wav')
+			os.utime(music / 'A/1.wav', ns=(info.st_atime_ns, info.st_mtime_ns + 1_000_000_000))
 			library._track_cache.clear()
 			with patch('library._read_track', wraps=library._read_track) as reader:
 				albums, _ = library.scan_library(music, cache_path=cache)

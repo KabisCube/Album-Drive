@@ -3,7 +3,6 @@ from color_rules import timeline_colors
 
 import os
 import tempfile
-import time
 import wave
 from pathlib import Path
 
@@ -18,12 +17,10 @@ from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionSlider
 from main import PlayerWindow
 
 
-def wait_until(condition):
-	deadline = time.monotonic() + 8
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(.005)
-	assert condition(), 'Session check timed out'
+from functools import partial
+import waiting
+
+wait_until = partial(waiting.wait_until, message='Session check timed out')
 
 
 def make_track(path):

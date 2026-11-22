@@ -1,6 +1,5 @@
 import os
 import tempfile
-import time
 from pathlib import Path
 
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
@@ -14,12 +13,10 @@ from theme_settings import ThemeSettingsDialog
 from themes import button_text_sizing
 
 
-def wait_until(condition):
-	deadline = time.monotonic() + 5
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(.005)
-	assert condition()
+from functools import partial
+import waiting
+
+wait_until = partial(waiting.wait_until, seconds=5)
 
 
 app = QApplication([])

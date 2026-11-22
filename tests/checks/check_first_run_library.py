@@ -47,6 +47,9 @@ def names(window):
 	return []
 
 
+# The app keeps one window for its whole run. Letting Python delete each closed window here, while
+# the app goes on, freed Qt objects in an order Qt does not expect and crashed Python on exit.
+windows = []
 with patch('main.music_directory', return_value=str(default)), patch('first_run.music_directory', return_value=str(default)):
 	for name, action, expected in (('chosen', lambda: finish_setup(chosen), chosen),
 								('skipped', lambda: finish_setup(None), default),
@@ -63,4 +66,7 @@ with patch('main.music_directory', return_value=str(default)), patch('first_run.
 		assert names(window) == [expected.name.split()[0] + ' artist'], name
 		assert not window.first_run_needed, name
 		window.close()
+		while window.scanners:
+			QTest.qWait(10)
+		windows.append(window)
 print('PASS: setup chooses, skips or cancels the library, and the file browser fills straight away')

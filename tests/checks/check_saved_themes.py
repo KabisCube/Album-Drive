@@ -2,7 +2,6 @@
 
 import os
 import tempfile
-import time
 import json
 from pathlib import Path
 
@@ -19,14 +18,7 @@ from themes import THEME_FADE_MS
 from theme_settings import ThemeSettingsDialog, custom_color_settings, saved_color_themes
 from themes import BUILDING_GRAY, COLOR_SETTINGS
 from test_library import make_wave
-
-
-def wait_until(condition):
-	deadline = time.monotonic() + 8
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(.005)
-	assert condition()
+from waiting import wait_until
 
 
 def finish_colors(window):

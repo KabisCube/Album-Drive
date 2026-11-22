@@ -2,7 +2,6 @@
 
 import os
 import tempfile
-import time
 from pathlib import Path
 
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
@@ -16,14 +15,7 @@ from case_geometry import CASE_WIDTH, CASE_HEIGHT
 from theme_settings import ThemeSettingsDialog
 from themes import FONT_SCALE_KEYS, font_sizes, COLOR_SETTINGS, CONTROL_HEADROOM, NUMERIC_DEFAULTS, UI_FONT_DEFAULT, control_face
 from test_library import make_wave
-
-
-def wait_until(condition):
-	deadline = time.monotonic() + 8
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(.005)
-	assert condition()
+from waiting import wait_until
 
 
 app = QApplication([])

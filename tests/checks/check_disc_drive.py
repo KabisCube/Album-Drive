@@ -15,14 +15,7 @@ from PySide6.QtWidgets import QApplication
 from main import PlayerWindow, cd_case_pixmap
 from optical_discs import Disc, DiscReader
 from test_library import make_wave
-
-
-def wait_until(condition):
-	deadline = time.monotonic() + 8
-	while not condition() and time.monotonic() < deadline:
-		QTest.qWait(20)
-		time.sleep(.005)
-	assert condition()
+from waiting import wait_until
 
 
 app = QApplication([])
