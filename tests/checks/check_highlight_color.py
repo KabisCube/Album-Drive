@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import time
 from tempfile import TemporaryDirectory
 
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
@@ -13,6 +14,13 @@ from color_rules import color_contrast
 from main import PlayerWindow
 from theme_settings import ThemeSettingsDialog, capture_color_theme, saved_color_themes
 from themes import COLOR_SETTINGS, button_paint_rect, button_text_color, control_face
+
+
+def wait_until(condition):
+	deadline = time.monotonic() + 8
+	while not condition() and time.monotonic() < deadline:
+		QTest.qWait(20)
+	assert condition()
 
 
 def face_color(button):
@@ -37,6 +45,8 @@ with TemporaryDirectory() as directory:
 		dialog = ThemeSettingsDialog(settings, window)
 		dialog.show()
 		app.processEvents()
+		# OK grows in when the dialog opens and stays hidden behind an opacity veil until it settles.
+		wait_until(lambda: dialog.action_buttons[-1].graphicsEffect() is None)
 		highlight = app.property('themeHighlight')
 		assert highlight != app.property('themeAccent')
 		assert app.property('brandTextColor') == highlight

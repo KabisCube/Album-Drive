@@ -72,7 +72,6 @@ class ColorPickerDialog(QDialog):
 	def __init__(self, initial, parent=None, title='Choose color'):
 		super().__init__(parent)
 		self.setWindowTitle(title)
-		ScreenFit(self, 510, 590)
 		self.color = QColor(initial)
 		self.hue = max(0., self.color.hsvHueF())
 		root = QVBoxLayout(self)
@@ -140,6 +139,13 @@ class ColorPickerDialog(QDialog):
 		self.hex_edit.setStyleSheet(f'''QLineEdit {{ background: {background}; color: {text};
             placeholder-text-color: {QColor(disabled_text_color(text)).name()}; border: none; border-radius: {corner_radius(8):g}px; padding: 11px; }}''')
 		self.set_color(self.color)
+		# Open tall enough to show every row at the current font size, measured once the layout
+		# and the hex field's style exist. ScreenFit still caps it to the screen, so the scroll
+		# area only comes into play on small screens.
+		margins = root.contentsMargins()
+		content_height = (margins.top() + body.sizeHint().height() + root.spacing()
+						+ actions.sizeHint().height() + margins.bottom())
+		ScreenFit(self, 510, max(590, content_height))
 
 	def set_color(self, color, update_hex=True):
 		self.color = QColor(color)

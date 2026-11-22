@@ -3,8 +3,8 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication, QDialog, QFileDialog
-from music_folders import MusicFolderDialog, choose_music_directory, music_directory
+from PySide6.QtWidgets import QApplication, QDialog
+from music_folders import MusicFolderDialog, choose_image_file, choose_music_directory, music_directory
 
 
 class MusicFolderTests(unittest.TestCase):
@@ -12,13 +12,86 @@ class MusicFolderTests(unittest.TestCase):
 	def setUpClass(cls):
 		cls.app = QApplication.instance() or QApplication([])
 
-	def test_desktop_preserves_directory_and_native_picker(self):
-		with patch.object(QApplication, 'platformName', return_value='offscreen'), \
-				patch.object(QFileDialog, 'getExistingDirectory', return_value='/music') as picker:
-			self.assertEqual(choose_music_directory(None, 'Music', '/chosen'), '/music')
-			self.assertEqual(picker.call_args.args[2], '/chosen')
-			self.assertFalse(picker.call_args.args[3] & QFileDialog.DontUseNativeDialog)
+	def test_desktop_uses_the_themed_picker_at_the_given_folder(self):
+		with TemporaryDirectory() as directory, \
+				patch.object(QApplication, 'platformName', return_value='offscreen'), \
+				patch('music_folders.MusicFolderDialog') as picker:
+			picker.return_value.exec.return_value = QDialog.Accepted
+			picker.return_value.directory = Path(directory) / 'Albums'
+			self.assertEqual(Path(choose_music_directory(None, 'Music', directory)), Path(directory) / 'Albums')
+			self.assertEqual(Path(picker.call_args.args[2]), Path(directory))
 			self.assertEqual(music_directory(), Path.home() / 'Music')
+
+	def test_desktop_falls_back_to_home_for_a_missing_folder(self):
+		with patch.object(QApplication, 'platformName', return_value='offscreen'), \
+				patch('music_folders.MusicFolderDialog') as picker:
+			picker.return_value.exec.return_value = QDialog.Rejected
+			self.assertEqual(choose_music_directory(None, 'Music', '/no/such/folder'), '')
+			self.assertEqual(Path(picker.call_args.args[2]), Path.home())
+			self.assertEqual(choose_image_file(None, 'Cover', '/no/such/folder'), '')
+			self.assertEqual(picker.call_args.args[3], ('.jpg', '.jpeg', '.png'))
+
+	def test_typed_path_opens_folders_and_reports_bad_ones(self):
+		with TemporaryDirectory() as directory:
+			root = Path(directory)
+			(root / 'Artist' / 'Album').mkdir(parents=True)
+			dialog = MusicFolderDialog(None, 'Music', root)
+			self.assertEqual(dialog.path_field.text(), str(root))
+			dialog.path_field.setText(str(root / 'Artist' / 'Album'))
+			dialog.path_field.returnPressed.emit()
+			self.assertEqual(dialog.directory, root / 'Artist' / 'Album')
+			dialog.path_field.setText('..')
+			dialog.path_field.returnPressed.emit()
+			self.assertEqual(dialog.directory, root / "Artist")
+			dialog.path_field.setText(str(root / 'missing'))
+			dialog.path_field.returnPressed.emit()
+			self.assertEqual(dialog.directory, root / "Artist")
+			self.assertIn('is not a folder', dialog.status.text())
+			self.assertEqual(dialog.result(), 0, 'Enter in the path field must not press a button')
+			dialog.select_button.click()
+			self.assertNotEqual(dialog.result(), QDialog.Accepted, 'a bad typed path cannot be selected')
+			dialog.path_field.setText(str(root / 'Artist' / 'Album'))
+			dialog.select_button.click()
+			self.assertEqual(dialog.result(), QDialog.Accepted)
+			self.assertEqual(dialog.directory, root / 'Artist' / 'Album')
+
+	def test_home_and_music_shortcuts(self):
+		with TemporaryDirectory() as directory:
+			home = Path(directory)
+			(home / 'Music' / 'Jazz').mkdir(parents=True)
+			with patch('music_folders.home_directory', return_value=home):
+				dialog = MusicFolderDialog(None, 'Music', home / 'Music' / 'Jazz')
+				self.assertTrue(dialog.music_button.isEnabled())
+				dialog.home_button.click()
+				self.assertEqual(dialog.directory, home)
+				dialog.music_button.click()
+				self.assertEqual(dialog.directory, home / 'Music')
+				self.assertEqual(dialog.path_field.text(), str(home / 'Music'))
+				(home / 'Music' / 'Jazz').rmdir()
+				(home / 'Music').rmdir()
+				without_music = MusicFolderDialog(None, 'Music', home)
+				self.assertFalse(without_music.music_button.isEnabled(), 'no Music folder, nothing to jump to')
+
+	def test_android_home_is_shared_storage(self):
+		with patch.object(QApplication, 'platformName', return_value='android'):
+			from music_folders import home_directory
+			self.assertEqual(home_directory(), Path('/storage/emulated/0'))
+			self.assertEqual(music_directory(), Path('/storage/emulated/0/Music'))
+
+	def test_typed_image_path_is_picked(self):
+		with TemporaryDirectory() as directory:
+			root = Path(directory)
+			(root / 'front.PNG').touch()
+			(root / 'notes.txt').touch()
+			dialog = MusicFolderDialog(None, 'Cover', root, ('.jpg', '.jpeg', '.png'))
+			dialog.path_field.setText('notes.txt')
+			dialog.path_field.returnPressed.emit()
+			self.assertIsNone(dialog.selected_file)
+			self.assertIn('JPG or PNG', dialog.status.text())
+			dialog.path_field.setText('front.PNG')
+			dialog.path_field.returnPressed.emit()
+			self.assertEqual(dialog.selected_file, root / 'front.PNG')
+			self.assertEqual(dialog.result(), QDialog.Accepted)
 
 	def test_android_uses_a_filesystem_picker_and_shared_music(self):
 		with patch.object(QApplication, 'platformName', return_value='android'), \
@@ -41,6 +114,7 @@ class MusicFolderTests(unittest.TestCase):
 		with TemporaryDirectory() as directory:
 			root = Path(directory)
 			(root / 'Artist' / 'Album').mkdir(parents=True)
+			(root / '.cache').mkdir()
 			(root / 'song.mp3').touch()
 			dialog = MusicFolderDialog(None, 'Choose music library root', root)
 			dialog.resize(320, 600)
@@ -62,5 +136,5 @@ class MusicFolderTests(unittest.TestCase):
 		with patch.object(Path, 'iterdir', side_effect=PermissionError):
 			dialog = MusicFolderDialog(None, 'Music', '/storage/emulated/0/Music')
 			self.assertFalse(dialog.select_button.isEnabled())
-			self.assertIn('storage access', dialog.status.text())
+			self.assertIn('Cannot open this folder', dialog.status.text())
 			dialog.reject()

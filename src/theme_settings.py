@@ -215,9 +215,11 @@ class SettingsFormLayout(QFormLayout):
 			section = any(item is not None and item.widget() is not None
 						and item.widget().objectName() in ('settingsSection', 'settingsSectionSpacer') for item in items)
 			following = self.itemAt(row + 1, QFormLayout.SpanningRole)
-			section = section or (following is not None and following.widget() is not None
-								and following.widget().objectName() == 'settingsSectionSpacer')
-			offsets.append(offsets[-1] + (0 if section else max(min(0, self.row_spacing), min(0, 1 - height))))
+			following = following.widget() if following is not None else None
+			section = section or (following is not None and following.objectName() == 'settingsSectionSpacer')
+			# Plain text has no transparent depth margin to overlap, so it keeps its distance.
+			text_row = isinstance(following, QLabel) and following.objectName() != 'settingsSection'
+			offsets.append(offsets[-1] + (0 if section or text_row else max(min(0, self.row_spacing), min(0, 1 - height))))
 		return offsets
 
 	def sizeHint(self):
@@ -1023,6 +1025,11 @@ class ThemeSettingsDialog(QDialog):
 
 	def open_quick_start(self):
 		from first_run import FirstRunDialog
+		# Apply a preview still waiting on its timer now. Fired later, inside the guide's event loop,
+		# it would save this dialog's older choices over the ones the guide just saved.
+		if self.preview_timer.isActive():
+			self.preview_timer.stop()
+			self.apply()
 		guide = FirstRunDialog(self.settings, self)
 		if self.artwork_theme.isChecked():
 			guide.choices.get(self.artwork_theme_mode.currentData(), guide.choices['any']).setChecked(True)

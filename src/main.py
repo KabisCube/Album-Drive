@@ -3404,6 +3404,9 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 			for column, value in enumerate([str(track.number or row + 1), track.title]):
 				self.album_table.setItem(row, column, QTableWidgetItem(value))
 		self.album_table.clearSelection()
+		# The table is reused, so it would keep the last album's scroll position, clamped to this
+		# album's range. With one row too many to fit, that clamp lands at the bottom.
+		self.album_table.scrollToTop()
 		if self.queue_index >= 0 and self.queue[self.queue_index][1].folder == album.folder:
 			self.album_table.selectRow(self.queue_index)
 		self.update_track_markers()
