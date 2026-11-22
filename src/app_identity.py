@@ -10,7 +10,7 @@ from app_paths import ASSETS_DIR
 from PySide6.QtGui import QIcon
 
 APP_NAME = 'Album Drive'
-APP_VERSION = '0.2.9'
+APP_VERSION = '0.2.10'
 
 
 def configure_app(app):
