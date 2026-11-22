@@ -7,6 +7,7 @@ and call the methods. Qt reads each adaptor property's declared type, so 'qlongl
 a 32-bit integer for tracks under 35 minutes, which Plasma and GNOME read the same way.
 """
 
+import importlib
 import os
 import sys
 import time
@@ -26,6 +27,12 @@ JUMP_MS = 1000
 
 def linux_media_supported():
 	return sys.platform.startswith('linux') and not running_on_android()
+
+
+def qtdbus():
+	"""Load QtDBus by name. pyside6-android-deploy scans every import statement, even inside functions,
+	and would try to bundle QtDBus, which the Android wheels do not ship."""
+	return importlib.import_module('PySide6.QtDBus')
 
 
 class LinuxMedia(QObject):
@@ -53,7 +60,7 @@ class LinuxMedia(QObject):
 		if not linux_media_supported():
 			return False
 		try:
-			from PySide6.QtDBus import QDBusConnection
+			QDBusConnection = qtdbus().QDBusConnection
 		except ImportError:
 			return False
 		bus = QDBusConnection.sessionBus()
@@ -128,7 +135,7 @@ class LinuxMedia(QObject):
 		return f'/org/albumdrive/track/t{zlib.crc32(key.encode("utf-8")):08x}'
 
 	def metadata(self):
-		from PySide6.QtDBus import QDBusObjectPath
+		QDBusObjectPath = qtdbus().QDBusObjectPath
 		if not self.loaded():
 			return {'mpris:trackid': QDBusObjectPath(NO_TRACK)}
 		data = {'mpris:trackid': QDBusObjectPath(self.track_path())}
@@ -162,7 +169,8 @@ class LinuxMedia(QObject):
 
 	def announce(self, interface, changed):
 		from PySide6.QtCore import QMetaType
-		from PySide6.QtDBus import QDBusArgument, QDBusMessage
+		dbus = qtdbus()
+		QDBusArgument, QDBusMessage = dbus.QDBusArgument, dbus.QDBusMessage
 		# A plain [] would travel as a list of variants; the signal needs an empty list of strings.
 		invalidated = QDBusArgument()
 		invalidated.beginArray(QMetaType(QMetaType.Type.QString))
@@ -194,7 +202,8 @@ class LinuxMedia(QObject):
 def make_adaptors(media):
 	"""Build the two MPRIS interfaces. They are defined here, so QtDBus is only loaded where it is used."""
 	from PySide6.QtCore import ClassInfo, Property, Slot
-	from PySide6.QtDBus import QDBusAbstractAdaptor, QDBusObjectPath
+	dbus = qtdbus()
+	QDBusAbstractAdaptor, QDBusObjectPath = dbus.QDBusAbstractAdaptor, dbus.QDBusObjectPath
 
 	@ClassInfo({'D-Bus Interface': 'org.mpris.MediaPlayer2'})
 	class Root(QDBusAbstractAdaptor):
