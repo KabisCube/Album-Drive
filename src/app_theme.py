@@ -1,6 +1,7 @@
 """
 Five colors are picked once, in order:
-1. Background: the most used color on the theme's side (light or dark).
+1. Background: a color group that fills most of the artwork, otherwise the most used color
+   on the theme's side (light or dark).
 2. Text: the most used color on the other side that reads on the background.
 3. Accent: the most saturated color that stands apart from the first two.
 4. Button: a color apart from the others, preferring an unused hue.
@@ -26,8 +27,7 @@ from themes import COLOR_SETTINGS, PANEL_SHADE
 LIGHTNESS_RANGE = (.24, .96)
 DARKEST_BACKGROUND = QColor('#2b0200').lightnessF()
 DARKEST_GRAY_BACKGROUND = QColor('#1f1f1f').lightnessF()
-LIGHT_LOOK = .7
-DARK_LOOK = .35
+MIDDLE_LOOK = .5
 INVENTED_LIGHTNESS = {'light': .9, 'dark': .3}
 CALM_CHROMA = 48
 VIVID_CHROMA = 24
@@ -37,13 +37,15 @@ COLORFUL = .03
 TINT_GAP = .06
 TINT_SHARE = .5
 MINIMUM_SHARE = .001
+MAJORITY_SHARE = .53
 DOMINANT_SHARE = .4
 MEMBER_SHARE = .1
 COLORFUL_DARK_SHARE = .05
-DOMINANT_FAMILY_LIGHTNESS = .35
 PICK_SHARE = .0015
 SKIN_SHARE = .15
 SKIN_CHROMA = 110
+PEACH_LIGHTNESS = .6
+PEACH_CHROMA = 135
 TEXT_CONTRAST = 4
 PREFERRED_TEXT_CONTRAST = 4.5
 BUTTON_CONTRAST = 1.1
@@ -102,6 +104,8 @@ def cover_colors(artwork):
 
 def skin_tone(color):
 	hue = color.hslHueF() * 360
+	if 20 <= hue <= 30 and VIVID_CHROMA <= chroma(color) <= PEACH_CHROMA and color.lightnessF() >= PEACH_LIGHTNESS:
+		return True
 	return (hue <= 28 or hue >= 350) and VIVID_CHROMA <= chroma(color) <= SKIN_CHROMA and color.lightnessF() >= .35
 
 
@@ -211,6 +215,9 @@ def lifted(color, bounds=LIGHTNESS_RANGE):
 def theme_side(cover, mode):
 	if mode in ('light', 'dark'):
 		return mode
+	for side in ('light', 'dark'):
+		if majority(cover, side):
+			return side
 	return 'light' if cover[0][0].lightnessF() >= .5 else 'dark'
 
 
@@ -221,11 +228,39 @@ def in_half(color, side):
 def pick_background(cover, side):
 	bounds = (DARKEST_BACKGROUND, LIGHTNESS_RANGE[1]) if side == 'dark' else LIGHTNESS_RANGE
 	background = next(color for color in (pick(cover, side, bounds) for pick in
-										(dominant_background, voted_background, invented_background))
+										(majority_background, dominant_background, voted_background, invented_background))
 					if color is not None)
 	if chroma(background) < VIVID_CHROMA and background.lightnessF() < DARKEST_GRAY_BACKGROUND:
 		return lifted(background, (DARKEST_GRAY_BACKGROUND, LIGHTNESS_RANGE[1]))
 	return background
+
+
+def side_groups(cover, side):
+	groups = {}
+	for color, share in cover:
+		looks = perceived_lightness(color)
+		if looks >= MIDDLE_LOOK if side == 'light' else looks < MIDDLE_LOOK:
+			key = -1 if chroma(color) < VIVID_CHROMA else hue_family(color)
+			groups.setdefault(key, []).append((color, share))
+	return groups
+
+
+def majority(cover, side):
+	members = max(side_groups(cover, side).values(), key=total_share, default=[])
+	return members if total_share(members) >= MAJORITY_SHARE else []
+
+
+def group_background(members, bounds):
+	top, top_share = members[0]
+	if usable(top, bounds):
+		return top
+	inside = [color for color, share in members if usable(color, bounds) and share >= top_share * MEMBER_SHARE]
+	return inside[0] if inside else lifted(top, bounds)
+
+
+def majority_background(cover, side, bounds):
+	members = majority(cover, side)
+	return group_background(members, bounds) if members else None
 
 
 def dominant_background(cover, side, bounds):
@@ -241,29 +276,20 @@ def dominant_background(cover, side, bounds):
 	if total < DOMINANT_SHARE:
 		return None
 	looks = sum(perceived_lightness(color) * share for color, share in family) / total
-	clearly = looks >= 1 - DOMINANT_FAMILY_LIGHTNESS if side == 'light' else looks <= DOMINANT_FAMILY_LIGHTNESS
+	fits = looks >= MIDDLE_LOOK if side == 'light' else looks < MIDDLE_LOOK
 	color = clamped(family[0][0], bounds)
-	return color if clearly and in_half(color, side) else None
+	return color if fits and in_half(color, side) else None
 
 
 def voted_background(cover, side, bounds):
-	groups = {}
-	for color, share in cover:
-		looks = perceived_lightness(color)
-		if looks >= LIGHT_LOOK if side == 'light' else looks <= DARK_LOOK:
-			key = -1 if chroma(color) < VIVID_CHROMA else hue_family(color)
-			groups.setdefault(key, []).append((color, share))
+	groups = side_groups(cover, side)
 	if not groups:
 		return None
 	members = max(groups.values(), key=total_share)
 	colorful = max((entries for key, entries in groups.items() if key >= 0), key=total_share, default=[])
 	if side == 'dark' and total_share(colorful) >= COLORFUL_DARK_SHARE:
 		members = colorful
-	top, top_share = members[0]
-	if usable(top, bounds):
-		return top
-	inside = [color for color, share in members if usable(color, bounds) and share >= top_share * MEMBER_SHARE]
-	return inside[0] if inside else lifted(top, bounds)
+	return group_background(members, bounds)
 
 
 def invented_background(cover, side, bounds):
@@ -297,6 +323,10 @@ def pick_text(cover, background):
 		target = clamped(color).lightnessF()
 		steps = (shade(hue, saturation, target + (level - target) * step / 100) for step in range(101))
 		return next((step for step in steps if reads(step, PREFERRED_TEXT_CONTRAST)), color)
+	if chroma(background) < VIVID_CHROMA:
+		vivid = [color for color in colors if usable(color) and reads(color)]
+		if vivid:
+			return max(vivid, key=lambda option: color_contrast(background, option))
 	hue, saturation, _, _ = background.getHslF()
 	darker = relative_luminance(background) >= .18
 	shades = [shade(hue, saturation, step / 100) for step in (range(50, -1, -1) if darker else range(50, 101))]
@@ -346,6 +376,8 @@ def pick_background_accent(cover, background, text, accent, button):
 	if inside:
 		return max(inside, key=lambda color: (new_hue(color, picked), newness(color, picked),
 											color_contrast(button, color)))
+	if found and chroma(background) < VIVID_CHROMA and chroma(text) > 2 * CALM_CHROMA:
+		return max(found, key=lambda color: (new_hue(color, picked), color_contrast(button, color)))
 	for toward in (button, text):
 		invented = next((color for color in mixes(background, toward, INK_MIX) if fits(color, True)), None)
 		if invented is not None:
