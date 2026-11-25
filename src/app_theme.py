@@ -46,6 +46,7 @@ SKIN_SHARE = .15
 SKIN_CHROMA = 110
 PEACH_LIGHTNESS = .6
 PEACH_CHROMA = 135
+CORAL_CHROMA = 100
 TEXT_CONTRAST = 4
 PREFERRED_TEXT_CONTRAST = 4.5
 BUTTON_CONTRAST = 1.1
@@ -106,6 +107,9 @@ def skin_tone(color):
 	hue = color.hslHueF() * 360
 	if 20 <= hue <= 30 and VIVID_CHROMA <= chroma(color) <= PEACH_CHROMA and color.lightnessF() >= PEACH_LIGHTNESS:
 		return True
+	# Bright coral pinks are redder and stronger than skin.
+	if (hue < 10 or hue >= 350) and chroma(color) >= CORAL_CHROMA and color.lightnessF() >= PEACH_LIGHTNESS:
+		return False
 	return (hue <= 28 or hue >= 350) and VIVID_CHROMA <= chroma(color) <= SKIN_CHROMA and color.lightnessF() >= .35
 
 
