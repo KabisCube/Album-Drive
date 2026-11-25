@@ -105,7 +105,7 @@ class ArtworkModeTests(unittest.TestCase):
 
 	def test_largest_color_group_on_the_side_is_the_background(self):
 		pixels = [(251, 29, 12)] * 28 + [(245, 15, 3)] * 26 + [(242, 171, 27)] * 6 + [(8, 4, 90)] * 6 + [(250, 250, 250)] * 2 + [(10, 2, 5)] * 2
-		self.assertEqual(artwork_theme_colors(cover(*pixels), 'light')['themeBackground'], '#f2ab1b')
+		self.assertEqual(artwork_theme_colors(cover(*pixels), 'light')['themeBackground'], '#fb1d0c')
 		dark = QColor(artwork_theme_colors(cover(*pixels), 'dark')['themeBackground'])
 		self.assertGreater(dark.blue(), 2 * dark.red())
 

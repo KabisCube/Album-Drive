@@ -362,7 +362,6 @@ def pick_background_accent(cover, background, text, accent, button):
 	picked = (background, text, accent, button)
 	panel = background.darker(PANEL_SHADE)
 	real_button = any(button == color for color, _ in cover)
-	levels = sorted((background.lightnessF(), button.lightnessF()))
 
 	def fits(color, invented=False):
 		contrast = INVENTED_INK_BUTTON_CONTRAST if invented or not real_button else INK_BUTTON_CONTRAST
@@ -372,10 +371,18 @@ def pick_background_accent(cover, background, text, accent, button):
 				and color_contrast(panel, color) >= INK_PANEL_CONTRAST)
 
 	found = [color for color, share in cover if share >= PICK_SHARE and usable(color) and fits(color)]
-	inside = [color for color in found if levels[0] <= color.lightnessF() <= levels[1]]
+	def between(toward):
+		levels = sorted((background.lightnessF(), toward.lightnessF()))
+		return [color for color in found if levels[0] <= color.lightnessF() <= levels[1]]
+
+	inside = between(button)
 	if inside:
 		return max(inside, key=lambda color: (new_hue(color, picked), newness(color, picked),
 											color_contrast(button, color)))
+	# The cover is sorted by share, so the first of equals is the most common.
+	inside = between(text)
+	if inside:
+		return max(inside, key=lambda color: new_hue(color, picked))
 	if found and chroma(background) < VIVID_CHROMA and chroma(text) > 2 * CALM_CHROMA:
 		return max(found, key=lambda color: (new_hue(color, picked), color_contrast(button, color)))
 	for toward in (button, text):
