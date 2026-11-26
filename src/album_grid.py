@@ -12,6 +12,7 @@ from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, case_frame_color, paint_cd
 from responsive import running_on_android
 from case_geometry import CASE_WIDTH, CASE_HEIGHT
 from scroll_shadows import ScrollEdgeFade as AlbumEdgeFade
+from wheel_steps import WheelSteps
 
 
 BAKED_CASE_LIMIT = 48
@@ -278,7 +279,7 @@ class AlbumGrid(QListWidget):
 		self.verticalScrollBar().valueChanged.connect(lambda _: self.row_snap_timer.start())
 		self.verticalScrollBar().sliderReleased.connect(self.row_snap_timer.start)
 		self.scroll_animation.finished.connect(self.row_snap_timer.start)
-		self.wheel_remainder = 0
+		self.wheel_steps = WheelSteps()
 		self.pixel_remainder = 0
 		self.hover_rotation = NUMERIC_DEFAULTS['hover_rotation']
 		self.hover_growth = NUMERIC_DEFAULTS['hover_growth']
@@ -657,9 +658,7 @@ class AlbumGrid(QListWidget):
 			steps = math.trunc(self.pixel_remainder / 80)
 			self.pixel_remainder -= steps * 80
 		elif event.angleDelta().y():
-			self.wheel_remainder += event.angleDelta().y()
-			steps = math.trunc(self.wheel_remainder / 120)
-			self.wheel_remainder -= steps * 120
+			steps = self.wheel_steps.add(event.angleDelta().y())
 		else:
 			super().wheelEvent(event)
 			return
@@ -804,6 +803,6 @@ class AlbumGrid(QListWidget):
 		self.animations.clear()
 		self.lifts.clear()
 		self.hover_row = -1
-		self.wheel_remainder = 0
+		self.wheel_steps.reset()
 		self.pixel_remainder = 0
 		super().clear()

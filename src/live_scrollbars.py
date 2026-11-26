@@ -10,7 +10,13 @@ from scroll_shadows import install_scroll_shadows
 
 class LiveScrollbars(QObject):
 	def eventFilter(self, widget, event):
-		if event.type() != QEvent.Paint or not isinstance(widget, QScrollBar):
+		if not isinstance(widget, QScrollBar):
+			return False
+		if event.type() == QEvent.ContextMenu:
+			# Qt's own "Scroll here / Top / Bottom" menu doesn't belong in the app. Swallowing it also
+			# keeps the right-click from falling through to the folder, album or track menus beneath.
+			return True
+		if event.type() != QEvent.Paint:
 			return False
 		app = QApplication.instance()
 		background = QColor(app.property('themeBackground') or '#393939')

@@ -45,6 +45,7 @@ from themes import signed_setting_int, resolve_font, THEME_DEFAULT, ALBUM_SORT_D
 from theme_settings import ThemeSettingsDialog, capture_color_theme, custom_color_settings, saved_color_themes
 from theme_transition import ThemeTransition, strip_theme_colors
 from live_scrollbars import install_live_scrollbars
+from wheel_steps import WheelSteps
 from raised_tooltip import install_raised_tooltips
 from scroll_shadows import paint_scroll_background
 from case_loader import CaseLoader, prepare_case
@@ -847,7 +848,7 @@ class FolderBrowser(QTreeView):
 		super().__init__(parent)
 		self.setVerticalScrollMode(QTreeView.ScrollPerPixel)
 		self.scroll_target = 0
-		self.wheel_remainder = 0
+		self.wheel_steps = WheelSteps()
 		self.scroll_animation = QVariantAnimation(self)
 		self.scroll_animation.setDuration(240)
 		self.scroll_animation.setEasingCurve(QEasingCurve.OutCubic)
@@ -1031,9 +1032,7 @@ class FolderBrowser(QTreeView):
 		if event.pixelDelta().y():
 			distance = event.pixelDelta().y()
 		elif event.angleDelta().y():
-			self.wheel_remainder += event.angleDelta().y()
-			steps = int(self.wheel_remainder / 120)
-			self.wheel_remainder -= steps * 120
+			steps = self.wheel_steps.add(event.angleDelta().y())
 			row_height = max(1, self.sizeHintForRow(0))
 			distance = steps * row_height * QApplication.wheelScrollLines()
 		else:
@@ -1055,7 +1054,7 @@ class FolderBrowser(QTreeView):
 
 	def setRootIndex(self, index):
 		self.scroll_animation.stop()
-		self.wheel_remainder = 0
+		self.wheel_steps.reset()
 		changed = index != self.rootIndex()
 		if changed and hasattr(self, 'search'):
 			self.search_bar.set_expanded(False, animate=False)

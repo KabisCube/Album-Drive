@@ -4,6 +4,7 @@ from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QEvent, QObject, QP
 from PySide6.QtWidgets import QAbstractItemView, QApplication, QFormLayout, QScrollArea, QScroller
 
 from themes import BUTTON_SHADOW, CONTROL_HEADROOM
+from wheel_steps import WheelSteps
 
 SNAP_SETTLE_MS = 180
 FACE_DEPTH = 4
@@ -46,7 +47,7 @@ class TopSnap(QObject):
 		self.animation.setEasingCurve(QEasingCurve.OutCubic)
 		self.animation.valueChanged.connect(self.glide)
 		self.gliding = False
-		self.wheel_remainder = 0
+		self.wheel_steps = WheelSteps()
 		area.verticalScrollBar().valueChanged.connect(self.schedule)
 		if getattr(area, 'scroll_animation', None) is None:
 			area.viewport().installEventFilter(self)
@@ -99,9 +100,7 @@ class TopSnap(QObject):
 		if found is None:
 			return False
 		stops, per_notch = found
-		self.wheel_remainder += event.angleDelta().y()
-		steps = int(self.wheel_remainder / 120)
-		self.wheel_remainder -= steps * 120
+		steps = self.wheel_steps.add(event.angleDelta().y())
 		if not steps:
 			event.accept()
 			return True
