@@ -1108,38 +1108,34 @@ class TabScrollButton(ThemedButton):
 		self.direction = direction
 		self.lift = lift
 		self.own_appear_animation = True
-		from scale_ghost import SLIDE_DAMPING, pop_spring
+		from scale_ghost import pop_spring
 		self.grow = pop_spring(self)
-		self.slide = pop_spring(self, SLIDE_DAMPING)
-		for spring in (self.grow, self.slide):
-			spring.jump(1)
-			spring.moved.connect(self.update)
+		self.grow.jump(1)
+		self.grow.moved.connect(self.update)
 		self.setAccessibleName('Scroll tabs left' if direction < 0 else 'Scroll tabs right')
 		self.setToolTip(self.accessibleName())
 		self.setAutoRepeat(True)
 
 	@property
 	def animating(self):
-		return self.grow.moving or self.slide.moving
+		return self.grow.moving
 
 	def set_shown(self, shown):
 		if shown and self.isHidden():
 			self.show()
 			self.raise_()
-			for spring in (self.grow, self.slide):
-				spring.jump(0)
-				spring.glide(1)
+			self.grow.jump(0)
+			self.grow.glide(1)
 		elif not shown and not self.isHidden():
-			for spring in (self.grow, self.slide):
-				spring.jump(1)
+			self.grow.jump(1)
 			self.hide()
 
 	def paintEvent(self, event):
 		painter = QPainter(self)
 		painter.setRenderHint(QPainter.Antialiasing)
 		app = QApplication.instance()
-		travel = (1 - min(1.0, self.slide.value)) * self.width() * self.direction
-		painter.fillRect(QRectF(self.rect()).translated(travel, 0), QColor(app.property('themeBackground') or BUILDING_GRAY))
+		# No backdrop: whoever holds the arrows clips the scrolling controls short of them,
+		# so a filled box would only smear window colour over neighbours as the arrow springs.
 		scale = max(0.0, self.grow.value)
 		if scale <= 0:
 			return

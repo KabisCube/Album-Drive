@@ -60,9 +60,20 @@ with TemporaryDirectory() as directory:
 			window.queue = [(track, album) for track in album.tracks]
 			window.queue_index = 1
 			settings.setValue('continuous_playback', True)
+			# Someone browsing another album keeps their place while playback moves on.
+			window.viewed_album = ordered[2]
+			window.media_status_changed(QMediaPlayer.EndOfMedia)
+			play.assert_called_once_with(ordered[1], 0)
+			show.assert_not_called()
+			play.reset_mock()
+			# Someone watching the finished album's tracks is taken along to the next one.
+			window.queue = [(track, album) for track in album.tracks]
+			window.queue_index = 1
+			window.viewed_album = album
 			window.media_status_changed(QMediaPlayer.EndOfMedia)
 			play.assert_called_once_with(ordered[1], 0)
 			show.assert_called_once_with(ordered[1])
+			window.viewed_album = None
 			play.reset_mock()
 			window.queue = [(track, ordered[-1]) for track in ordered[-1].tracks]
 			window.media_status_changed(QMediaPlayer.EndOfMedia)
@@ -146,4 +157,4 @@ with TemporaryDirectory() as directory:
 			scanner.wait()
 		QTest.qWait(200)
 
-print('PASS: continuous album order/stop, settings dependencies, live logo swatch, immutable Default, smooth Apply')
+print('PASS: continuous album order/stop, follows only a watched album, settings dependencies, live logo swatch, immutable Default, smooth Apply')

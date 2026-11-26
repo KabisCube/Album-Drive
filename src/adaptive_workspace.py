@@ -133,6 +133,8 @@ class ResponsiveTransport(QWidget):
 		self.back = None
 		self.compact_volume = False
 		self.album_opacity = None
+		# The album shortcut steps aside while the Now Playing case itself can be clicked.
+		self.album_wanted = True
 		self.last_volume_rect = None
 		self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		for widget in (play, previous, next_button, seek, volume, album):
@@ -149,6 +151,11 @@ class ResponsiveTransport(QWidget):
 		button.setParent(self)
 		button.hide()
 		self.arrange()
+
+	def set_album_wanted(self, wanted):
+		if wanted != self.album_wanted:
+			self.album_wanted = wanted
+			self.arrange()
 
 	def set_mix(self, amount):
 		self.mix = float(amount)
@@ -197,14 +204,16 @@ class ResponsiveTransport(QWidget):
 			size = lambda width: round(width * button_scale()) + 2 * CONTROL_HEADROOM
 			play_width, skip_width = size(64), size(44)
 			album_height = 0
-			if self.album is not None:
+			# A hidden album button gives its room back, so the row can center without it.
+			has_album = self.album is not None and self.album_wanted
+			if has_album:
 				album_height = min(self.album.maximumHeight(), max(self.album.minimumHeight(), self.album.sizeHint().height()))
 			start = back_size.width() + BACK_GAP if back is not None else 0
 			# Play sits on the window's center line; the rest of the row hangs off either side of it.
 			play_x = (self.width() - play_width) / 2
 			# Tighten the gaps (measured between visible faces) before dropping the volume or moving the row off-center.
 			smallest = (gap + 2 * CONTROL_HEADROOM) * MINIMUM_GAP_SHARE - 2 * CONTROL_HEADROOM
-			left_buttons = 2 if self.album is not None else 1
+			left_buttons = 2 if has_album else 1
 			left_room = (play_x - start - left_buttons * skip_width) / left_buttons
 			right_room = (self.width() - play_x - play_width - skip_width - widths[4]) / 2
 			if self.compact_volume and min(gap, left_room, right_room) >= smallest:
@@ -214,11 +223,11 @@ class ResponsiveTransport(QWidget):
 			previous_x = play_x - gap - skip_width
 			next_x = play_x + play_width + gap
 			album_x = previous_x - gap - skip_width
-			leftmost = album_x if self.album is not None else previous_x
+			leftmost = album_x if has_album else previous_x
 			# The gap after Back tightens to the same minimum; only then does the row move off-center.
 			tight_start = back_size.width() + smallest if back is not None else 0
 			shift = max(0.0, tight_start - leftmost) if leftmost < start else 0.0
-			album_fits = self.album is not None and next_x + skip_width + shift <= self.width()
+			album_fits = has_album and next_x + skip_width + shift <= self.width()
 			if not album_fits:
 				gap = max(smallest, min(8, play_x - start - skip_width))
 				previous_x, next_x = play_x - gap - skip_width, play_x + play_width + gap

@@ -1605,6 +1605,7 @@ class PlayerWindow(QMainWindow):
 		browser_column.addWidget(now_playing)
 		now_playing.geometryChanged.connect(self.restore_sidebar_split, Qt.QueuedConnection)
 		now_playing.geometryChanged.connect(self.track_title.span_changed)
+		now_playing.geometryChanged.connect(self.update_album_shortcut)
 		self.split_animation = QVariantAnimation(self)
 		self.split_animation.setDuration(180)
 		self.split_animation.setEasingCurve(QEasingCurve.OutCubic)
@@ -2621,11 +2622,24 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 		library = self.compact_mode and self.workspace.page == 'library'
 		from scale_ghost import hide_with_shrink, show_with_grow
 		(show_with_grow if library and not self.is_android else hide_with_shrink)(self.back_button)
+		self.update_album_shortcut()
 		self.transport.arrange()
 		searching = self.search_open()
 		self.back_action.setEnabled(library or searching)
 		self.escape_action.setEnabled(library or searching or (not self.compact_mode and self.viewed_album is not None))
 		self.back_button.setAccessibleName('Back to albums' if self.viewed_album is not None else 'Back to file browser')
+
+	def update_album_shortcut(self):
+		"""Only offer the album button when the Now Playing case isn't there to click."""
+		if not hasattr(self, 'transport') or getattr(self, 'album_shortcut_held', False):
+			return
+		browsing = self.compact_mode and self.workspace.page == 'browser'
+		case_clickable = self.now_playing.isVisible() and self.cover.height() >= MINIMUM_TOUCH_TARGET
+		playing = self.queue[self.queue_index][1] if 0 <= self.queue_index < len(self.queue) else None
+		# The playing album's track list is already open on the album page.
+		showing_playing = (playing is not None and self.viewed_album is not None
+						and self.viewed_album.folder == playing.folder and not browsing)
+		self.transport.set_album_wanted(not (browsing and case_clickable) and not showing_playing)
 
 	def search_open(self):
 		return self.tree.search_bar.expanded and self.tree.isVisible()
@@ -3666,6 +3680,7 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 		self.play.setEnabled(bool(self.queue) and not self.cd_loading)
 		self.previous.setEnabled(bool(self.queue))
 		self.album_button.setEnabled(0 <= self.queue_index < len(self.queue))
+		self.update_album_shortcut()
 		self.next.setEnabled(self.queue_index + 1 < len(self.queue) or self.next_album() is not None)
 		self.update_track_markers()
 		if getattr(self, 'taskbar', None):
@@ -3750,8 +3765,20 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 		else:
 			album = self.next_album()
 			if album is not None:
-				self.show_album(album)
-				self.play_album(album, 0)
+				# Opening and playing each change half of what the album button checks, so it decides once both are done.
+				self.album_shortcut_held = True
+				try:
+					# Follow along only when the finished album's tracks were on screen; anyone looking
+					# elsewhere is probably choosing what to play, so they keep their place.
+					finished = self.queue[self.queue_index][1]
+					watching = (self.viewed_album is not None and self.viewed_album.folder == finished.folder
+								and (not self.compact_mode or self.workspace.page == 'library'))
+					if watching:
+						self.show_album(album)
+					self.play_album(album, 0)
+				finally:
+					self.album_shortcut_held = False
+				self.update_album_shortcut()
 
 	def next_album(self):
 		if not self.queue or not self.settings.value('continuous_playback', True, type=bool):
