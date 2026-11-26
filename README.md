@@ -1,10 +1,10 @@
 <p align="center">
 	<img src=".github/images/album-drive_icon.png" alt="Album Drive icon" width="128">
 </p>
-
 <p align="center">
 	<a href="https://github.com/KabisCube/Album-Drive/releases/latest">Download</a>
 </p>
+
 
 <p align="center">
 	<img src=".github/images/preview1.png" alt="Album Drive preview landscape" width="74%">
