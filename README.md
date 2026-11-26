@@ -4,8 +4,8 @@
 <p align="center">
 	<a href="https://github.com/KabisCube/Album-Drive/releases/latest">Download</a>
 </p>
-
-
+<br>
+<br>
 <p align="center">
 	<img src=".github/images/preview1.png" alt="Album Drive preview landscape" width="74%">
 	<img src=".github/images/preview2.png" alt="Album Drive preview portrait" width="23%">
