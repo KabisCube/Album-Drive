@@ -8,5 +8,5 @@ for venv in .venv-linux .venv; do
 		exec "$venv/bin/python" src/main.py
 	fi
 done
-echo 'First run: run tools/build-linux.sh once, or follow the setup instructions in README.md.' >&2
+echo 'First run: run tools/build-linux.sh once, or follow the setup instructions in BUILDING.md.' >&2
 exit 1

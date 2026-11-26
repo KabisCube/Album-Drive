@@ -141,7 +141,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          cat "$NOTES" > build-notes.md
+          printf '\n\n' >> build-notes.md
+          cat docs/release-notes/requirements.md >> build-notes.md
           prerelease=""
           if [ "${VERSION%%.*}" = "0" ]; then prerelease="--prerelease"; fi
           gh release create "$GITHUB_REF_NAME" release/AlbumDrive-windows-*.zip release/AlbumDrive-linux-*.tar.gz release/AlbumDrive-android-arm64.apk \
-            --title "Album Drive $GITHUB_REF_NAME" --notes-file "$NOTES" $prerelease
+            --title "Album Drive $GITHUB_REF_NAME" --notes-file build-notes.md $prerelease

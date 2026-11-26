@@ -25,11 +25,11 @@ exit /b
 
 :dependencies_missing
 echo Python was found, but the source dependencies are missing.
-echo Create .venv-windows using the Windows setup instructions in README.md.
+echo Create .venv-windows using the Windows setup instructions in BUILDING.md.
 pause
 exit /b 1
 
 :python_missing
-echo No usable Python was found. See README.md for Windows setup instructions.
+echo No usable Python was found. See BUILDING.md for Windows setup instructions.
 	pause
 	exit /b 1
