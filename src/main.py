@@ -9,7 +9,7 @@ import subprocess
 import time
 from functools import lru_cache
 from collections import OrderedDict, deque
-from math import ceil
+from math import ceil, floor
 from pathlib import Path
 
 from app_paths import ASSETS_DIR
@@ -46,12 +46,13 @@ from theme_settings import ThemeSettingsDialog, capture_color_theme, custom_colo
 from theme_transition import ThemeTransition, strip_theme_colors
 from live_scrollbars import install_live_scrollbars
 from wheel_steps import WheelSteps
+from folder_probe import FolderProbe
 from raised_tooltip import install_raised_tooltips
 from scroll_shadows import paint_scroll_background
 from case_loader import CaseLoader, prepare_case
 from case_loader import fitted as fitted_size
 from case_shell import CASE_DEPTH, CASE_SHADOW_DEPTH, case_frame_color, paint_cd_case, paint_shell, fitted_case_rect
-from themes import PANEL_SHADE, WELL_SHADE, RaisedLabel, control_offset, control_shadow, paint_raised_surface, raised_surface_face, surface_depth
+from themes import PANEL_SHADE, WELL_SHADE, RaisedLabel, control_offset, control_shadow, paint_raised_surface, paint_underline, raised_surface_face, surface_depth
 from case_geometry import CASE_WIDTH, CASE_HEIGHT, CASE_PIXMAP_SIZE, sleeve_rect
 from color_rules import timeline_colors
 from settings_store import create_app_settings, library_cache_path, write_theme_files
@@ -218,6 +219,22 @@ def case_ink_style(handwriting_font=None):
 			int(app.property('handwritingFontSize') or NUMERIC_DEFAULTS['handwriting_font_size']))
 
 
+SLEEVE_PAPER = '#f2efdf'  # the plain cream sleeve of an album without art
+
+
+def sleeve_bleed(sleeve, ratio):
+	"""The sleeve grown out to whole pixels and one more, for the artwork to be drawn into.
+
+	The sleeve's edges fall between pixels, so its edge pixels would be part art and part whatever lies
+	under it. Reaching a little under the case's gray rim (painted over it later) keeps the edge solid.
+	The stretch is a pixel or two in hundreds."""
+	left = (floor(sleeve.left() * ratio) - 1) / ratio
+	top = (floor(sleeve.top() * ratio) - 1) / ratio
+	right = (ceil(sleeve.right() * ratio) + 1) / ratio
+	bottom = (ceil(sleeve.bottom() * ratio) + 1) / ratio
+	return QRectF(left, top, right - left, bottom - top)
+
+
 def cd_case_image(artwork, title, ink_style, case_key=None, tray_color=None, cover=None):
 	"""Render a jewel case around the sleeve; cover, when given, is the artwork already cropped square."""
 	image = QImage(CASE_PIXMAP_SIZE, QImage.Format_ARGB32_Premultiplied)
@@ -236,11 +253,12 @@ def cd_case_image(artwork, title, ink_style, case_key=None, tray_color=None, cov
 	if not cover.isNull():
 		side = min(cover.width(), cover.height())
 		source = QRectF((cover.width() - side) / 2, (cover.height() - side) / 2, side, side)
-		painter.drawImage(sleeve, cover, source)
+		painter.drawImage(sleeve_bleed(sleeve, image.devicePixelRatio()), cover, source)
 	else:
 		font_description, ink_color, maximum = ink_style
 		font = QFont()
 		font.fromString(font_description)
+		painter.fillRect(sleeve_bleed(sleeve, image.devicePixelRatio()), QColor(SLEEVE_PAPER))
 		painter.save()
 		painter.setClipRect(sleeve)
 		ink = handwritten_title_path(title, font, sleeve.adjusted(7, 7, -7, -7), maximum)
@@ -330,6 +348,11 @@ def transport_icon(name, color, disabled_color=None):
 	return icon
 
 
+def release_velocity(velocity, clock):
+	"""A drag that stopped and was held before letting go is a placement, not a flick."""
+	return 0.0 if clock.elapsed() > FLICK_HOLD_MS else velocity
+
+
 class NowPlayingCover(QWidget):
 	"""Scale the case to available space without imposing the artwork's size."""
 
@@ -379,16 +402,30 @@ class NowPlayingCover(QWidget):
 	def pixmap(self):
 		return self._pixmap
 
+	def size_fraction(self):
+		"""How large the case is drawn, from 1 at full size down to 0, as a drag shrinks it."""
+		full = self.heightForWidth(self.width())
+		return max(0.0, min(1.0, self.height() / full)) if full > 0 else 1.0
+
+	def case_depth(self):
+		"""The case's thickness, shrinking along with the case so a small one isn't oddly thick."""
+		return CASE_DEPTH * self.size_fraction()
+
+	def shadow_depth(self):
+		return CASE_SHADOW_DEPTH * self.size_fraction()
+
 	def image_rect(self):
-		return fitted_case_rect(self.contentsRect())
+		# Sat on the floor: when the width, not the height, limits the case, the spare height goes above it,
+		# so the case and the title under it never shift as a drag nears full size.
+		return fitted_case_rect(self.contentsRect(), bottom=True, depth=self.case_depth(), shadow_depth=self.shadow_depth())
 
 	def case_center_x(self):
 		rect = self.image_rect()
-		return rect.center().x() - control_offset(self, rect, CASE_DEPTH).x()
+		return rect.center().x() - control_offset(self, rect, self.case_depth()).x()
 
 	def case_span(self):
 		rect = self.image_rect()
-		shift = control_offset(self, rect, CASE_DEPTH).x()
+		shift = control_offset(self, rect, self.case_depth()).x()
 		return rect.left() - shift, rect.right() - shift
 
 	def widest_case_span(self):
@@ -399,8 +436,16 @@ class NowPlayingCover(QWidget):
 		shift = control_offset(self, rect, CASE_DEPTH).x()
 		return rect.left() - shift, rect.right() - shift
 
+	def on_case(self, position):
+		return not self._pixmap.isNull() and self.image_rect().contains(position)
+
+	def on_grip(self, position):
+		"""Above the case's bottom edge, including the strip between it and the heading, a drag resizes."""
+		return self.drag_enabled and not self._pixmap.isNull() and position.y() <= self.image_rect().bottom()
+
 	def mousePressEvent(self, event):
-		if event.button() == Qt.LeftButton and not self._pixmap.isNull() and self.image_rect().contains(event.position()):
+		position = event.position()
+		if event.button() == Qt.LeftButton and (self.on_case(position) or self.on_grip(position)):
 			self.cover_pressed = True
 			self.dragging = False
 			self.press_y = self.last_y = event.globalPosition().y()
@@ -411,6 +456,10 @@ class NowPlayingCover(QWidget):
 			super().mousePressEvent(event)
 
 	def mouseMoveEvent(self, event):
+		if not self.cover_pressed and not self._pixmap.isNull():
+			position = event.position()
+			self.setCursor(Qt.PointingHandCursor if self.on_case(position)
+						else Qt.SizeVerCursor if self.on_grip(position) else Qt.ArrowCursor)
 		if not (self.cover_pressed and self.drag_enabled):
 			super().mouseMoveEvent(event)
 			return
@@ -434,7 +483,7 @@ class NowPlayingCover(QWidget):
 			if self.dragging:
 				self.dragging = False
 				self.setCursor(Qt.PointingHandCursor)
-				self.dragFinished.emit(self.drag_velocity)
+				self.dragFinished.emit(release_velocity(self.drag_velocity, self.drag_clock))
 			elif not self._pixmap.isNull() and self.image_rect().contains(event.position()):
 				self.clicked.emit()
 			event.accept()
@@ -442,9 +491,9 @@ class NowPlayingCover(QWidget):
 			super().mouseReleaseEvent(event)
 
 	def paintEvent(self, event):
-		if self._pixmap.isNull():
-			return
 		target = self.image_rect()
+		if self._pixmap.isNull() or target.isEmpty():
+			return
 		painter = QPainter(self)
 		painter.setRenderHint(QPainter.SmoothPixmapTransform)
 		if self.baked:
@@ -458,7 +507,8 @@ class NowPlayingCover(QWidget):
 		if source is not None:
 			origin = self.mapFromGlobal(source.mapToGlobal(QPoint()))
 			lighting = QRectF(source.rect()).translated(origin)
-		paint_cd_case(painter, self, target, self._pixmap, self.sheen_key, visible=lighting, shadow=True)
+		paint_cd_case(painter, self, target, self._pixmap, self.sheen_key, visible=lighting, shadow=True,
+					depth=self.case_depth(), shadow_depth=self.shadow_depth())
 
 	def paint_baked(self, painter, target):
 		"""Copy a finished case, stretching the last one while a swipe resizes it."""
@@ -511,8 +561,12 @@ class NowPlayingPanel(QWidget):
 		# The browser column's panel shows through, so the app-wide widget background must not cover it.
 		self.content.setStyleSheet('background: transparent;')
 		self.content.installEventFilter(self)
+		self.content.setMouseTracking(True)  # for the resize cursor over the grip's margins
 		self.cover = None
 		self.resizable = False
+		# Desktop sizes itself to its content, so a drag there limits the case's height instead of
+		# moving a splitter. None lets the case take the full width again.
+		self.cover_limit = None
 		self.progress = 0.0
 		self.content_height = 0
 		self.expanded = False
@@ -556,6 +610,12 @@ class NowPlayingPanel(QWidget):
 			self.setFixedHeight(height)
 			self.geometryChanged.emit()
 
+	def set_cover_limit(self, limit):
+		limit = None if limit is None else max(0, round(limit))
+		if limit != self.cover_limit:
+			self.cover_limit = limit
+			self.arrange()
+
 	def set_resizable(self, resizable):
 		if resizable == self.resizable:
 			return
@@ -572,7 +632,7 @@ class NowPlayingPanel(QWidget):
 		metrics = title.fontMetrics()
 		height = title.sizeHint().height()
 		baseline = (height - metrics.height()) / 2 + metrics.ascent()
-		shadow_bottom = self.cover.image_rect().bottom() + control_shadow(CASE_SHADOW_DEPTH).y()
+		shadow_bottom = self.cover.image_rect().bottom() + control_shadow(self.cover.shadow_depth()).y()
 		above = (self.cover.height() - shadow_bottom) + layout.spacing() + baseline - metrics.capHeight()
 		below = height - (baseline + metrics.descent())
 		margins = layout.contentsMargins()
@@ -599,6 +659,8 @@ class NowPlayingPanel(QWidget):
 				splitter = self.parentWidget()
 				available = splitter.contentsRect().height() - splitter.widget(0).minimumHeight() - splitter.handleWidth()
 				cover_height = min(cover_height, max(0, available - other_height))
+				if self.cover_limit is not None:
+					cover_height = min(cover_height, self.cover_limit)
 			if self.cover.maximumHeight() != cover_height:
 				self.cover.setFixedHeight(cover_height)
 			height = self.height() if self.resizable else self.content.layout().sizeHint().height()
@@ -609,6 +671,30 @@ class NowPlayingPanel(QWidget):
 			self.set_progress(self.progress)
 		finally:
 			self.arranging = False
+
+	def grip_bottom(self):
+		"""Everything from the panel's top down to the case's bottom edge is the grip, margins included."""
+		return self.cover.geometry().top() + self.cover.image_rect().bottom()
+
+	def forward_to_heading(self, event):
+		"""The layout's margins and spacing belong to no control; presses there, down to the case's bottom
+		edge, drag like the heading."""
+		heading = getattr(self, 'heading', None)
+		if heading is None or not heading.isVisible() or self.cover is None:
+			return False
+		in_grip = heading.drag_enabled and event.position().y() <= self.grip_bottom()
+		if event.type() == QEvent.MouseMove and not heading.pressed:
+			self.content.setCursor(Qt.SizeVerCursor if in_grip else Qt.ArrowCursor)
+			return False
+		if event.type() == QEvent.MouseButtonPress and in_grip:
+			heading.mousePressEvent(event)
+		elif event.type() == QEvent.MouseMove and heading.pressed:
+			heading.mouseMoveEvent(event)
+		elif event.type() == QEvent.MouseButtonRelease and heading.pressed:
+			heading.mouseReleaseEvent(event)
+		else:
+			return False
+		return True
 
 	def finish(self):
 		if not self.expanded:
@@ -632,6 +718,8 @@ class NowPlayingPanel(QWidget):
 		return super().event(event)
 
 	def eventFilter(self, watched, event):
+		if watched is self.content and event.type() in (QEvent.MouseButtonPress, QEvent.MouseMove, QEvent.MouseButtonRelease):
+			return self.forward_to_heading(event)
 		if watched is self.content and event.type() == QEvent.LayoutRequest:
 			self.arrange()
 		elif watched is self.parentWidget() and event.type() == QEvent.Resize:
@@ -641,17 +729,32 @@ class NowPlayingPanel(QWidget):
 
 
 class ArtworkHeading(QLabel):
-	"""Centered between the file browser's sunken edge and the top of the case."""
+	"""Centered between the file browser's sunken edge and the top of the case.
+
+	It is also a grip: dragging it (like dragging the case) resizes Now Playing, and the dots
+	either side of the text say so."""
+
+	dragged = Signal(float)
+	dragFinished = Signal(float)
 
 	def __init__(self, cover, browser=None, top_room=0):
 		super().__init__('NOW PLAYING')
 		self.cover = cover
 		self.browser = browser
 		self.top_room = top_room
+		self.drag_enabled = True
+		self.pressed = False
+		self.dragging = False
+		self.press_y = self.last_y = 0.0
+		self.drag_velocity = 0.0
+		self.drag_clock = QElapsedTimer()
+		self.setCursor(Qt.SizeVerCursor)
 
 	def sizeHint(self):
 		hint = super().sizeHint()
-		return QSize(hint.width(), hint.height() + self.top_room)
+		# A quarter flatter than the text plus the room above it, but never cutting into the letters.
+		height = max(self.fontMetrics().height(), round((hint.height() + self.top_room) * HEADING_FLATTEN))
+		return QSize(hint.width(), height)
 
 	def minimumSizeHint(self):
 		return self.sizeHint()
@@ -662,15 +765,76 @@ class ArtworkHeading(QLabel):
 			edge = self.browser.mapToGlobal(QPoint(0, round(self.browser.well_rect().bottom())))
 			rect.setTop(float(self.mapFromGlobal(edge).y()))
 		case = self.cover.image_rect()
-		top = case.top() - control_offset(self.cover, case, CASE_DEPTH).y()
+		top = case.top() - control_offset(self.cover, case, self.cover.case_depth()).y()
 		rect.setBottom(float(self.mapFromGlobal(self.cover.mapToGlobal(QPoint(0, round(top)))).y()))
 		return rect if rect.height() > 0 else QRectF(self.rect())
 
 	def paintEvent(self, event):
 		painter = QPainter(self)
 		rect = self.gap().translated(self.cover.case_center_x() - self.width() / 2, 0)
+		# The gap can reach above this strip (the browser's edge sits higher), so keep the letters
+		# and grips inside it, or their tops get cut off.
+		half = self.fontMetrics().capHeight() / 2 + 1
+		middle = min(max(rect.center().y(), half), self.height() - half)
+		rect.translate(0, middle - rect.center().y())
 		draw_centered_text(painter, rect, self.font(), self.text(),
 						QApplication.instance().property('textColor') or '#e9edf3')
+		self.paint_grips(painter, rect)
+
+	def paint_grips(self, painter, rect):
+		"""Two rows of three dots each side of the text, in the colour of the raised panel's sides."""
+		panel = QColor(QApplication.instance().property('themeBackground') or BUILDING_GRAY).darker(PANEL_SHADE)
+		ink = QPainterPath()
+		ink.addText(0, 0, self.font(), self.text())
+		capital = self.fontMetrics().capHeight()
+		dot = max(3.0, capital * .32)
+		pitch = dot * 1.7
+		grip_width, grip_height = 2 * pitch + dot, pitch + dot
+		gap = max(6.0, capital * .7)
+		center = rect.center()
+		half = ink.boundingRect().width() / 2
+		painter.setRenderHint(QPainter.Antialiasing)
+		painter.setPen(Qt.NoPen)
+		painter.setBrush(panel.darker(125))  # paint_raised_surface's side shade
+		for left in (center.x() - half - gap - grip_width, center.x() + half + gap):
+			for row in range(2):
+				for column in range(3):
+					painter.drawEllipse(QRectF(left + column * pitch, center.y() - grip_height / 2 + row * pitch, dot, dot))
+
+	def mousePressEvent(self, event):
+		if event.button() == Qt.LeftButton and self.drag_enabled:
+			self.pressed, self.dragging = True, False
+			self.press_y = self.last_y = event.globalPosition().y()
+			self.drag_velocity = 0.0
+			self.drag_clock.start()
+			event.accept()
+		else:
+			super().mousePressEvent(event)
+
+	def mouseMoveEvent(self, event):
+		if not self.pressed:
+			super().mouseMoveEvent(event)
+			return
+		y = event.globalPosition().y()
+		if not self.dragging and abs(y - self.press_y) >= 3:
+			self.dragging = True
+		if self.dragging:
+			delta = y - self.last_y
+			self.drag_velocity = delta * 1000 / max(1, self.drag_clock.restart())
+			self.last_y = y
+			if delta:
+				self.dragged.emit(delta)
+		event.accept()
+
+	def mouseReleaseEvent(self, event):
+		if event.button() == Qt.LeftButton and self.pressed:
+			self.pressed = False
+			if self.dragging:
+				self.dragging = False
+				self.dragFinished.emit(release_velocity(self.drag_velocity, self.drag_clock))
+			event.accept()
+		else:
+			super().mouseReleaseEvent(event)
 
 
 class MarqueeTitle(QLabel):
@@ -679,7 +843,7 @@ class MarqueeTitle(QLabel):
 	def __init__(self, cover=None):
 		super().__init__()
 		self.cover = cover
-		self.anchored = False  # in portrait the title keeps the full-size case's left edge as the case shrinks
+		self.anchored = True  # the title keeps the full-size case's width while a drag shrinks the case
 		self.offset = 0.0
 		self.pause_remaining = 1.2
 		self.clock = QElapsedTimer()
@@ -828,13 +992,9 @@ class FolderNameDelegate(QStyledItemDelegate):
 			rect = self.parent().style().subElementRect(QStyle.SE_ItemViewItemText, text, self.parent())
 			width = min(rect.width() - 4, text.fontMetrics.horizontalAdvance(text.text))
 			if width > 0:
-				painter.save()
-				painter.setPen(QPen(QColor(QApplication.instance().property('themeAccent') or GRASS_GREEN),
-									3, Qt.SolidLine, Qt.FlatCap))
 				y = min(option.rect.bottom() - 2, rect.center().y() + text.fontMetrics.height() / 2 + 1)
 				left = rect.right() - width - 2 if text.direction == Qt.RightToLeft else rect.left() + 2
-				painter.drawLine(QPointF(left, y), QPointF(left + width, y))
-				painter.restore()
+				paint_underline(painter, left, width, y)
 
 
 BROWSER_PADDING = 16
@@ -1258,10 +1418,9 @@ class DiscDriveDelegate(QStyledItemDelegate):
 		title = option.fontMetrics.elidedText(str(index.data()), Qt.ElideRight, text.width())
 		painter.drawText(text, Qt.AlignVCenter | Qt.AlignLeft, title)
 		if option.state & QStyle.State_Selected:
-			painter.setPen(QPen(QColor(app.property('themeAccent') or GRASS_GREEN), 3, Qt.SolidLine, Qt.FlatCap))
 			width = min(text.width(), option.fontMetrics.horizontalAdvance(title))
 			y = min(text.bottom() - 2, text.center().y() + option.fontMetrics.height() / 2 + 1)
-			painter.drawLine(QPointF(text.left(), y), QPointF(text.left() + width, y))
+			paint_underline(painter, text.left(), width, y)
 		painter.restore()
 
 
@@ -1405,6 +1564,13 @@ class Scanner(QThread):
 
 
 NOW_PLAYING_FLICK_SPEED = 900
+NOW_PLAYING_SNAP_SHUT = 100  # let go with the case this short or shorter (px), and it glides shut
+FLICK_HOLD_MS = 80  # holding still this long before letting go cancels a flick
+HEADING_FLATTEN = .75  # the NOW PLAYING strip above the case, as a share of its natural height
+# A music folder that can't be reached (a sleeping or offline network share) is tried again after
+# this long, doubling each time up to the longest.
+LIBRARY_RETRY_FIRST = 5000
+LIBRARY_RETRY_LONGEST = 60000
 THEME_COLOR_CACHE_SIZE = 64
 THEME_PREPARE_DELAY_MS = 400
 ANDROID_THEME_STEP_MS = 100
@@ -1596,6 +1762,13 @@ class PlayerWindow(QMainWindow):
 		self.sidebar_spacing = side.spacing()
 		self.now_playing_heading = ArtworkHeading(self.cover, self.tree, self.sidebar_spacing)
 		self.now_playing_heading.setObjectName('nowPlayingHeading')
+		self.now_playing_heading.dragged.connect(self.drag_now_playing)
+		self.now_playing_heading.dragFinished.connect(self.settle_now_playing)
+		# The case and the heading are the grip in every layout, instead of a hidden splitter line.
+		self.cover.drag_enabled = not self.is_android
+		self.cover.setMouseTracking(True)  # its cursor tells the case (click) from the strip above it (drag)
+		now_playing.heading = self.now_playing_heading
+		self.now_playing_heading.drag_enabled = not self.is_android  # Android drags the whole panel by touch.
 		playing_layout.addWidget(self.now_playing_heading)
 		playing_layout.addWidget(self.cover)
 		self.track_title = MarqueeTitle(self.cover)
@@ -1888,6 +2061,13 @@ class PlayerWindow(QMainWindow):
 		self.addAction(self.play_action)
 		(self.library_area if self.is_android else QApplication.instance()).installEventFilter(self)
 		self.setStatusBar(FadingStatusBar(self))
+		self.folder_probe = FolderProbe(self)
+		self.folder_probe.answered.connect(self.library_reachable)
+		self.library_waiting = None  # (root, selected) while a saved music folder is being reached
+		self.library_retry_delay = LIBRARY_RETRY_FIRST
+		self.library_retry = QTimer(self)
+		self.library_retry.setSingleShot(True)
+		self.library_retry.timeout.connect(lambda: self.library_waiting and self.open_library_when_reachable(*self.library_waiting))
 		if not self.first_run_needed:
 			QTimer.singleShot(0, self.open_saved_library)
 		geometry = self.settings.value('window_geometry')
@@ -2301,13 +2481,40 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 			self.open_saved_library()
 
 	def open_saved_library(self):
-		self.library_opened = True
+		# library_opened is set by select_folder once the folder really opens. Until then the tree can pick
+		# entries by itself, and those must not be scanned or saved over the music folder still being reached.
 		last = Path(str(self.settings.value('folder', music_directory())))
 		browser_root = Path(str(self.settings.value('browser_root', last)))
-		if filesystem_path(browser_root).is_dir():
-			self.select_folder(browser_root, last)
-		elif filesystem_path(last).is_dir():
-			self.select_folder(last)
+		self.open_library_when_reachable(browser_root, last)
+
+	def open_library_when_reachable(self, root, selected=None):
+		"""Open a saved music folder once it answers. A network share may be asleep or offline,
+		so the check runs in the background and keeps retrying until it can be reached."""
+		root = Path(root)
+		selected = Path(selected) if selected is not None else root
+		if self.library_waiting != (root, selected):
+			self.library_retry_delay = LIBRARY_RETRY_FIRST
+		self.library_waiting = root, selected
+		self.library_retry.stop()
+		if self.current_folder is None:
+			self.count_label.setText('Opening music folder…')
+		self.folder_probe.check([root, selected] if selected != root else [root])
+
+	def library_reachable(self, request, found):
+		if request != self.folder_probe.request or self.closing or self.library_waiting is None:
+			return
+		root, selected = self.library_waiting
+		if found is None:
+			if self.current_folder is None:
+				self.count_label.setText('Music folder not reachable')
+			self.statusBar().showMessage(f"Can't reach {root}. Trying again…", 0)
+			self.library_retry.start(self.library_retry_delay)
+			self.library_retry_delay = min(LIBRARY_RETRY_LONGEST, self.library_retry_delay * 2)
+			return
+		retried = self.library_retry_delay != LIBRARY_RETRY_FIRST
+		self.select_folder(root, selected) if Path(found) == root else self.select_folder(found)
+		# The scan's finish shows the note, so its own tidy-up of the status bar doesn't wipe it.
+		self.library_reconnected = retried
 
 	def edit_theme_settings(self):
 		if getattr(self, 'settings_dialog', None) is not None:
@@ -2459,8 +2666,9 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 			return
 		folder = Path(str(self.settings.value('browser_root', self.current_folder or Path.home() / 'Music')))
 		current_root = self.files.filePath(self.tree.rootIndex())
-		if filesystem_path(folder).is_dir() and str(folder) != str(Path(current_root)):
-			self.select_folder(folder, Path(str(self.settings.value('folder', folder))))
+		waiting_for = self.library_waiting[0] if self.library_waiting else None
+		if str(folder) != str(Path(current_root)) and folder != waiting_for:
+			self.open_library_when_reachable(folder, Path(str(self.settings.value('folder', folder))))
 
 	def update_transport_icons(self):
 		playing = self.player.playbackState() == QMediaPlayer.PlayingState
@@ -2541,14 +2749,6 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 		if compact != self.compact_mode:
 			self.compact_mode = compact
 			self.now_playing.set_resizable(compact or self.is_android)
-			self.cover.drag_enabled = compact and not self.is_android
-			self.track_title.anchored = compact
-			self.track_title.span_changed()
-			self.browser_splitter.setHandleWidth(8 if compact and not self.is_android else 0)
-			# The heading centers in the gap above the case, which grows by the handle.
-			self.now_playing_heading.top_room = self.sidebar_spacing + self.browser_splitter.handleWidth()
-			self.now_playing_heading.updateGeometry()
-			self.browser_splitter.setCollapsible(1, compact and not self.is_android)
 			self.library_layout.setContentsMargins(0 if compact else 16, 0, 0, 0)
 			self.place_album_header()
 			if compact and self.viewed_album is not None:
@@ -2572,13 +2772,24 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
 	def now_playing_limits(self):
 		panel = self.now_playing
-		minimum = max(MINIMUM_TOUCH_TARGET, panel.content.layout().sizeHint().height() - panel.cover.height())
-		return minimum, min(panel.maximumHeight(), self.browser_splitter.contentsRect().height() - self.tree.minimumHeight())
+		splitter = self.browser_splitter
+		other = panel.content.layout().sizeHint().height() - panel.cover.height()
+		minimum = max(MINIMUM_TOUCH_TARGET, other)
+		room = splitter.contentsRect().height() - self.tree.minimumHeight() - splitter.handleWidth()
+		if panel.resizable:
+			return minimum, min(panel.maximumHeight(), room)
+		return minimum, max(minimum, min(other + panel.cover.heightForWidth(panel.width()), room))
 
 	def set_now_playing_height(self, height):
 		minimum, maximum = self.now_playing_limits()
 		height = max(minimum, min(maximum, height))
-		self.browser_splitter.setSizes([self.browser_splitter.contentsRect().height() - height, height])
+		panel = self.now_playing
+		if panel.resizable:
+			self.browser_splitter.setSizes([self.browser_splitter.contentsRect().height() - height, height])
+		else:
+			# Full height lets the case follow the sidebar's width again; anything less is the reader's choice.
+			other = panel.content.layout().sizeHint().height() - panel.cover.height()
+			panel.set_cover_limit(None if height >= maximum else height - other)
 
 	def drag_now_playing(self, delta):
 		self.split_animation.stop()
@@ -2598,13 +2809,18 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 
 	def settle_now_playing(self, velocity):
 		self.apply_now_playing_drag()
-		if abs(velocity) < NOW_PLAYING_FLICK_SPEED:
+		minimum, maximum = self.now_playing_limits()
+		if abs(velocity) >= NOW_PLAYING_FLICK_SPEED:
+			target = maximum if velocity < 0 else minimum
+		elif self.cover.height() > 0 and self.cover.image_rect().height() <= NOW_PLAYING_SNAP_SHUT:
+			# A case this small is too little to look at or click; tidy it away rather than leave a crumb.
+			target = minimum
+		else:
 			self.finish_now_playing_resize()
 			return
-		minimum, maximum = self.now_playing_limits()
 		self.split_animation.stop()
 		self.split_animation.setStartValue(float(self.now_playing.height()))
-		self.split_animation.setEndValue(float(maximum if velocity < 0 else minimum))
+		self.split_animation.setEndValue(float(target))
 		self.split_animation.start()
 
 	def pinch_albums(self, scale, started):
@@ -2863,6 +3079,12 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 		QTimer.singleShot(100, begin_eject)
 
 	def select_folder(self, folder, selected=None):
+		# Whatever opens now wins over a saved folder that is still being reached.
+		self.folder_probe.cancel()
+		self.library_retry.stop()
+		if self.library_waiting is not None and self.library_retry_delay != LIBRARY_RETRY_FIRST:
+			self.statusBar().clearMessage()  # The "can't reach" note no longer applies.
+		self.library_waiting = None
 		folder = Path(folder).resolve()
 		selected = Path(selected).resolve() if selected is not None else folder
 		if not filesystem_path(selected).is_dir() or not selected.is_relative_to(folder):
@@ -2983,8 +3205,11 @@ QTreeView#fileBrowser {{ outline: none; background: {panel}; }}
 					self.grid.setCurrentRow(index)
 					break
 		self.schedule_browsing_restore()
+		reconnected, self.library_reconnected = getattr(self, 'library_reconnected', False), False
 		if skipped:
 			self.statusBar().showMessage(f'{len(skipped)} inaccessible folders skipped. {skipped[0]}')
+		elif reconnected:
+			self.statusBar().showMessage('Music folder connected.', 4000)
 		else:
 			self.statusBar().clearMessage()
 

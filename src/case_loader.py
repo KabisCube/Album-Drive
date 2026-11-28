@@ -6,6 +6,7 @@ GUI thread anyway. The only Qt step here renders each tray colour's empty shell 
 thread just wraps the finished pixels. Each request carries the library generation, so results
 for a folder that is no longer shown are dropped."""
 
+import math
 import sys
 from collections import namedtuple
 from functools import lru_cache
@@ -22,7 +23,10 @@ from case_shell import artwork_tray_color, shell_image
 
 _scale = CASE_PIXMAP_SIZE.width() / CASE_WIDTH
 _sleeve = sleeve_rect(QRectF(0, 0, CASE_WIDTH, CASE_HEIGHT))
-SLEEVE_BOX = (round(_sleeve.x() * _scale), round(_sleeve.y() * _scale), round(_sleeve.width() * _scale))
+# Where the artwork is pasted: the sleeve grown out to whole pixels and one more, under the case's gray
+# rim, so no pixel on its edge is left part art and part shell.
+SLEEVE_BOX = (math.floor(_sleeve.left() * _scale) - 1, math.floor(_sleeve.top() * _scale) - 1,
+			math.ceil(_sleeve.right() * _scale) + 1, math.ceil(_sleeve.bottom() * _scale) + 1)
 PreparedCase = namedtuple('PreparedCase', 'source source_size icon icon_size tray')
 _shell_lock = Lock()
 
@@ -43,14 +47,15 @@ def prepare_case(artwork, tray_source, target):
 	tray = artwork_tray_color(tray_source) if tray_source else None
 	if not artwork:
 		return PreparedCase(None, None, None, None, tray)
-	x, y, side = SLEEVE_BOX
+	x, y, right, bottom = SLEEVE_BOX
+	width, height = right - x, bottom - y
 	try:
 		with Image.open(BytesIO(artwork)) as cover:
-			cover.draft('RGB', (side, side))
+			cover.draft('RGB', (width, height))
 			cover = cover.convert('RGB')
 		crop = min(cover.size)
 		left, top = (cover.width - crop) // 2, (cover.height - crop) // 2
-		cover = cover.crop((left, top, left + crop, top + crop)).resize((side, side), Image.BICUBIC)
+		cover = cover.crop((left, top, left + crop, top + crop)).resize((width, height), Image.BICUBIC)
 	except (OSError, ValueError, Image.DecompressionBombError):
 		return PreparedCase(None, None, None, None, tray)  # Qt gets one more try on the GUI thread.
 	with _shell_lock:

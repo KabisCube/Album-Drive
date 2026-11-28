@@ -104,7 +104,7 @@ class OverflowControls(QWidget):
 		widgets = (self.controls.itemAt(index).widget() for index in range(self.controls.count()))
 		return [widget for widget in widgets if widget is not None and not widget.isHidden()]
 
-	def refresh(self, animate=False):
+	def refresh(self, animate=False, ghosts=None):
 		self.fit_flexible()
 		size = self.controls.sizeHint().expandedTo(self.controls.minimumSize())
 		if self.minimumHeight() != size.height():
@@ -119,6 +119,11 @@ class OverflowControls(QWidget):
 		available = max(1, self.width() - left)
 		arrow = self.arrow_width()
 		before = self.on_screen() if self.isVisible() else {}
+		# Controls that leave shrink away as one ghost each, made when the move starts. While the row is
+		# still sliding, every frame would otherwise see the half-visible controls as leaving again and
+		# pile up another ghost of each.
+		if ghosts is None:
+			ghosts = not self.pager.spring.moving
 		fits = size.width() <= available
 		self.content.resize(available if self.fill and fits else size.width(), self.height())
 		self.controls.activate()
@@ -137,12 +142,18 @@ class OverflowControls(QWidget):
 			width = max(1, self.pager.page_width)
 			self.viewport.setGeometry(self.width() - width, 0, width, self.height())
 		elif self.pager.right_arrow or self.pager.left_arrow:
-			self.viewport.setGeometry(left + self.pager.left_arrow, 0, max(1, self.pager.page_width), self.height())
+			# A control wider than the room between the arrows is cut at the right arrow, rather than
+			# running on underneath it and showing through around the arrow's face.
+			start = left + self.pager.left_arrow
+			room = self.width() - self.pager.right_arrow - start
+			self.viewport.setGeometry(start, 0, max(1, min(self.pager.page_width, room)), self.height())
 		else:
 			self.viewport.setGeometry(left, 0, available, self.height())
 		self.place_content()
-		for widget, rect, source, pixmap in leaving:
-			ScaleGhost(self, pixmap, rect, source)
+		# Leaving controls shrink under the arrows and the controls that stay, holding their place in the
+		# window while a resize slides this row along.
+		for widget, rect, source, pixmap in leaving if ghosts else ():
+			ScaleGhost(self, pixmap, rect, source, owner=widget, below=True)
 		if before and not animate and not self.pager.spring.moving:
 			for widget in shown:
 				if widget not in before and not widget.isHidden():
@@ -174,8 +185,10 @@ class OverflowControls(QWidget):
 	def scroll(self, direction):
 		if self.pinned:
 			return
+		# The scroll itself starts the slide, so whether a slide was already running is asked first.
+		sliding = self.pager.spring.moving
 		self.pager.scroll(direction)
-		self.refresh(animate=True)
+		self.refresh(animate=True, ghosts=not sliding)
 
 	def reveal_focus(self, previous, current):
 		if self.pinned or current is None or not self.content.isAncestorOf(current):

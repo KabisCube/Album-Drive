@@ -9,7 +9,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from main import PlayerWindow
 from test_library import make_wave
-from waiting import wait_until
+from waiting import wait_for_saved_library, wait_until
 
 
 app = QApplication([])
@@ -28,6 +28,7 @@ with tempfile.TemporaryDirectory() as directory:
 	window = PlayerWindow(settings)
 	window.resize(1100, 700)
 	window.show()
+	wait_for_saved_library(window)  # The folder opens a moment after the window; until then there is no scan to wait on.
 	wait_until(lambda: len(window.albums) == 80 and not window.scanners and not window.browsing_restore_timer.isActive())
 	index = window.files.index(str(artist))
 	window.tree.expand(index)
@@ -47,6 +48,7 @@ with tempfile.TemporaryDirectory() as directory:
 	QTest.qWait(80)
 	restored = PlayerWindow(QSettings(settings.fileName(), QSettings.IniFormat))
 	restored.show()
+	wait_for_saved_library(restored)
 	wait_until(lambda: restored.queue_index == 0 and not restored.scanners and not restored.browsing_restore_timer.isActive())
 	assert restored.current_folder == artist
 	assert Path(restored.files.filePath(restored.tree.currentIndex())) == artist

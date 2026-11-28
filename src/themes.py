@@ -499,13 +499,27 @@ def corner_radius(base, width=None, height=None):
 
 
 GROOVE_ROUNDNESS_SCALE = 1.875  # thin grooves round this much faster than the Corner roundness, fully round from about 53%
+UNDERLINE_ROUNDNESS_SCALE = 40 / 32  # the underline rounds faster still: at 32% as round as a groove at 40%
 
 
-def groove_radius(rect):
-	"""Corner radius of a thin slider or scrollbar groove."""
+def paint_underline(painter, left, width, y):
+	"""The three-pixel accent underline under a chosen item, with ends as round as the scrollbar grooves."""
+	# On whole pixels: half a pixel off, antialiasing would smear the bar over four rows.
+	rect = QRectF(round(left), round(y - 1.5), round(width), 3)
+	radius = groove_radius(rect, UNDERLINE_ROUNDNESS_SCALE)
+	painter.save()
+	painter.setRenderHint(QPainter.Antialiasing)
+	painter.setPen(Qt.NoPen)
+	painter.setBrush(QColor(QApplication.instance().property('themeAccent') or GRASS_GREEN))
+	painter.drawRoundedRect(rect, radius, radius)
+	painter.restore()
+
+
+def groove_radius(rect, faster=1):
+	"""Corner radius of a thin slider or scrollbar groove; `faster` rounds it sooner as the setting rises."""
 	amount = control_property('cornerRoundness')
 	amount = min(100, max(0, 100 if amount is None else amount))
-	return min(rect.width(), rect.height()) / 2 * min(1, amount * GROOVE_ROUNDNESS_SCALE / 100)
+	return min(rect.width(), rect.height()) / 2 * min(1, amount * GROOVE_ROUNDNESS_SCALE * faster / 100)
 
 
 def round_stylesheet(style, amount):
@@ -1166,6 +1180,7 @@ class ChunkyTabBar(QTabBar):
 		self.pager = SnapPager(self)
 		self.pager.moved.connect(self.update)
 		self.tab_growth = {}
+		self.tab_leaving = {}  # tab index: (snapshot, where it was, the part of the snapshot shown, spring)
 		self.scroll_left = TabScrollButton(-1, self)
 		self.scroll_right = TabScrollButton(1, self)
 		self.scroll_left.clicked.connect(lambda: self.scroll_tabs(-1))
@@ -1260,11 +1275,17 @@ class ChunkyTabBar(QTabBar):
 	def release_tabs(self, before, grow=False):
 		if not before:
 			return
-		from scale_ghost import ScaleGhost, pop_spring
+		from scale_ghost import pop_spring
 		shown = self.shown_tabs()
 		for index, (visible, rect) in before.items():
 			if index not in shown:
-				ScaleGhost(self, self.tab_snapshot(index, rect), visible, visible.translated(-rect.topLeft()))
+				# The bar paints leaving tabs itself, under the tabs that stay; a ghost widget would sit on top.
+				spring = pop_spring(self)
+				previous = self.tab_leaving.get(index)
+				spring.jump(previous[3].value if previous and previous[1] == visible and previous[3].moving else 1)
+				spring.moved.connect(self.update)
+				spring.glide(0)
+				self.tab_leaving[index] = (self.tab_snapshot(index, rect), visible, visible.translated(-rect.topLeft()), spring)
 		if grow:
 			for index in shown:
 				if index not in before:
@@ -1309,11 +1330,12 @@ class ChunkyTabBar(QTabBar):
 		self.scroll_right.setGeometry(self.width() - width, 0, width, self.height())
 		self.scroll_left.set_shown(bool(self.pager.left_arrow))
 		self.scroll_right.set_shown(bool(self.pager.right_arrow))
-		self.scroll_left.raise_()
-		self.scroll_right.raise_()
+		# Tabs on their way out shrink under the arrows, not over them.
 		from scale_ghost import ScaleGhost
 		for ghost in self.findChildren(ScaleGhost):
 			ghost.raise_()
+		self.scroll_left.raise_()
+		self.scroll_right.raise_()
 		self.update()
 
 	def scroll_tabs(self, direction):
@@ -1393,6 +1415,7 @@ class ChunkyTabBar(QTabBar):
 		painter.setRenderHint(QPainter.Antialiasing)
 		app = QApplication.instance()
 		painter.fillRect(self.rect(), QColor(app.property('themeBackground') or BUILDING_GRAY))
+		self.paint_leaving_tabs(painter)
 		painter.setClipRect(self.tab_viewport())
 		for index in range(self.count()):
 			if not self.isTabVisible(index):
@@ -1410,6 +1433,21 @@ class ChunkyTabBar(QTabBar):
 			self.paint_tab(painter, index)
 			painter.restore()
 		self.remember_painted_tabs()
+
+	def paint_leaving_tabs(self, painter):
+		for index, (pixmap, rect, source, spring) in list(self.tab_leaving.items()):
+			scale = max(0.0, spring.value)
+			if not spring.moving or scale <= 0:
+				del self.tab_leaving[index]
+				continue
+			ratio = pixmap.devicePixelRatio()
+			area = QRectF(source.x() * ratio, source.y() * ratio, source.width() * ratio, source.height() * ratio)
+			middle = QRectF(rect).center()
+			half = QPointF(rect.width() * scale / 2, rect.height() * scale / 2)
+			painter.save()
+			painter.setRenderHint(QPainter.SmoothPixmapTransform)
+			painter.drawPixmap(QRectF(middle - half, middle + half), pixmap, area)
+			painter.restore()
 
 	def paint_tab(self, painter, index):
 		app = QApplication.instance()
@@ -1475,11 +1513,10 @@ QMenu::item {{ padding: 8px 14px; background: transparent; }}
 			painter.setPen(color if action.isEnabled() else disabled_text_color(color))
 			painter.drawText(rect, Qt.AlignVCenter | Qt.AlignLeading, action.text())
 			if action is self.activeAction() and action.isEnabled():
-				painter.setPen(QPen(QColor(app.property('themeAccent') or GRASS_GREEN), 3, Qt.SolidLine, Qt.FlatCap))
 				width = min(rect.width(), painter.fontMetrics().horizontalAdvance(action.text()))
 				y = min(rect.bottom() - 3, rect.center().y() + painter.fontMetrics().height() / 2 + 1)
 				left = rect.right() - width if self.layoutDirection() == Qt.RightToLeft else rect.left()
-				painter.drawLine(QPointF(left, y), QPointF(left + width, y))
+				paint_underline(painter, left, width, y)
 
 
 class HoverPan(QObject):
@@ -1560,11 +1597,10 @@ class DropdownDelegate(QStyledItemDelegate):
 		underline = (hovered == index if hovered is not None and hovered.isValid()
 					else bool(option.state & QStyle.State_Selected))
 		if underline:
-			painter.setPen(QPen(QColor(app.property('themeAccent') or GRASS_GREEN), 3, Qt.SolidLine, Qt.FlatCap))
 			width = min(rect.width(), text_width)
 			y = min(rect.bottom() - 3, rect.center().y() + option.fontMetrics.height() / 2 + 1)
 			left = rect.right() - width if option.direction == Qt.RightToLeft else rect.left()
-			painter.drawLine(QPointF(left, y), QPointF(left + width, y))
+			paint_underline(painter, left, width, y)
 		painter.restore()
 
 

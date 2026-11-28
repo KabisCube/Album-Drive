@@ -21,3 +21,12 @@ def wait_until(condition, seconds=8, message=None):
 		time.sleep(.005)  # A moment for background threads, such as library scanners.
 	if not condition():
 		raise AssertionError(message() if callable(message) else message or f'Timed out after {seconds} s')
+
+
+def wait_for_saved_library(window, seconds=8):
+	"""Wait until the saved music folder has either opened or been found unreachable.
+
+	The folder is checked in the background (it may be a sleeping network share), so it opens a
+	moment after the window does, not during startup itself."""
+	wait_until(lambda: window.library_waiting is None or window.library_retry.isActive(), seconds,
+			lambda: f'The saved music folder never answered: {window.library_waiting}')

@@ -114,7 +114,10 @@ class SnapPager(QObject):
 	def update(self, extents, room, arrow, animate=False):
 		self.extents, self.room, self.arrow = list(extents), room, arrow
 		self.start, self.end, self.left_arrow, self.right_arrow = self.page(self.start)
-		target = self.offset_of(self.start)
+		# The spring carries where the row sits on screen: its scroll less the room the left arrow takes.
+		# The arrow comes and goes at once, so springing the scroll alone would make every control hop
+		# sideways by the arrow's width as it appears or leaves.
+		target = self.offset_of(self.start) - self.left_arrow
 		if animate or self.spring.moving:
 			self.spring.glide(target)
 		elif self.spring.value != target:
@@ -148,7 +151,8 @@ class SnapPager(QObject):
 
 	@property
 	def offset(self):
-		return self.spring.value
+		"""The scroll as drawn, counted from just right of the left arrow (as `left_arrow - offset` places it)."""
+		return self.spring.value + self.left_arrow
 
 	@property
 	def target(self):

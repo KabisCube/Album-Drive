@@ -36,22 +36,33 @@ def paint_live_frame(painter, target, color):
 	contents = QPainterPath()
 	contents.addRect(sleeve)
 	contents.addRect(spine)
-	painter.setClipPath(outline.subtracted(contents), Qt.IntersectClip)
-	painter.setPen(Qt.NoPen)
-	painter.setBrush(color)
-	painter.drawPath(outline)
-	painter.setBrush(color.darker(140))
+	rims = QPainterPath()
 	for area in (sleeve, spine):
-		painter.drawRoundedRect(area.adjusted(-1, -1, 1, 1), 1, 1)
+		rims.addRoundedRect(area.adjusted(-1, -1, 1, 1), 1, 1)
+	rims = rims.simplified()
+	# Each colour gets only its own area. Painting the light plastic everywhere and the rim over it,
+	# both cut at the art's soft edge, let the light show through the edge pixel: a light hairline
+	# between the gray rim and the art.
+	painter.setPen(Qt.NoPen)
+	painter.fillPath(outline.subtracted(rims), color)
+	painter.fillPath(rims.intersected(outline).subtracted(contents), color.darker(140))
 	painter.restore()
 
 
-def fitted_case_rect(rect):
-	shadow = control_shadow(CASE_SHADOW_DEPTH)
-	available = QRectF(rect).adjusted(CASE_DEPTH - shadow.x(), CASE_DEPTH, -CASE_DEPTH, -shadow.y())
-	size = QSizeF(CASE_WIDTH, CASE_HEIGHT).scaled(available.size(), Qt.KeepAspectRatio)
+def fitted_case_rect(rect, bottom=False, depth=CASE_DEPTH, shadow_depth=CASE_SHADOW_DEPTH):
+	"""The case, as large as fits in rect: centred, or with `bottom` sat on its floor so spare height goes above.
+
+	`depth` and `shadow_depth` are the case's thickness and shadow, for a case drawn smaller than usual."""
+	shadow = control_shadow(shadow_depth)
+	available = QRectF(rect).adjusted(depth - shadow.x(), depth, -depth, -shadow.y())
+	# Too small for even the case's depth and shadow, the room left is negative, and scaling to it would
+	# give a mirrored case of negative size, drawn off to the lower right. No room means no case.
+	room = QSizeF(max(0.0, available.width()), max(0.0, available.height()))
+	size = QSizeF(CASE_WIDTH, CASE_HEIGHT).scaled(room, Qt.KeepAspectRatio)
 	target = QRectF(QPointF(), size)
 	target.moveCenter(available.center())
+	if bottom:
+		target.moveBottom(available.bottom())
 	return target
 
 
@@ -66,8 +77,11 @@ def case_shadow(widget, rect, shadow_offset):
 							round(shadow_offset.x(), 3), round(shadow_offset.y(), 3)).translated(face.topLeft())
 
 
-def paint_cd_case(painter, widget, rect, pixmap, key='', angle=0, visible=None, shadow=True):
-	offset = control_offset(widget, rect, CASE_DEPTH)
+def paint_cd_case(painter, widget, rect, pixmap, key='', angle=0, visible=None, shadow=True,
+				depth=CASE_DEPTH, shadow_depth=CASE_SHADOW_DEPTH):
+	if rect.isEmpty():
+		return
+	offset = control_offset(widget, rect, depth)
 	target = rect.translated(-offset)
 	scale_x, scale_y = rect.width() / CASE_WIDTH, rect.height() / CASE_HEIGHT
 	face = target.adjusted(scale_x * .4, scale_y * .4, -scale_x * .4, -scale_y * .4)
@@ -79,7 +93,7 @@ def paint_cd_case(painter, widget, rect, pixmap, key='', angle=0, visible=None, 
 	painter.translate(-rect.center())
 	geometry = tuple(round(value, 3) for value in
 					(face.width(), face.height(), CASE_RADIUS * min(scale_x, scale_y), offset.x(), offset.y()))
-	shadow_offset = QTransform().rotate(-angle).map(control_shadow(CASE_SHADOW_DEPTH))
+	shadow_offset = QTransform().rotate(-angle).map(control_shadow(shadow_depth))
 	if CASE_SHADOW_ENABLED and shadow and not shadow_offset.isNull():
 		footprint = control_shadow_body(*geometry, round(shadow_offset.x(), 3), round(shadow_offset.y(), 3))
 		painter.fillPath(footprint.translated(face.topLeft()), shadow_color())
@@ -99,10 +113,18 @@ def paint_cd_case(painter, widget, rect, pixmap, key='', angle=0, visible=None, 
 		painter.fillPath(tray_body, tray.darker(125))
 		painter.restore()
 	painter.drawPixmap(target, pixmap, QRectF(pixmap.rect()))
-	paint_live_frame(painter, target, frame)
 	painter.restore()
 	painted = rect.translated(QTransform().rotate(angle).map(-offset))
 	paint_case_finish(painter, painted, angle, key, visible)
+	# The rim goes on last. Its inner edge falls between pixels, and painted under the plastic's light,
+	# that half-rim pixel would be lit along with the art: a light hairline around the sleeve.
+	painter.save()
+	painter.setRenderHint(QPainter.Antialiasing)
+	painter.translate(rect.center())
+	painter.rotate(angle)
+	painter.translate(-rect.center())
+	paint_live_frame(painter, target, frame)
+	painter.restore()
 	return painted
 
 
@@ -179,8 +201,9 @@ def cached_shell_image(tray_color=''):
 	painter.drawRoundedRect(rect.adjusted(.4, .4, -.4, -.4), CASE_RADIUS, CASE_RADIUS)
 	sleeve = sleeve_rect(rect)
 	painter.setBrush(frame.darker(140))
+	# The sleeve's spot is left in the rim's gray: wherever art falls short of its edge, the rim just
+	# looks a hair wider, never lighter. Albums without art get their cream paper with their title.
 	painter.drawRoundedRect(sleeve.adjusted(-1, -1, 1, 1), 1, 1)
-	painter.fillRect(sleeve, QColor('#f2efdf'))
 	tray = QColor(tray_color or '#343936')
 	spine = QRectF(0, sleeve.top(), sleeve.left() - 3.4, sleeve.height())
 	outline = QPainterPath()

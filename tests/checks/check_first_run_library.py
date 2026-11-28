@@ -15,6 +15,7 @@ app = QApplication([])
 app.setStyle('Fusion')
 
 from main import PlayerWindow
+from waiting import wait_for_saved_library
 
 root = Path(tempfile.mkdtemp())
 default = root / 'Default music'
@@ -62,6 +63,7 @@ with patch('main.music_directory', return_value=str(default)), patch('first_run.
 		assert not settings.contains('browser_root'), name
 		QTimer.singleShot(0, action)
 		window.show_first_run_setup()
+		wait_for_saved_library(window)
 		assert Path(window.files.filePath(window.tree.rootIndex())) == expected, name
 		assert names(window) == [expected.name.split()[0] + ' artist'], name
 		assert not window.first_run_needed, name

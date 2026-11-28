@@ -132,21 +132,23 @@ tabs.setCurrentIndex(bar.count() - 1)
 settle()
 assert bar.tab_viewport().contains(bar.tabRect(bar.currentIndex()))
 assert not bar.scroll_right.isVisible()
-from scale_ghost import ScaleGhost
 tabs.resize(2000, 220)
 app.processEvents()
 settle()
 QTest.qWait(700)
 tabs.resize(460, 220)
 app.processEvents()
-ghosts = bar.findChildren(ScaleGhost)
-assert ghosts
-for ghost in ghosts:
-	image = ghost.pixmap.toImage()
-	assert any(image.pixelColor(x, image.height() // 2).name() != '#393939' for x in range(image.width())), ghost.geometry()
+# Tabs that leave shrink under the ones that stay, painted by the bar itself.
+leaving = list(bar.tab_leaving.values())
+assert leaving
+for pixmap, rect, source, spring in leaving:
+	image = pixmap.toImage()
+	assert any(image.pixelColor(x, image.height() // 2).name() != '#393939' for x in range(image.width())), rect
 settle()
 QTest.qWait(700)
-assert not bar.findChildren(ScaleGhost)
+bar.update()
+app.processEvents()
+assert not bar.tab_leaving
 tabs.resize(2000, 220)
 app.processEvents()
 assert bar.tab_growth and all(spring.value < 1 for spring in bar.tab_growth.values())

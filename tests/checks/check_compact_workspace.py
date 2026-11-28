@@ -91,7 +91,9 @@ with TemporaryDirectory() as directory:
 			assert abs(window.volume.geometry().center().y() - window.play.geometry().center().y()) <= 2
 		assert window.seek.y() < window.play.y()
 		assert window.previous.x() < window.play.x() < window.next.x()
-		assert window.browser_splitter.handleWidth() == 8
+		# No hidden splitter line: the case and the NOW PLAYING heading are the grip.
+		assert window.browser_splitter.handleWidth() == 0
+		assert window.cover.drag_enabled and window.now_playing_heading.drag_enabled
 		assert window.now_playing.resizable
 		assert window.now_playing.height() > 0
 		window.grab().save('build/previews/compact-browser.png')

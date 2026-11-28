@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 from font_support import font_families
 from main import PlayerWindow
+from waiting import wait_for_saved_library
 
 
 def rendered_families(text, font):
@@ -42,6 +43,7 @@ with tempfile.TemporaryDirectory() as directory:
 	window = PlayerWindow(settings)
 	window.show()
 	app.processEvents()
+	wait_for_saved_library(window)  # Its scan would otherwise start writing here while the folder is being cleaned up.
 	expected = ['Album Round', 'Resource Han Rounded SC']
 	assert app.font().families() == expected
 	assert window.tree.font().families() == expected
@@ -54,6 +56,7 @@ with tempfile.TemporaryDirectory() as directory:
 			assert 'Resource Han Rounded SC' in rendered_families(sample, font)
 	settings.setValue('ui_font', 'missing-font.ttf')
 	window.apply_settings()
+	wait_for_saved_library(window)
 	assert app.font().families() == expected
 	assert window.album_table.font().families() == expected
 	image = QImage(1560, 1030, QImage.Format_RGB32)

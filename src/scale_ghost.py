@@ -18,8 +18,28 @@ def pop_spring(parent, damping=POP_DAMPING):
 
 
 class ScaleGhost(QWidget):
-	def __init__(self, parent, pixmap, rect, source=None, grow=False, finished=None, follow=None):
+	"""`owner` is the control the snapshot shows. A control has one ghost at a time: when a resize goes back
+	and forth, its new ghost takes over from the old one at the old one's current size, instead of
+	stacking another copy of the control on top.
+
+	`below` tucks a shrinking ghost under the controls beside it, so a control on its way out never
+	covers the ones that stay. It also holds its place in the window while its row moves, so it shrinks
+	where the control was instead of drifting along with the row."""
+
+	def __init__(self, parent, pixmap, rect, source=None, grow=False, finished=None, follow=None, owner=None,
+				below=False):
 		super().__init__(parent)
+		start = 0.0 if grow else 1.0
+		previous = owner_ghost(owner)
+		if previous is not None:
+			# Carry on from the old ghost's size only in the same spot; elsewhere that would read as the
+			# control jumping across, so the new one starts afresh.
+			if QRect(previous.mapToGlobal(QPoint()), previous.size()) == QRect(parent.mapToGlobal(rect.topLeft()), rect.size()):
+				start = max(0.0, min(1.0, previous.spring.value))
+			previous.retire()
+		self.owner = owner
+		if owner is not None:
+			owner._scale_ghost = self
 		self.finished = finished
 		self.follow = follow
 		self.pixmap = pixmap
@@ -28,11 +48,16 @@ class ScaleGhost(QWidget):
 		self.source = QRectF(area.x() * ratio, area.y() * ratio, area.width() * ratio, area.height() * ratio)
 		self.setGeometry(rect)
 		self.spring = pop_spring(self)
-		self.spring.jump(0 if grow else 1)
+		self.spring.jump(start)
 		self.spring.moved.connect(self.step)
 		self.spring.glide(1 if grow else 0)
+		self.anchor = None
 		self.show()
-		self.raise_()
+		if below:
+			self.lower()
+			self.anchor = self.mapTo(self.window(), QPoint())
+		else:
+			self.raise_()
 
 	def follow_target(self):
 		try:
@@ -41,14 +66,34 @@ class ScaleGhost(QWidget):
 		except RuntimeError:
 			self.follow = None
 
+	def hold_place(self):
+		if self.anchor is not None:
+			place = self.parentWidget().mapFrom(self.window(), self.anchor)
+			if place != self.pos():
+				self.move(place)
+
 	def step(self):
 		self.follow_target()
+		self.hold_place()
 		if not self.spring.moving:
-			if self.finished is not None:
-				finished, self.finished = self.finished, None
-				finished()
-			self.deleteLater()
+			self.retire()
 		self.update()
+
+	def retire(self):
+		"""Finish at once: run what waits on it (such as revealing a grown control) and go."""
+		if getattr(self, 'retired', False):
+			return
+		self.retired = True
+		try:
+			if self.owner is not None and getattr(self.owner, '_scale_ghost', None) is self:
+				self.owner._scale_ghost = None
+		except RuntimeError:
+			pass
+		if self.finished is not None:
+			finished, self.finished = self.finished, None
+			finished()
+		self.hide()
+		self.deleteLater()
 
 	def paintEvent(self, event):
 		scale = max(0.0, self.spring.value)
@@ -59,6 +104,20 @@ class ScaleGhost(QWidget):
 		center = QPointF(self.width() / 2, self.height() / 2)
 		size = QPointF(self.width() * scale / 2, self.height() * scale / 2)
 		painter.drawPixmap(QRectF(center - size, center + size), self.pixmap, self.source)
+
+
+def owner_ghost(owner):
+	"""The control's ghost that is still springing, if any."""
+	if owner is None:
+		return None
+	try:
+		ghost = getattr(owner, '_scale_ghost', None)
+		if ghost is None or getattr(ghost, 'retired', False):
+			return None
+		ghost.isVisible()  # raises if Qt already deleted it
+		return ghost
+	except RuntimeError:
+		return None
 
 
 def ghost_host(widget):
@@ -112,10 +171,7 @@ def ghost_on_hide(widget):
 		return
 	if not getattr(hidden, 'own_appear_animation', False):
 		hidden._hidden_by_layout = True
-	host = ghost_host(hidden)
-	rect = ghost_rect(hidden, host)
-	if rect is not None:
-		ScaleGhost(host, snapshot(hidden), rect)
+	shrink_away(hidden)
 
 
 def grow_on_show(widget):
@@ -186,7 +242,7 @@ def grow_widget(widget, parent=None, rect=None):
 	def reveal():
 		widget._growing = False
 		lift_veil(widget)
-	ScaleGhost(parent, pixmap, rect, grow=True, finished=reveal, follow=widget)
+	ScaleGhost(parent, pixmap, rect, grow=True, finished=reveal, follow=widget, owner=widget)
 
 
 def show_with_grow(widget):
@@ -206,8 +262,12 @@ def hide_with_shrink(widget):
 		return
 	window = widget.window()
 	if window.isVisible() and widget.isVisible() and widget.width() > 0:
-		host = ghost_host(widget)
-		rect = ghost_rect(widget, host)
-		if rect is not None:
-			ScaleGhost(host, snapshot(widget), rect)
+		shrink_away(widget)
 	widget.hide()
+
+
+def shrink_away(widget):
+	"""Shrink a snapshot of the control in its own row, under the controls that stay, unless it is
+	scrolled out of view."""
+	if ghost_rect(widget, ghost_host(widget)) is not None:
+		ScaleGhost(widget.parentWidget(), snapshot(widget), widget.geometry(), owner=widget, below=True)

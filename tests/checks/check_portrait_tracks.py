@@ -7,6 +7,7 @@ os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QTableWidgetItem, QWidget
 from main import PlayerWindow
+from waiting import wait_for_saved_library
 from open_case import AlbumPresentation
 
 
@@ -63,6 +64,7 @@ with TemporaryDirectory() as directory:
 	try:
 		player.show()
 		app.processEvents()
+		wait_for_saved_library(player)  # Opening it later would leave the album page mid-check.
 		player.album_page.show()
 		player.library_pages.setCurrentWidget(player.album_page)
 		player.album_presentation.finish()
